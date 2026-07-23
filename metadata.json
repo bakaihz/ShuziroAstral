@@ -1,0 +1,6 @@
+{
+  "name": "ShuziroAstral Hub",
+  "description": "Modern, high-performance Hub for Sala do Futuro integration with automated essay generation, task manager, and student boletim viewer",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
