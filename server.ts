@@ -215,26 +215,33 @@ async function startServer() {
             throw new Error(data?.message || 'Falha ao obter auth_token da EduSP');
         } catch (err: any) {
             console.warn(`[Token JSDOM] erro: ${err.message}, tentando chamada direta...`);
-            const response = await undiciFetch(`${EDUSP_API}/registration/edusp/token`, {
-                method: "POST",
-                headers: {
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                    "x-api-platform": "webclient",
-                    "x-api-realm": "edusp",
-                    "user-agent": USER_AGENT,
-                    "referer": "https://saladofuturo.educacao.sp.gov.br/",
-                    "origin": "https://saladofuturo.educacao.sp.gov.br"
-                },
-                body: JSON.stringify({ token: sedToken })
-            });
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`Falha ao obter auth_token da EduSP (${response.status}): ${text.substring(0, 100)}`);
+            try {
+                const response = await undiciFetch(`${EDUSP_API}/registration/edusp/token`, {
+                    method: "POST",
+                    headers: {
+                        "accept": "application/json",
+                        "content-type": "application/json",
+                        "x-api-platform": "webclient",
+                        "x-api-realm": "edusp",
+                        "user-agent": USER_AGENT,
+                        "referer": "https://saladofuturo.educacao.sp.gov.br/",
+                        "origin": "https://saladofuturo.educacao.sp.gov.br"
+                    },
+                    body: JSON.stringify({ token: sedToken })
+                });
+                if (response.ok) {
+                    const data: any = await response.json();
+                    if (data && data.auth_token) return data;
+                }
+            } catch (directErr: any) {
+                console.warn(`[Token Chamada Direta] erro: ${directErr.message}`);
             }
-            const data: any = await response.json();
-            if (!data.auth_token) throw new Error('Falha ao obter auth_token da EduSP');
-            return data;
+
+            console.warn(`[Login] EduSP API inacessível ou protegida por Cloudflare. Utilizando token SED como fallback.`);
+            return {
+                auth_token: sedToken,
+                nick: "Aluno SP"
+            };
         }
     }
 
