@@ -61,8 +61,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                   pingStatus === 'pinging' ? 'bg-zinc-400 animate-pulse' :
                   'bg-red-400 animate-pulse'
                 }`} />
-                {pingStatus === 'success' ? `TÚNEL: ATIVO ${latency ? `(${latency}ms)` : ''}` :
-                 pingStatus === 'pinging' ? 'TESTANDO TÚNEL...' : 'TÚNEL: OFFLINE'}
+                {pingStatus === 'success' ? `RENDER: ATIVO ${latency ? `(${latency}ms)` : ''}` :
+                 pingStatus === 'pinging' ? 'TESTANDO BACKEND...' : 'RENDER: OFFLINE'}
               </span>
             )}
           </div>

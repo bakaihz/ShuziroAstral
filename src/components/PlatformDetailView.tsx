@@ -683,7 +683,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
       }));
 
       if (ssoReq && ssoReq.ok) {
-        addAluraLog(`✅ SUCESSO! Resposta recebida do túnel com status: ${ssoReq.status}`);
+        addAluraLog(`✅ SUCESSO! Resposta recebida do backend Render com status: ${ssoReq.status}`);
       } else {
         addAluraLog(`ℹ️ Rota sincronizada com sucesso. Alterações aplicadas localmente.`);
       }
@@ -1236,7 +1236,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                       </span>
                     </div>
                     <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">
-                      RA: <span className="text-zinc-200">{userData.ra || '114371854'}</span> | Status: <span className="text-emerald-400 font-bold">Autenticado pelo Túnel</span>
+                      RA: <span className="text-zinc-200">{userData.ra || '114371854'}</span> | Status: <span className="text-emerald-400 font-bold">Autenticado no Render</span>
                     </div>
                   </div>
                 </div>
@@ -1282,7 +1282,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                 <div className="flex items-center justify-between border-b border-zinc-800 pb-2 mb-1.5">
                   <span className="text-zinc-400 flex items-center gap-1.5 font-sans font-bold text-[11px]">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Terminal de Conexões Shuziro (Túnel)
+                    Terminal de Conexões Shuziro (Render Backend)
                   </span>
                   <button
                     onClick={() => setAluraConsoleLogs([])}
