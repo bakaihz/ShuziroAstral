@@ -154,13 +154,12 @@ interface PlatformDetailViewProps {
   pingStatus?: 'idle' | 'pinging' | 'success' | 'failed';
 }
 
+const DEFAULT_BACKEND_URL = 'https://backend.shuziroastral.lol';
+
 const getBackendUrl = () => {
   const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
   if (saved && saved.trim()) return saved.trim();
-  if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    return window.location.origin;
-  }
-  return 'http://localhost:9000';
+  return DEFAULT_BACKEND_URL;
 };
 
 export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({

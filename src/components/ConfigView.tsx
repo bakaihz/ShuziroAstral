@@ -15,8 +15,29 @@ interface ConfigViewProps {
 
 export const ConfigView: React.FC<ConfigViewProps> = ({
   accounts,
-  onClearAccounts
+  onClearAccounts,
+  tunnelUrl,
+  setTunnelUrl,
+  pingStatus,
+  runPing,
+  latency
 }) => {
+  const [inputUrl, setInputUrl] = React.useState(tunnelUrl || '');
+
+  React.useEffect(() => {
+    if (tunnelUrl) setInputUrl(tunnelUrl);
+  }, [tunnelUrl]);
+
+  const handleSaveUrl = () => {
+    if (setTunnelUrl && inputUrl) {
+      const formatted = inputUrl.trim().replace(/\/$/, '');
+      setTunnelUrl(formatted);
+      localStorage.setItem('shuziro_backend_url', formatted);
+      localStorage.setItem('shuziro_termux_tunnel', formatted);
+      if (runPing) runPing(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-4xl pb-10">
       {/* Title section */}
@@ -25,7 +46,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           <Shield className="w-5 h-5 text-white" /> Configurações Gerais
         </h2>
         <p className="text-xs text-zinc-400 mt-1">
-          Gerencie suas credenciais salvas e acompanhe o status dos servidores oficiais de redundância do ecossistema.
+          Gerencie suas credenciais salvas e configure a URL do servidor backend ou do túnel Termux/Cloudflare.
         </p>
       </div>
 
@@ -66,18 +87,35 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         {/* System status details */}
         <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-4 shadow-md flex flex-col justify-between">
           <div className="space-y-3">
-            <div className="text-sm font-bold text-white flex items-center gap-2">
-              <Server className="w-4 h-4 text-zinc-400" /> Servidor Oficial SED
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-bold text-white flex items-center gap-2">
+                <Server className="w-4 h-4 text-zinc-400" /> Servidor de Redundância Backend
+              </div>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold border ${
+                pingStatus === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
+                pingStatus === 'pinging' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
+                'bg-zinc-800 border-zinc-700 text-zinc-400'
+              }`}>
+                {pingStatus === 'success' ? `ONLINE (${latency || 0}ms)` : pingStatus === 'pinging' ? 'TESTANDO...' : 'OFFLINE'}
+              </span>
             </div>
             
             <p className="text-xs text-zinc-400 leading-relaxed">
-              O backend redundante inteligente do ShuziroAstral está ativo e operando em nuvem com criptografia de ponta a ponta. Ele provê tokens SSO de forma automatizada para todas as integrações da Sala do Futuro.
+              O backend redundante inteligente do ShuziroAstral está integrado ao código e opera com criptografia de ponta a ponta para gerenciar a proxy de requisições e a autenticação das plataformas.
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5 p-3.5 bg-zinc-900/50 border border-zinc-800/80 rounded-xl text-xs text-emerald-400 font-bold mt-4">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <span>Conexão Segura Ativa (Cloud Run Engine)</span>
+          <div className="flex items-center justify-between p-3.5 bg-zinc-900/50 border border-zinc-800/80 rounded-xl text-xs font-bold mt-4">
+            <span className="flex items-center gap-2 text-zinc-300 font-mono text-[11px]">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${pingStatus === 'success' ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+              API Roteadora Integrada
+            </span>
+            <button
+              onClick={() => runPing && runPing(false)}
+              className="text-[11px] text-zinc-400 hover:text-white underline cursor-pointer shrink-0 ml-2"
+            >
+              Testar Conexão
+            </button>
           </div>
         </div>
 

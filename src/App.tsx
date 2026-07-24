@@ -49,12 +49,13 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  // Global tunnel ping states
+  // Global backend / tunnel ping states
+  const DEFAULT_BACKEND_URL = 'https://backend.shuziroastral.lol';
+  
   const [tunnelUrl, setTunnelUrl] = useState(() => {
-    if (typeof window !== 'undefined' && window.location && window.location.origin) {
-      return window.location.origin;
-    }
-    return 'http://localhost:9000';
+    const saved = typeof window !== 'undefined' ? (localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel')) : null;
+    if (saved && saved.trim()) return saved.trim();
+    return DEFAULT_BACKEND_URL;
   });
   const [pingStatus, setPingStatus] = useState<'idle' | 'pinging' | 'success' | 'failed'>('idle');
   const [pingResponse, setPingResponse] = useState<any>(null);
@@ -65,8 +66,8 @@ export default function App() {
     const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
     if (saved && saved.trim()) {
       setTunnelUrl(saved.trim());
-    } else if (typeof window !== 'undefined' && window.location && window.location.origin) {
-      setTunnelUrl(window.location.origin);
+    } else {
+      setTunnelUrl(DEFAULT_BACKEND_URL);
     }
   }, []);
 
