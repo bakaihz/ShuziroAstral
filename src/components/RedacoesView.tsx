@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PenTool, CheckSquare, Square, Play, Sparkles, Clock, FileText } from 'lucide-react';
+import { PenTool, CheckSquare, Square, Play, Sparkles, Clock, FileText, Search } from 'lucide-react';
 import { TaskItem } from '../types';
 
 interface RedacoesViewProps {
@@ -11,12 +11,19 @@ interface RedacoesViewProps {
 export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, onStartAutomation }) => {
   const redacoes = tasks.filter(t => t.is_essay !== false);
   const [currentTab, setCurrentTab] = useState<'pending' | 'draft' | 'all'>('pending');
+  const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
   const [timeSec, setTimeSec] = useState<number>(10);
   const [mode, setMode] = useState<'draft' | 'submitted'>('draft');
 
   const filtered = redacoes.filter(t => {
+    const matchesSearch = search === '' ||
+      (t.title && t.title.toLowerCase().includes(search.toLowerCase())) ||
+      (t.publication_target && t.publication_target.toLowerCase().includes(search.toLowerCase()));
+
+    if (!matchesSearch) return false;
+
     const status = t.answer_status || 'pending';
     if (currentTab === 'pending') return status !== 'draft' && status !== 'expired';
     if (currentTab === 'draft') return status === 'draft';
@@ -42,11 +49,23 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex bg-[#121214] border border-[#27272a] rounded-xl p-1">
+      {/* Search and Tab Controls */}
+      <div className="flex flex-col sm:flex-row items-center gap-3">
+        <div className="relative flex-1 w-full">
+          <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Buscar redações por tema ou sala..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-[#121214] border border-[#27272a] focus:border-zinc-500 text-zinc-200 text-xs rounded-xl pl-9 pr-3 py-2.5 outline-none transition-all"
+          />
+        </div>
+
+        <div className="flex bg-[#121214] border border-[#27272a] rounded-xl p-1 w-full sm:w-auto overflow-x-auto">
           <button
             onClick={() => setCurrentTab('pending')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
               currentTab === 'pending' ? 'bg-white text-black font-semibold' : 'text-zinc-400 hover:text-white'
             }`}
           >
@@ -54,7 +73,7 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
           </button>
           <button
             onClick={() => setCurrentTab('draft')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
               currentTab === 'draft' ? 'bg-white text-black font-semibold' : 'text-zinc-400 hover:text-white'
             }`}
           >
@@ -62,7 +81,7 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
           </button>
           <button
             onClick={() => setCurrentTab('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
               currentTab === 'all' ? 'bg-white text-black font-semibold' : 'text-zinc-400 hover:text-white'
             }`}
           >
@@ -70,16 +89,16 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handleSelectAll}
-            className="px-3 py-1.5 bg-[#121214] hover:bg-[#18181b] border border-[#27272a] text-zinc-300 text-xs font-medium rounded-xl transition-all cursor-pointer"
+            className="px-3 py-2 bg-[#121214] hover:bg-[#18181b] border border-[#27272a] text-zinc-300 text-xs font-medium rounded-xl transition-all cursor-pointer"
           >
             Selecionar Todas
           </button>
           <button
             onClick={handleDeselectAll}
-            className="px-3 py-1.5 bg-[#121214] hover:bg-[#18181b] border border-[#27272a] text-zinc-300 text-xs font-medium rounded-xl transition-all cursor-pointer"
+            className="px-3 py-2 bg-[#121214] hover:bg-[#18181b] border border-[#27272a] text-zinc-300 text-xs font-medium rounded-xl transition-all cursor-pointer"
           >
             Limpar
           </button>

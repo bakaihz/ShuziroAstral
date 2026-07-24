@@ -24,7 +24,7 @@ export const ApostilasView: React.FC = () => {
             className="bg-[#121214] border border-[#27272a] rounded-2xl p-5 flex items-center justify-between"
           >
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold">
+              <div className="w-12 h-12 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white font-bold">
                 📘
               </div>
               <div>
@@ -36,7 +36,7 @@ export const ApostilasView: React.FC = () => {
               onClick={() => alert(`Baixando apostila do ${a.ano}...`)}
               className="px-3 py-2 bg-[#18181b] hover:bg-[#222226] text-zinc-200 text-xs font-medium rounded-xl border border-[#27272a] flex items-center gap-1.5 transition-all"
             >
-              <Download className="w-3.5 h-3.5 text-emerald-400" /> Baixar PDF
+              <Download className="w-3.5 h-3.5 text-white" /> Baixar PDF
             </button>
           </div>
         ))}

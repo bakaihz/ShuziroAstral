@@ -4,6 +4,7 @@ import { LoginView } from './components/LoginView';
 import { DashboardLayout } from './components/DashboardLayout';
 import { HomeView } from './components/HomeView';
 import { PlataformasView } from './components/PlataformasView';
+import { PlatformDetailView, PLATFORMS_DATA } from './components/PlatformDetailView';
 import { ApostilasView } from './components/ApostilasView';
 import { TarefasView } from './components/TarefasView';
 import { RedacoesView } from './components/RedacoesView';
@@ -11,6 +12,7 @@ import { BoletimView } from './components/BoletimView';
 import { ConfigView } from './components/ConfigView';
 import { EmojiModal } from './components/EmojiModal';
 import { SavedAccountsModal } from './components/SavedAccountsModal';
+import { DiscordModal } from './components/DiscordModal';
 import { ProgressWidget } from './components/ProgressWidget';
 import { UserData, TaskItem, SavedAccount } from './types';
 
@@ -27,6 +29,7 @@ export default function App() {
   });
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [accounts, setAccounts] = useState<SavedAccount[]>([]);
+  const [selectedAccountForLogin, setSelectedAccountForLogin] = useState<SavedAccount | null>(null);
   const [currentPage, setCurrentPage] = useState('home');
 
   const [isLoading, setIsLoading] = useState(false);
@@ -34,6 +37,7 @@ export default function App() {
   const [isVerified, setIsVerified] = useState(false);
   const [showEmojiModal, setShowEmojiModal] = useState(false);
   const [showAccountsModal, setShowAccountsModal] = useState(false);
+  const [showDiscordModal, setShowDiscordModal] = useState(false);
 
   // Progress widget state
   const [progressOpen, setProgressOpen] = useState(false);
@@ -44,6 +48,27 @@ export default function App() {
   const [isCompleted, setIsCompleted] = useState(false);
 
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Route synchronization logic
+  const handleNavigate = (page: string) => {
+    setCurrentPage(page);
+    const targetPath = page === 'home' ? '/' : `/${page}`;
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const rawPath = window.location.pathname.replace(/^\//, '').trim();
+      const path = rawPath || 'home';
+      setCurrentPage(path);
+    };
+
+    handlePopState();
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     try {
@@ -98,6 +123,7 @@ export default function App() {
       setAuthToken(data.auth_token);
       setUserData(data);
       setIsLoggedIn(true);
+      setShowDiscordModal(true);
       handleSaveAccount(ra, pass);
       showToast(`Bem-vindo, ${data.nick || ra}!`, 'success');
       fetchTasks(data.auth_token, data);
@@ -285,14 +311,16 @@ export default function App() {
     fetchTasks(authToken, userData);
   };
 
+  const isPlatformSlug = currentPage in PLATFORMS_DATA;
+
   return (
-    <div className="min-h-screen text-zinc-100 font-sans relative selection:bg-emerald-500 selection:text-black">
+    <div className="min-h-screen text-zinc-100 font-sans relative selection:bg-white selection:text-black">
       <BackgroundStars />
 
       {/* Toast Notification */}
       {toastMessage && (
         <div className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2.5 rounded-2xl border text-xs font-medium shadow-2xl animate-in fade-in slide-in-from-bottom duration-200 ${
-          toastMessage.type === 'success' ? 'bg-[#121214] border-emerald-500/50 text-emerald-400' :
+          toastMessage.type === 'success' ? 'bg-[#121214] border-zinc-500 text-white' :
           toastMessage.type === 'error' ? 'bg-[#121214] border-red-500/50 text-red-400' :
           'bg-[#121214] border-zinc-700 text-zinc-200'
         }`}>
@@ -308,12 +336,13 @@ export default function App() {
           onOpenAccounts={() => setShowAccountsModal(true)}
           onOpenEmojiChallenge={() => setShowEmojiModal(true)}
           isVerified={isVerified}
+          selectedAccount={selectedAccountForLogin}
         />
       ) : (
         <DashboardLayout
           userData={userData}
           currentPage={currentPage}
-          onNavigate={setCurrentPage}
+          onNavigate={handleNavigate}
           onLogout={() => {
             setIsLoggedIn(false);
             setAuthToken('');
@@ -327,17 +356,36 @@ export default function App() {
             }
           }}
           onOpenAccounts={() => setShowAccountsModal(true)}
+          onOpenDiscord={() => setShowDiscordModal(true)}
         >
           {currentPage === 'home' && (
             <HomeView
-              onNavigate={setCurrentPage}
+              userData={userData}
+              onNavigate={handleNavigate}
               taskCount={tasks.filter(t => !t.is_essay).length}
               essayCount={tasks.filter(t => t.is_essay).length}
             />
           )}
-          {currentPage === 'plataformas' && <PlataformasView />}
+          {currentPage === 'plataformas' && (
+            <PlataformasView
+              userData={userData}
+              onNavigate={handleNavigate}
+            />
+          )}
+          {isPlatformSlug && (
+            <PlatformDetailView
+              slug={currentPage}
+              userData={userData}
+              onBack={() => handleNavigate('plataformas')}
+            />
+          )}
           {currentPage === 'apostilas' && <ApostilasView />}
-          {currentPage === 'tarefas' && <TarefasView tasks={tasks} />}
+          {currentPage === 'tarefas' && (
+            <TarefasView 
+              tasks={tasks} 
+              onRefresh={() => fetchTasks(authToken, userData)} 
+            />
+          )}
           {currentPage === 'redacoes' && (
             <RedacoesView
               tasks={tasks}
@@ -367,10 +415,17 @@ export default function App() {
         onClose={() => setShowAccountsModal(false)}
         accounts={accounts}
         onSelectAccount={(acc) => {
-          showToast(`Conta ${acc.ra} selecionada`, 'info');
+          setSelectedAccountForLogin(acc);
+          setShowAccountsModal(false);
+          showToast(`Conta ${acc.ra} preenchida no login`, 'success');
         }}
         onRemoveAccount={handleRemoveAccount}
         onClearAll={handleClearAccounts}
+      />
+
+      <DiscordModal
+        isOpen={showDiscordModal}
+        onClose={() => setShowDiscordModal(false)}
       />
 
       <ProgressWidget

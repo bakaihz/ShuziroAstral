@@ -1,6 +1,7 @@
 import React from 'react';
-import { Home, Smartphone, BookOpen, CheckSquare, PenTool, BarChart3, Bell, Settings, LogOut, RefreshCw, FolderOpen, Heart } from 'lucide-react';
+import { Home, Smartphone, BookOpen, CheckSquare, PenTool, BarChart3, Settings, LogOut, RefreshCw, FolderOpen, Heart, MessageSquare } from 'lucide-react';
 import { UserData } from '../types';
+import { PLATFORMS_DATA } from './PlatformDetailView';
 
 interface DashboardLayoutProps {
   userData: UserData;
@@ -9,6 +10,7 @@ interface DashboardLayoutProps {
   onLogout: () => void;
   onRefresh: () => void;
   onOpenAccounts: () => void;
+  onOpenDiscord: () => void;
   children: React.ReactNode;
 }
 
@@ -19,6 +21,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   onLogout,
   onRefresh,
   onOpenAccounts,
+  onOpenDiscord,
   children
 }) => {
   const menuItems = [
@@ -51,6 +54,12 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            onClick={onOpenDiscord}
+            className="px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold rounded-xl border border-indigo-500/40 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+          >
+            <MessageSquare className="w-3.5 h-3.5 fill-indigo-300/30 text-indigo-300" /> Discord
+          </button>
+          <button
             onClick={onOpenAccounts}
             className="px-3.5 py-2 bg-[#18181b] hover:bg-[#222226] text-zinc-300 text-xs font-medium rounded-xl border border-[#27272a] flex items-center gap-1.5 transition-all cursor-pointer"
           >
@@ -75,11 +84,12 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       {/* Main Grid Layout */}
       <div className="flex flex-col lg:flex-row gap-6 flex-1">
         {/* Sidebar */}
-        <aside className="w-full lg:w-64 shrink-0">
+        <aside className="w-full lg:w-64 shrink-0 space-y-4">
           <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-2.5 space-y-1 sticky top-6">
             {menuItems.map((item) => {
               const Icon = item.icon;
-              const isActive = currentPage === item.id;
+              const isPlatformRoute = currentPage in PLATFORMS_DATA || currentPage === 'plataformas';
+              const isActive = item.id === 'plataformas' ? isPlatformRoute : currentPage === item.id;
               return (
                 <button
                   key={item.id}
@@ -95,6 +105,16 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                 </button>
               );
             })}
+
+            <div className="pt-2">
+              <button
+                onClick={onOpenDiscord}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 bg-indigo-600/10 hover:bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4 text-indigo-400 fill-indigo-400/20" />
+                Comunidade Discord
+              </button>
+            </div>
           </div>
         </aside>
 

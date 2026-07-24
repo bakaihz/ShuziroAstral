@@ -34,9 +34,9 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2.5">
             {!isCompleted ? (
-              <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
+              <Loader2 className="w-4 h-4 text-white animate-spin" />
             ) : (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-4 h-4 text-white" />
             )}
             <span className="text-sm font-medium text-zinc-200">{title}</span>
           </div>
@@ -50,7 +50,7 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
 
         <div className="w-full bg-[#18181b] h-1.5 rounded-full overflow-hidden mb-3 border border-[#27272a]">
           <div
-            className="bg-emerald-400 h-full transition-all duration-300 rounded-full"
+            className="bg-white h-full transition-all duration-300 rounded-full"
             style={{ width: `${percentage}%` }}
           />
         </div>
@@ -58,9 +58,9 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
         <div className="max-h-28 overflow-y-auto space-y-1 font-mono text-xs text-zinc-400 pr-2">
           {logs.map((log, idx) => (
             <div key={idx} className="flex items-center gap-2">
-              {log.type === 'ok' && <span className="text-emerald-400 font-bold">✓</span>}
-              {log.type === 'err' && <span className="text-red-400 font-bold">✕</span>}
-              {log.type === 'info' && <span className="text-blue-400 font-bold">ℹ</span>}
+              {log.type === 'ok' && <span className="text-white font-bold">✓</span>}
+              {log.type === 'err' && <span className="text-zinc-400 font-bold">✕</span>}
+              {log.type === 'info' && <span className="text-zinc-300 font-bold">ℹ</span>}
               <span className="truncate">{log.text}</span>
             </div>
           ))}

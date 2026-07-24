@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, ShieldCheck, Sparkles, FolderOpen, ArrowRight } from 'lucide-react';
 import { SavedAccount } from '../types';
 
@@ -9,6 +9,7 @@ interface LoginViewProps {
   onOpenAccounts: () => void;
   onOpenEmojiChallenge: () => void;
   isVerified: boolean;
+  selectedAccount?: SavedAccount | null;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
@@ -17,11 +18,19 @@ export const LoginView: React.FC<LoginViewProps> = ({
   errorMessage,
   onOpenAccounts,
   onOpenEmojiChallenge,
-  isVerified
+  isVerified,
+  selectedAccount
 }) => {
   const [ra, setRa] = useState('');
   const [senha, setSenha] = useState('');
   const [showPass, setShowPass] = useState(false);
+
+  useEffect(() => {
+    if (selectedAccount) {
+      if (selectedAccount.ra) setRa(selectedAccount.ra);
+      if (selectedAccount.senha) setSenha(selectedAccount.senha);
+    }
+  }, [selectedAccount]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
