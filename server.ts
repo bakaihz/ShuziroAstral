@@ -5,14 +5,10 @@ import { CookieJar } from "tough-cookie";
 import { JSDOM } from "jsdom";
 import dotenv from "dotenv";
 import path from "path";
-import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36";
 const EDUSP_API = 'https://edusp-api.ip.tv';
