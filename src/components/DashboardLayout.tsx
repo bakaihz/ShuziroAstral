@@ -12,6 +12,8 @@ interface DashboardLayoutProps {
   onOpenAccounts: () => void;
   onOpenDiscord: () => void;
   children: React.ReactNode;
+  pingStatus?: 'idle' | 'pinging' | 'success' | 'failed';
+  latency?: number | null;
 }
 
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
@@ -22,7 +24,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   onRefresh,
   onOpenAccounts,
   onOpenDiscord,
-  children
+  children,
+  pingStatus,
+  latency
 }) => {
   const menuItems = [
     { id: 'home', label: 'Início', icon: Home },
@@ -39,13 +43,28 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       {/* Header */}
       <header className="bg-[#121214] border border-[#27272a] rounded-2xl p-4 sm:p-5 mb-6 flex flex-wrap items-center justify-between gap-4 shadow-xl">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-lg font-bold text-white">
               👋 Olá, <span className="text-white font-semibold underline decoration-zinc-600 underline-offset-4">{userData.nick || 'Usuário'}</span>
             </h2>
             <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-zinc-900 border border-[#27272a] text-zinc-300 font-medium">
               📍 SP
             </span>
+            {pingStatus && (
+              <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border flex items-center gap-1 font-bold ${
+                pingStatus === 'success' ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-400' :
+                pingStatus === 'pinging' ? 'bg-zinc-900 border-zinc-700 text-zinc-400 animate-pulse' :
+                'bg-red-950/20 border-red-500/30 text-red-400 animate-pulse'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  pingStatus === 'success' ? 'bg-emerald-400 animate-pulse' :
+                  pingStatus === 'pinging' ? 'bg-zinc-400 animate-pulse' :
+                  'bg-red-400 animate-pulse'
+                }`} />
+                {pingStatus === 'success' ? `TÚNEL: ATIVO ${latency ? `(${latency}ms)` : ''}` :
+                 pingStatus === 'pinging' ? 'TESTANDO TÚNEL...' : 'TÚNEL: OFFLINE'}
+              </span>
+            )}
           </div>
           <p className="text-xs text-zinc-400 mt-0.5">
             {userData.serie || 'Ensino Médio'} • {userData.escola || 'Sala do Futuro'}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRight, Filter, GraduationCap, Sparkles } from 'lucide-react';
+import { ChevronRight, Filter, GraduationCap, Sparkles, X, Wrench } from 'lucide-react';
 import { UserData } from '../types';
 
 interface PlataformasViewProps {
@@ -16,6 +16,7 @@ export interface PlatformItem {
   fundamental: boolean;
   medio: boolean;
   emDesenvolvimento?: boolean;
+  emManutencao?: boolean;
 }
 
 export const PLATFORMS_LIST: PlatformItem[] = [
@@ -50,6 +51,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
     desc: 'Matemática interativa e episódios para Fundamental (6º ao 9º)',
     fundamental: true,
     medio: false,
+    emManutencao: true,
   },
   {
     nome: 'Khan Academy (Em Desenvolvimento)',
@@ -70,13 +72,12 @@ export const PLATFORMS_LIST: PlatformItem[] = [
     emDesenvolvimento: true,
   },
   {
-    nome: 'Alura Tech (Em Desenvolvimento)',
+    nome: 'Alura',
     slug: 'alura',
     imageUrl: 'https://s3.sa-east-1.amazonaws.com/edusp-static.ip.tv/room/cards/edusp/julianasanche3225895-sp/Y6ZcJcrUQRv6ZeIN3uw3Bpb751VErX.png',
     desc: 'Programação e Pensamento Computacional',
     fundamental: true,
     medio: true,
-    emDesenvolvimento: true,
   },
   {
     nome: 'AVA Expansão (Em Desenvolvimento)',
@@ -119,6 +120,7 @@ export function detectGradeLevel(serie?: string): 'fundamental' | 'medio' {
 export const PlataformasView: React.FC<PlataformasViewProps> = ({ userData, onNavigate }) => {
   const detected = detectGradeLevel(userData?.serie);
   const [filter, setFilter] = useState<'auto' | 'fundamental' | 'medio' | 'all'>('auto');
+  const [maintenancePlatform, setMaintenancePlatform] = useState<PlatformItem | null>(null);
 
   const activeLevel = filter === 'auto' ? detected : filter;
 
@@ -137,7 +139,7 @@ export const PlataformasView: React.FC<PlataformasViewProps> = ({ userData, onNa
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold text-white">Plataformas Educacionais</h2>
             <span className="text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-white" />
+              <Sparkles className="w-3.5 h-3.5 text-white" />
               {activeLevel === 'medio' ? 'Ensino Médio' : activeLevel === 'fundamental' ? 'Ensino Fundamental' : 'Todas'}
             </span>
           </div>
@@ -197,10 +199,24 @@ export const PlataformasView: React.FC<PlataformasViewProps> = ({ userData, onNa
         {filteredPlataformas.map((p) => (
           <div
             key={p.slug}
-            onClick={() => onNavigate(p.slug)}
-            className="bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-zinc-600 rounded-2xl p-5 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden shadow-md"
+            onClick={() => {
+              if (p.emManutencao) {
+                setMaintenancePlatform(p);
+              } else {
+                onNavigate(p.slug);
+              }
+            }}
+            className={`bg-[#121214] hover:bg-[#18181b] border ${
+              p.emManutencao ? 'border-red-950 hover:border-red-900/50' : 'border-[#27272a] hover:border-zinc-600'
+            } rounded-2xl p-5 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden shadow-md`}
           >
             <div className="flex items-center gap-1.5 absolute top-3 right-3">
+              {p.emManutencao && (
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 flex items-center gap-1 animate-pulse">
+                  <Wrench className="w-2.5 h-2.5" />
+                  Em Manutenção
+                </span>
+              )}
               {p.emDesenvolvimento && (
                 <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
                   Em Desenvolvimento
@@ -219,15 +235,19 @@ export const PlataformasView: React.FC<PlataformasViewProps> = ({ userData, onNa
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="text-2xl p-2 bg-[#18181b] group-hover:bg-[#222226] rounded-2xl border border-[#27272a] transition-colors w-12 h-12 flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
+              <div className={`text-2xl p-2 bg-[#18181b] group-hover:bg-[#222226] rounded-2xl border ${
+                p.emManutencao ? 'border-red-950/40' : 'border-[#27272a]'
+              } transition-colors w-12 h-12 flex items-center justify-center shrink-0 overflow-hidden shadow-inner`}>
                 {p.imageUrl ? (
-                  <img src={p.imageUrl} alt={p.nome} className="w-full h-full object-cover rounded-xl" referrerPolicy="no-referrer" />
+                  <img src={p.imageUrl} alt={p.nome} className={`w-full h-full object-cover rounded-xl ${p.emManutencao ? 'opacity-40 grayscale' : ''}`} referrerPolicy="no-referrer" />
                 ) : (
                   p.icon
                 )}
               </div>
               <div className="pr-12">
-                <div className="text-sm font-bold text-zinc-100 group-hover:text-emerald-400 transition-colors">
+                <div className={`text-sm font-bold transition-colors ${
+                  p.emManutencao ? 'text-zinc-500 group-hover:text-red-400' : 'text-zinc-100 group-hover:text-emerald-400'
+                }`}>
                   {p.nome}
                 </div>
                 <div className="text-xs text-zinc-400 mt-1 line-clamp-2">{p.desc}</div>
@@ -235,17 +255,63 @@ export const PlataformasView: React.FC<PlataformasViewProps> = ({ userData, onNa
             </div>
 
             <div className="flex items-center justify-between pt-4 mt-4 border-t border-[#27272a]/60 text-xs">
-              <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                ShuziroAstral.lol/{p.slug}
+              <span className={`text-[11px] font-medium flex items-center gap-1.5 ${
+                p.emManutencao ? 'text-red-400/80' : 'text-emerald-400'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${p.emManutencao ? 'bg-red-500 animate-pulse' : 'bg-emerald-400 animate-pulse'}`} />
+                {p.emManutencao ? 'Em Manutenção' : `ShuziroAstral.lol/${p.slug}`}
               </span>
-              <div className="flex items-center gap-1 text-zinc-400 group-hover:text-white transition-colors font-medium text-[11px]">
-                Acessar Rota <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              <div className={`flex items-center gap-1 transition-colors font-medium text-[11px] ${
+                p.emManutencao ? 'text-red-400/80 group-hover:text-red-400' : 'text-zinc-400 group-hover:text-white'
+              }`}>
+                {p.emManutencao ? 'Ver Detalhes' : 'Acessar Rota'} <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
               </div>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Maintenance Modal */}
+      {maintenancePlatform && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#121214] border border-[#27272a] rounded-3xl max-w-md w-full p-6 space-y-4 relative shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-start">
+              <div className="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-2xl">
+                🛠️
+              </div>
+              <button
+                onClick={() => setMaintenancePlatform(null)}
+                className="p-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg transition-all cursor-pointer border border-[#27272a]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                {maintenancePlatform.nome} em Manutenção <Wrench className="w-4 h-4 text-red-400" />
+              </h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Esta plataforma está passando por ajustes no nosso servidor e banco de dados para melhorar a automação e a sincronização com o SED.
+              </p>
+            </div>
+
+            <div className="bg-[#18181b] border border-[#27272a] rounded-xl p-3.5 text-xs text-zinc-300 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-ping shrink-0" />
+              <span>Previsão de retorno: Em breve nas próximas horas!</span>
+            </div>
+
+            <div className="pt-2 flex items-center gap-2">
+              <button
+                onClick={() => setMaintenancePlatform(null)}
+                className="w-full py-2.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all cursor-pointer shadow-lg"
+              >
+                Entendido, obrigado!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

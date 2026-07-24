@@ -49,6 +49,78 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
+  // Global tunnel ping states
+  const [tunnelUrl, setTunnelUrl] = useState(() => {
+    if (typeof window !== 'undefined' && window.location && window.location.origin) {
+      return window.location.origin;
+    }
+    return 'http://localhost:9000';
+  });
+  const [pingStatus, setPingStatus] = useState<'idle' | 'pinging' | 'success' | 'failed'>('idle');
+  const [pingResponse, setPingResponse] = useState<any>(null);
+  const [latency, setLatency] = useState<number | null>(null);
+
+  // Load saved backend URL on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
+    if (saved && saved.trim()) {
+      setTunnelUrl(saved.trim());
+    } else if (typeof window !== 'undefined' && window.location && window.location.origin) {
+      setTunnelUrl(window.location.origin);
+    }
+  }, []);
+
+  const runPing = async (url: string, isSilent: boolean = false) => {
+    if (!isSilent) {
+      setPingStatus('pinging');
+    }
+    
+    const startTime = performance.now();
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500); // 2.5s timeout
+
+      const res = await fetch(`${url}/ping`, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const endTime = performance.now();
+      
+      setLatency(Math.round(endTime - startTime));
+      setPingResponse(data);
+      setPingStatus('success');
+    } catch (err: any) {
+      console.warn('Erro ao pingar o servidor backend:', err);
+      setPingStatus('failed');
+    }
+  };
+
+  // Auto-ping a cada 10 segundos globalmente
+  useEffect(() => {
+    if (tunnelUrl) {
+      runPing(tunnelUrl, true); // Ping inicial silencioso
+    }
+
+    const interval = setInterval(() => {
+      if (tunnelUrl) {
+        runPing(tunnelUrl, true);
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [tunnelUrl]);
+
   // Route synchronization logic
   const handleNavigate = (page: string) => {
     setCurrentPage(page);
@@ -343,6 +415,8 @@ export default function App() {
           userData={userData}
           currentPage={currentPage}
           onNavigate={handleNavigate}
+          pingStatus={pingStatus}
+          latency={latency}
           onLogout={() => {
             setIsLoggedIn(false);
             setAuthToken('');
@@ -377,6 +451,7 @@ export default function App() {
               slug={currentPage}
               userData={userData}
               onBack={() => handleNavigate('plataformas')}
+              pingStatus={pingStatus}
             />
           )}
           {currentPage === 'apostilas' && <ApostilasView />}
@@ -398,6 +473,12 @@ export default function App() {
             <ConfigView
               accounts={accounts}
               onClearAccounts={handleClearAccounts}
+              tunnelUrl={tunnelUrl}
+              setTunnelUrl={setTunnelUrl}
+              pingStatus={pingStatus}
+              runPing={(silent) => runPing(tunnelUrl, silent)}
+              pingResponse={pingResponse}
+              latency={latency}
             />
           )}
         </DashboardLayout>
