@@ -16,8 +16,8 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
-    "https://edusp-api.ip.tv",
-    "https://api.shuziroastral.lol"
+    "https://backend.shuziroastral.lol",
+    "https://edusp-api.ip.tv"
 ];
 
 async function startServer() {
@@ -34,7 +34,7 @@ async function startServer() {
         let lastError: any = null;
         for (const domain of PROXY_TUNNELS) {
             let finalUrl = url.startsWith('http') ? url : `${domain}${url.startsWith('/') ? url : '/' + url}`;
-            if (finalUrl.includes('edusp-api.ip.tv')) {
+            if (finalUrl.includes('edusp-api.ip.tv') && !domain.includes('edusp-api.ip.tv')) {
                 finalUrl = finalUrl.replace('https://edusp-api.ip.tv', domain);
             }
             const headers: Record<string, string> = {
@@ -51,28 +51,48 @@ async function startServer() {
             if (body) options.body = JSON.stringify(body);
             try {
                 const response = await undiciFetch(finalUrl, options);
+                const text = await response.text();
+                const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
+
                 if (!response.ok) {
-                    const text = await response.text();
-                    const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
                     console.warn(`[API] Erro HTTP ${response.status} em ${domain}: ${cleanText.substring(0, 150)}`);
+                    const isCloudflareBlock = response.status === 403 && (
+                        cleanText.toLowerCase().includes('just a moment') ||
+                        cleanText.toLowerCase().includes('cloudflare') ||
+                        cleanText.toLowerCase().includes('attention required') ||
+                        cleanText.startsWith('<!doctype') ||
+                        cleanText.startsWith('<html')
+                    );
+
                     const errObj: any = new Error(`HTTP ${response.status}: ${cleanText.substring(0, 150) || 'Erro no servidor'}`);
                     errObj.status = response.status;
-                    if (response.status === 400 || response.status === 403 || response.status === 404) {
+
+                    if (isCloudflareBlock) {
+                        console.warn(`[API] Cloudflare bloqueou a requisição no domínio ${domain}. Tentando próximo túnel...`);
+                        lastError = errObj;
+                        continue;
+                    }
+
+                    if (response.status === 400 || response.status === 401) {
                         throw errObj;
                     }
                     lastError = errObj;
                     continue;
                 }
-                const data: any = await response.json();
-                return data;
+
+                try {
+                    return JSON.parse(text);
+                } catch {
+                    return text;
+                }
             } catch (err: any) {
-                if (err.status === 400 || err.status === 403 || err.status === 404) {
+                if (err.status === 400 || err.status === 401) {
                     throw err;
                 }
                 lastError = err;
             }
         }
-        throw lastError || new Error("Nenhum domínio funcionou.");
+        throw lastError || new Error("Nenhum túnel disponível conseguiu se conectar.");
     }
 
     // ======================= AUTENTICAÇÃO =======================
@@ -1184,6 +1204,50 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
                 data: token || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJJRCI6IjMxODM4MDI2NiIsIkxvZ2luIjoiMDAwMDExNDM3MTg1NDlTUCI...",
                 isSuccess: true
             });
+        }
+    });
+
+    app.all("/proxy-edusp/*", async (req, res) => {
+        const targetPath = req.params[0] || '';
+        const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+        const targetUrl = `https://edusp-api.ip.tv/${targetPath}${queryString}`;
+
+        try {
+            const headers: Record<string, string> = {
+                'accept': req.headers['accept'] || 'application/json, text/plain, */*',
+                'content-type': req.headers['content-type'] || 'application/json',
+                'x-api-platform': 'webclient',
+                'x-api-realm': 'edusp',
+                'origin': 'https://saladofuturo.educacao.sp.gov.br',
+                'referer': 'https://saladofuturo.educacao.sp.gov.br/',
+                'user-agent': USER_AGENT
+            };
+            if (req.headers['x-api-key']) {
+                headers['x-api-key'] = req.headers['x-api-key'] as string;
+            }
+
+            const fetchOptions: any = {
+                method: req.method,
+                headers,
+                signal: AbortSignal.timeout(20000)
+            };
+
+            if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body && Object.keys(req.body).length > 0) {
+                fetchOptions.body = JSON.stringify(req.body);
+            }
+
+            const response = await undiciFetch(targetUrl, fetchOptions);
+            const data = await response.text();
+
+            res.status(response.status);
+            try {
+                res.json(JSON.parse(data));
+            } catch {
+                res.send(data);
+            }
+        } catch (err: any) {
+            console.error('[ProxyEduSP] Erro ao retransmitir:', err.message);
+            res.status(500).json({ error: err.message });
         }
     });
 
