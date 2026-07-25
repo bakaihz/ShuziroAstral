@@ -1187,6 +1187,10 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
         }
     });
 
+    app.get("/ping", (req, res) => {
+        res.json({ status: 'ok', online: true, timestamp: new Date().toISOString() });
+    });
+
     app.get("/api/health", (req, res) => {
         res.json({ status: 'ok', timestamp: new Date().toISOString() });
     });
