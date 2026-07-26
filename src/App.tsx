@@ -50,7 +50,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Global backend / tunnel ping states
-  const DEFAULT_BACKEND_URL = 'https://backend.shuziroastral.lol';
+  const DEFAULT_BACKEND_URL = 'https://api.davilucas99kk.workers.dev';
   
   const [tunnelUrl, setTunnelUrl] = useState(() => {
     const saved = typeof window !== 'undefined' ? (localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel')) : null;

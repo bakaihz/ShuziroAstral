@@ -154,7 +154,7 @@ interface PlatformDetailViewProps {
   pingStatus?: 'idle' | 'pinging' | 'success' | 'failed';
 }
 
-const DEFAULT_BACKEND_URL = 'https://backend.shuziroastral.lol';
+const DEFAULT_BACKEND_URL = 'https://api.davilucas99kk.workers.dev';
 
 const getBackendUrl = () => {
   const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');

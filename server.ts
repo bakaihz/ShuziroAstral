@@ -16,7 +16,7 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
-    "https://backend.shuziroastral.lol",
+    "https://api.davilucas99kk.workers.dev",
     "https://edusp-api.ip.tv"
 ];
 
@@ -58,7 +58,13 @@ async function startServer() {
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
             let urlsToTry: string[] = [];
-            if (domain.includes('shuziroastral.lol') || domain.includes('localhost')) {
+            if (domain.includes('workers.dev')) {
+                const targetFull = `https://edusp-api.ip.tv${cleanPath}`;
+                urlsToTry = [
+                    `${domain}${cleanPath}`,
+                    `${domain}?url=${encodeURIComponent(targetFull)}`
+                ];
+            } else if (domain.includes('localhost')) {
                 const targetFull = `https://edusp-api.ip.tv${cleanPath}`;
                 urlsToTry = [
                     `${domain}/proxy?url=${encodeURIComponent(targetFull)}`,
@@ -175,8 +181,7 @@ async function startServer() {
     async function loginRaPassword(ra: string, password: string) {
         const raVariants = normalizeRaVariants(ra);
         const loginUrls = [
-            'https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/credenciais/api/LoginCompletoToken',
-            'https://api.shuziroastral.lol/saladofuturobffapi/credenciais/api/LoginCompletoToken'
+            'https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/credenciais/api/LoginCompletoToken'
         ];
 
         let lastErrMessage = "Não foi possível conectar ao servidor SED. Tente novamente.";
@@ -1446,44 +1451,15 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string): Promis
             targetPath = targetPath.replace(/^proxy-edusp\//, '');
         }
         const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-        const targetUrl = `https://edusp-api.ip.tv/${targetPath}${queryString}`;
+        const fullPath = `/${targetPath}${queryString}`;
+        const token = (req.headers['x-api-key'] || req.headers['authorization']) as string || '';
 
         try {
-            const headers: Record<string, string> = {
-                'accept': (req.headers['accept'] as string) || 'application/json, text/plain, */*',
-                'content-type': (req.headers['content-type'] as string) || 'application/json',
-                'x-api-platform': 'webclient',
-                'x-api-realm': 'edusp',
-                'origin': 'https://saladofuturo.educacao.sp.gov.br',
-                'referer': 'https://saladofuturo.educacao.sp.gov.br/',
-                'user-agent': USER_AGENT
-            };
-            
-            if (req.headers['x-api-key']) headers['x-api-key'] = req.headers['x-api-key'] as string;
-            if (req.headers['authorization']) headers['authorization'] = req.headers['authorization'] as string;
-
-            const fetchOptions: any = {
-                method: req.method,
-                headers,
-                signal: AbortSignal.timeout(20000)
-            };
-
-            if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body && Object.keys(req.body).length > 0) {
-                fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-            }
-
-            const response = await undiciFetch(targetUrl, fetchOptions);
-            const data = await response.text();
-
-            res.status(response.status);
-            try {
-                res.json(JSON.parse(data));
-            } catch {
-                res.send(data);
-            }
+            const data = await callOfficialApi(fullPath, req.method, token, req.body, getCustomTunnel(req));
+            res.json(data);
         } catch (err: any) {
             console.error('[ProxyEduSP] Erro ao retransmitir:', err.message);
-            res.status(500).json({ error: err.message });
+            res.status(err.status || 500).json({ error: err.message });
         }
     };
 
