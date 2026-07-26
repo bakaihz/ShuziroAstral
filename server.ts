@@ -16,8 +16,8 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
-    "https://backend.shuziroastral.lol",
-    "https://edusp-api.ip.tv"
+    "https://edusp-api.ip.tv",
+    "https://backend.shuziroastral.lol"
 ];
 
 async function startServer() {
@@ -36,12 +36,15 @@ async function startServer() {
             let cleanPath = url.replace(/^https?:\/\/edusp-api\.ip\.tv\/?/, '');
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
-            let finalUrl: string;
-            if (domain.includes('shuziroastral.lol') || domain.includes('localhost') || !domain.includes('edusp-api.ip.tv')) {
-                const proxyPrefix = cleanPath.startsWith('/proxy-edusp') ? '' : '/proxy-edusp';
-                finalUrl = `${domain}${proxyPrefix}${cleanPath}`;
+            let urlsToTry: string[] = [];
+            if (domain.includes('shuziroastral.lol') || domain.includes('localhost')) {
+                const targetFull = `https://edusp-api.ip.tv${cleanPath}`;
+                urlsToTry = [
+                    `${domain}/proxy?url=${encodeURIComponent(targetFull)}`,
+                    `${domain}${cleanPath}`
+                ];
             } else {
-                finalUrl = `${domain}${cleanPath}`;
+                urlsToTry = [`${domain}${cleanPath}`];
             }
 
             const headers: Record<string, string> = {
@@ -52,51 +55,62 @@ async function startServer() {
                 'x-api-realm': 'edusp',
                 'origin': 'https://saladofuturo.educacao.sp.gov.br',
                 'referer': 'https://saladofuturo.educacao.sp.gov.br/',
-                'user-agent': 'Dalvik/2.1.0 (Linux; U; Android 11; SM-G991B Build/RP1A.200720.012)'
+                'user-agent': USER_AGENT
             };
             const options: any = { method, headers, signal: AbortSignal.timeout(20000) };
             if (body) options.body = JSON.stringify(body);
-            try {
-                const response = await undiciFetch(finalUrl, options);
-                const text = await response.text();
-                const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
 
-                if (!response.ok) {
-                    console.warn(`[API] Erro HTTP ${response.status} em ${domain}: ${cleanText.substring(0, 150)}`);
-                    const isCloudflareBlock = response.status === 403 && (
-                        cleanText.toLowerCase().includes('just a moment') ||
-                        cleanText.toLowerCase().includes('cloudflare') ||
-                        cleanText.toLowerCase().includes('attention required') ||
-                        cleanText.startsWith('<!doctype') ||
-                        cleanText.startsWith('<html')
-                    );
+            for (const finalUrl of urlsToTry) {
+                try {
+                    const response = await undiciFetch(finalUrl, options);
+                    const text = await response.text();
+                    const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
 
-                    const errObj: any = new Error(`HTTP ${response.status}: ${cleanText.substring(0, 150) || 'Erro no servidor'}`);
-                    errObj.status = response.status;
+                    if (!response.ok) {
+                        console.warn(`[API] Erro HTTP ${response.status} em ${finalUrl}: ${cleanText.substring(0, 150)}`);
 
-                    if (isCloudflareBlock) {
-                        console.warn(`[API] Cloudflare bloqueou a requisição no domínio ${domain}. Tentando próximo túnel...`);
+                        if (response.status === 404) {
+                            lastError = new Error(`HTTP 404 em ${finalUrl}`);
+                            continue;
+                        }
+
+                        const isCloudflareBlock = response.status === 403 && (
+                            cleanText.toLowerCase().includes('just a moment') ||
+                            cleanText.toLowerCase().includes('cloudflare') ||
+                            cleanText.toLowerCase().includes('attention required') ||
+                            cleanText.startsWith('<!doctype') ||
+                            cleanText.startsWith('<html')
+                        );
+
+                        const errObj: any = new Error(`HTTP ${response.status}: ${cleanText.substring(0, 150) || 'Erro no servidor'}`);
+                        errObj.status = response.status;
+
+                        if (isCloudflareBlock) {
+                            console.warn(`[API] Cloudflare bloqueou a requisição em ${finalUrl}. Tentando próximo túnel...`);
+                            lastError = errObj;
+                            break;
+                        }
+
+                        if (response.status === 400 || response.status === 401) {
+                            throw errObj;
+                        }
+
                         lastError = errObj;
                         continue;
                     }
 
-                    if (response.status === 400 || response.status === 401) {
-                        throw errObj;
+                    try {
+                        return JSON.parse(text);
+                    } catch {
+                        return text;
                     }
-                    lastError = errObj;
-                    continue;
+                } catch (err: any) {
+                    if (err.status === 400 || err.status === 401) {
+                        throw err;
+                    }
+                    console.warn(`[API] Falha de conexão em ${finalUrl}: ${err.message}`);
+                    lastError = err;
                 }
-
-                try {
-                    return JSON.parse(text);
-                } catch {
-                    return text;
-                }
-            } catch (err: any) {
-                if (err.status === 400 || err.status === 401) {
-                    throw err;
-                }
-                lastError = err;
             }
         }
         throw lastError || new Error("Nenhum túnel disponível conseguiu se conectar.");
