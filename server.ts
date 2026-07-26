@@ -202,11 +202,14 @@ async function startServer() {
         return Array.from(new Set(variants));
     }
 
-    async function loginRaPassword(ra: string, password: string) {
+    async function loginRaPassword(ra: string, password: string, customTunnelInfo?: { tunnel?: string; userAgent?: string; cookies?: string }) {
         const raVariants = normalizeRaVariants(ra);
         const loginUrls = [
             'https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/credenciais/api/LoginCompletoToken'
         ];
+
+        const clientUA = customTunnelInfo?.userAgent || USER_AGENT;
+        const clientCookies = customTunnelInfo?.cookies;
 
         let lastErrMessage = "Não foi possível conectar ao servidor SED. Tente novamente.";
         
@@ -215,15 +218,19 @@ async function startServer() {
             for (const userVariant of raVariants) {
                 try {
                     console.log(`[Login] Tentando SED (${url}) com usuário: ${userVariant}`);
+                    const headers: Record<string, string> = {
+                        "accept": "application/json, text/plain, */*",
+                        "content-type": "application/json",
+                        "ocp-apim-subscription-key": SUBSCRIPTION_KEY,
+                        "referer": "https://saladofuturo.educacao.sp.gov.br/",
+                        "user-agent": clientUA
+                    };
+                    if (clientCookies) {
+                        headers["cookie"] = clientCookies;
+                    }
                     const response = await undiciFetch(url, {
                         method: "POST",
-                        headers: {
-                            "accept": "application/json, text/plain, */*",
-                            "content-type": "application/json",
-                            "ocp-apim-subscription-key": SUBSCRIPTION_KEY,
-                            "referer": "https://saladofuturo.educacao.sp.gov.br/",
-                            "user-agent": USER_AGENT
-                        },
+                        headers,
                         body: JSON.stringify({ user: userVariant, senha: password }),
                         dispatcher: agent
                     });
@@ -262,10 +269,25 @@ async function startServer() {
         throw new Error(lastErrMessage || "RA ou Senha incorretos na SED.");
     }
 
-    async function getEduSpToken(sedToken: string) {
+    async function getEduSpToken(sedToken: string, customTunnelInfo?: { tunnel?: string; userAgent?: string; cookies?: string }) {
+        const clientUA = customTunnelInfo?.userAgent || USER_AGENT;
+        const clientCookies = customTunnelInfo?.cookies;
         try {
             const cookieJar = new CookieJar();
             const agentLocal = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
+
+            if (clientCookies) {
+                const parts = clientCookies.split(';');
+                for (const p of parts) {
+                    if (p.trim()) {
+                        try {
+                            await cookieJar.setCookie(p.trim(), "https://saladofuturo.educacao.sp.gov.br/");
+                        } catch (e) {
+                            // ignore invalid cookies
+                        }
+                    }
+                }
+            }
 
             const fetchWithCookies = async (url: string, options: any = {}) => {
                 const cookieString = await cookieJar.getCookieString(url);
@@ -282,7 +304,7 @@ async function startServer() {
             const response = await undiciFetch("https://saladofuturo.educacao.sp.gov.br/login", {
                 method: 'GET',
                 headers: {
-                    "user-agent": USER_AGENT,
+                    "user-agent": clientUA,
                     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
                     "accept-language": "pt-BR,pt;q=0.9",
                     "upgrade-insecure-requests": "1"
@@ -301,7 +323,7 @@ async function startServer() {
                     "content-type": "application/json",
                     "x-api-platform": "webclient",
                     "x-api-realm": "edusp",
-                    "user-agent": window.navigator.userAgent,
+                    "user-agent": clientUA,
                     "referer": "https://saladofuturo.educacao.sp.gov.br/",
                     "origin": "https://saladofuturo.educacao.sp.gov.br"
                 },
@@ -313,17 +335,19 @@ async function startServer() {
         } catch (err: any) {
             console.warn(`[Token JSDOM] erro: ${err.message}, tentando chamada direta...`);
             try {
+                const headers: Record<string, string> = {
+                    "accept": "application/json",
+                    "content-type": "application/json",
+                    "x-api-platform": "webclient",
+                    "x-api-realm": "edusp",
+                    "user-agent": clientUA,
+                    "referer": "https://saladofuturo.educacao.sp.gov.br/",
+                    "origin": "https://saladofuturo.educacao.sp.gov.br"
+                };
+                if (clientCookies) headers["cookie"] = clientCookies;
                 const response = await undiciFetch(`${EDUSP_API}/registration/edusp/token`, {
                     method: "POST",
-                    headers: {
-                        "accept": "application/json",
-                        "content-type": "application/json",
-                        "x-api-platform": "webclient",
-                        "x-api-realm": "edusp",
-                        "user-agent": USER_AGENT,
-                        "referer": "https://saladofuturo.educacao.sp.gov.br/",
-                        "origin": "https://saladofuturo.educacao.sp.gov.br"
-                    },
+                    headers,
                     body: JSON.stringify({ token: sedToken })
                 });
                 if (response.ok) {
@@ -389,10 +413,11 @@ async function startServer() {
             return res.status(400).json({ error: "RA e senha são obrigatórios" });
         }
         try {
-            console.log(`[Login] Tentando autenticar RA: ${user}`);
-            const loginResult = await loginRaPassword(user, senha);
+            const customTunnel = getCustomTunnel(req);
+            console.log(`[Login] Tentando autenticar RA: ${user} (UA: ${customTunnel?.userAgent ? 'Navegador Aluno' : 'Padrão'})`);
+            const loginResult = await loginRaPassword(user, senha, customTunnel);
             console.log(`[Login] Login SED OK, obtendo token EduSP...`);
-            const eduspData = await getEduSpToken(loginResult.token);
+            const eduspData = await getEduSpToken(loginResult.token, customTunnel);
             console.log(`[Login] Autenticação concluída com sucesso.`);
 
             const nomeCompleto = loginResult.DadosUsuario?.NAME || loginResult.DadosUsuario?.NOME || user;
@@ -482,7 +507,7 @@ async function startServer() {
         }
     });
 
-async function getFallbackRoomSlug(token: string, customTunnel?: string): Promise<string> {
+async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunnel?: string; userAgent?: string; cookies?: string }): Promise<string> {
     try {
         const data = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
         const rooms = data?.rooms || data?.items || (Array.isArray(data) ? data : []);
@@ -685,6 +710,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string): Promis
         const codigoAluno = req.query.codigoAluno || req.query.userId || '31838026';
         const anoLetivo = req.query.anoLetivo || 2026;
         const bimestre = req.query.bimestre || 1;
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
         
         try {
             const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/ConsultaFrequenciaBimestre?codigoAluno=${codigoAluno}&anoLetivo=${anoLetivo}&bimestre=${bimestre}&somenteAtivo=0`;
@@ -692,9 +719,10 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string): Promis
                 'Accept': 'application/json, text/plain, */*',
                 'X-Product-Name': 'SalaDoFuturo',
                 'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
-                'User-Agent': USER_AGENT
+                'User-Agent': clientUA
             };
             if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
 
             const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
             if (response.ok) {
@@ -732,15 +760,19 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string): Promis
         const codigoAluno = req.query.codigoAluno || '31838026';
         const anoLetivo = req.query.anoLetivo || 2026;
         const codigoTurma = req.query.codigoTurma || 0;
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
+
         try {
             const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Boletim/GetBoletimCompleto?codigoAluno=${codigoAluno}&anoLetivo=${anoLetivo}&codigoTurma=${codigoTurma}`;
             const headers: Record<string, string> = {
                 'Accept': 'application/json, text/plain, */*',
                 'X-Product-Name': 'SalaDoFuturo',
                 'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
-                'User-Agent': USER_AGENT
+                'User-Agent': clientUA
             };
             if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
 
             const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
             if (response.ok) {
@@ -774,11 +806,52 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string): Promis
         }
     });
 
+    app.get("/api/fechamento", async (req, res) => {
+        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const codigoAluno = req.query.codigoAluno || '31838026';
+        const anoLetivo = req.query.anoLetivo || 2026;
+        const somenteAtivo = req.query.somenteAtivo || 0;
+        const tipoFechamento = req.query.tipoFechamento || 10;
+        const codigoDisciplina = req.query.codigoDisciplina || 0;
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
+
+        try {
+            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Fechamento/ConsultaFechamentoComparativo?codigoAluno=${codigoAluno}&anoLetivo=${anoLetivo}&somenteAtivo=${somenteAtivo}&tipoFechamento=${tipoFechamento}&codigoDisciplina=${codigoDisciplina}`;
+            const headers: Record<string, string> = {
+                'Accept': 'application/json, text/plain, */*',
+                'X-Product-Name': 'SalaDoFuturo',
+                'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+                'User-Agent': clientUA
+            };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
+
+            const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
+            if (response.ok) {
+                const data = await response.json();
+                return res.json(data);
+            }
+            throw new Error(`HTTP ${response.status}`);
+        } catch (err: any) {
+            console.warn('[Fechamento] Erro/Fallback:', err.message);
+            return res.json({
+                message: "",
+                title: "Boletim Fechamento",
+                tipo: "Sucesso",
+                data: [],
+                isSucess: true
+            });
+        }
+    });
+
     app.get("/api/avisos", async (req, res) => {
         const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
         const codigoUsuario = req.query.codigoUsuario || req.query.userId || '318380266';
         const perfilAviso = req.query.perfilAviso || 1;
         const turmas = req.query.turmas || req.query.codigoTurma || '40917188';
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
 
         try {
             const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/muralavisosapi/api/mural-avisos/listar-avisos-turma?CodigoUsuario=${codigoUsuario}&PerfilAviso=${perfilAviso}&Turmas=${turmas}`;
@@ -786,9 +859,10 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string): Promis
                 'Accept': 'application/json, text/plain, */*',
                 'X-Product-Name': 'SalaDoFuturo',
                 'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
-                'User-Agent': USER_AGENT
+                'User-Agent': clientUA
             };
             if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
 
             const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
             if (response.ok) {

@@ -13,6 +13,7 @@ import { ConfigView } from './components/ConfigView';
 import { EmojiModal } from './components/EmojiModal';
 import { SavedAccountsModal } from './components/SavedAccountsModal';
 import { DiscordModal } from './components/DiscordModal';
+import { DoacaoModal } from './components/DoacaoModal';
 import { ProgressWidget } from './components/ProgressWidget';
 import { UserData, TaskItem, SavedAccount } from './types';
 
@@ -38,6 +39,7 @@ export default function App() {
   const [showEmojiModal, setShowEmojiModal] = useState(false);
   const [showAccountsModal, setShowAccountsModal] = useState(false);
   const [showDiscordModal, setShowDiscordModal] = useState(false);
+  const [showDoacaoModal, setShowDoacaoModal] = useState(false);
 
   // Progress widget state
   const [progressOpen, setProgressOpen] = useState(false);
@@ -439,6 +441,7 @@ export default function App() {
           }}
           onOpenAccounts={() => setShowAccountsModal(true)}
           onOpenDiscord={() => setShowDiscordModal(true)}
+          onOpenDoacao={() => setShowDoacaoModal(true)}
         >
           {currentPage === 'home' && (
             <HomeView
@@ -514,7 +517,16 @@ export default function App() {
 
       <DiscordModal
         isOpen={showDiscordModal}
-        onClose={() => setShowDiscordModal(false)}
+        onClose={() => {
+          setShowDiscordModal(false);
+          // Pedir doação logo após o aviso do Discord ser fechado!
+          setTimeout(() => setShowDoacaoModal(true), 300);
+        }}
+      />
+
+      <DoacaoModal
+        isOpen={showDoacaoModal}
+        onClose={() => setShowDoacaoModal(false)}
       />
 
       <ProgressWidget

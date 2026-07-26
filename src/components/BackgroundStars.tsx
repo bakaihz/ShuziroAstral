@@ -1,33 +1,52 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 
 export const BackgroundStars: React.FC = () => {
+  const particles = useMemo(() => {
+    return Array.from({ length: 110 }).map((_, i) => ({
+      id: i,
+      size: Math.random() * 2.8 + 0.8,
+      left: Math.random() * 100,
+      top: Math.random() * 100,
+      duration: 3 + Math.random() * 7,
+      delay: Math.random() * 6,
+      opacity: Math.random() * 0.7 + 0.3,
+      color: i % 4 === 0 ? 'bg-emerald-300' : i % 5 === 0 ? 'bg-indigo-300' : i % 7 === 0 ? 'bg-amber-200' : 'bg-white'
+    }));
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-[-2] bg-[#09090b] overflow-hidden pointer-events-none">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,rgba(74,222,128,0.03),transparent_70%)]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(96,165,250,0.03),transparent_60%)]" />
-      {Array.from({ length: 80 }).map((_, i) => {
-        const size = Math.random() * 2.5 + 1;
-        const left = Math.random() * 100;
-        const top = Math.random() * 100;
-        const duration = 3 + Math.random() * 5;
-        const delay = Math.random() * 5;
-        const opacity = Math.random() * 0.5 + 0.2;
-        return (
-          <div
-            key={i}
-            className="absolute rounded-full bg-white animate-pulse"
-            style={{
-              width: `${size}px`,
-              height: `${size}px`,
-              left: `${left}%`,
-              top: `${top}%`,
-              opacity,
-              animationDuration: `${duration}s`,
-              animationDelay: `${delay}s`,
-            }}
-          />
-        );
-      })}
+    <div className="fixed inset-0 z-0 bg-[#060608] overflow-hidden pointer-events-none select-none">
+      {/* Animated ambient glowing nebulae */}
+      <div className="absolute -top-32 -left-32 w-[600px] h-[600px] bg-emerald-600/15 rounded-full blur-[130px] animate-pulse duration-[8000ms]" />
+      <div className="absolute top-1/2 -right-32 w-[650px] h-[650px] bg-indigo-600/15 rounded-full blur-[150px] animate-pulse duration-[10000ms]" />
+      <div className="absolute -bottom-32 left-1/3 w-[600px] h-[600px] bg-teal-500/15 rounded-full blur-[140px] animate-pulse duration-[9000ms]" />
+
+      {/* Subtle grid mesh */}
+      <div 
+        className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff08_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_70%_70%_at_50%_50%,#000_70%,transparent_100%)]" 
+      />
+
+      {/* Floating starry particles */}
+      {particles.map((p) => (
+        <div
+          key={p.id}
+          className={`absolute rounded-full animate-pulse ${p.color}`}
+          style={{
+            width: `${p.size}px`,
+            height: `${p.size}px`,
+            left: `${p.left}%`,
+            top: `${p.top}%`,
+            opacity: p.opacity,
+            animationDuration: `${p.duration}s`,
+            animationDelay: `${p.delay}s`,
+            boxShadow: p.size > 2 ? '0 0 8px rgba(255, 255, 255, 0.6)' : 'none'
+          }}
+        />
+      ))}
+
+      {/* Shooting lights */}
+      <div className="absolute top-1/4 left-10 w-[500px] h-[1px] bg-gradient-to-r from-transparent via-emerald-400/30 to-transparent -rotate-12 animate-pulse duration-[6000ms]" />
+      <div className="absolute bottom-1/3 right-10 w-[500px] h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 to-transparent rotate-12 animate-pulse duration-[8000ms]" />
     </div>
   );
 };

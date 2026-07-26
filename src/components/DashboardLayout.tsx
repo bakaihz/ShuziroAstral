@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Smartphone, BookOpen, CheckSquare, PenTool, BarChart3, Settings, LogOut, RefreshCw, FolderOpen, Heart, MessageSquare } from 'lucide-react';
+import { Home, Smartphone, BookOpen, CheckSquare, PenTool, BarChart3, Settings, LogOut, RefreshCw, FolderOpen, Heart, MessageSquare, Coffee } from 'lucide-react';
 import { UserData } from '../types';
 import { PLATFORMS_DATA } from './PlatformDetailView';
 
@@ -11,6 +11,7 @@ interface DashboardLayoutProps {
   onRefresh: () => void;
   onOpenAccounts: () => void;
   onOpenDiscord: () => void;
+  onOpenDoacao: () => void;
   children: React.ReactNode;
   pingStatus?: 'idle' | 'pinging' | 'success' | 'failed';
   latency?: number | null;
@@ -24,6 +25,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   onRefresh,
   onOpenAccounts,
   onOpenDiscord,
+  onOpenDoacao,
   children,
   pingStatus,
   latency
@@ -39,7 +41,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   ];
 
   return (
-    <div className="min-h-screen flex flex-col max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 bg-black text-white">
+    <div className="min-h-screen flex flex-col max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 bg-black/80 backdrop-blur-md text-white relative z-10">
       {/* Header */}
       <header className="bg-[#121214] border border-[#27272a] rounded-2xl p-4 sm:p-5 mb-6 flex flex-wrap items-center justify-between gap-4 shadow-xl">
         <div>
@@ -72,6 +74,12 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={onOpenDoacao}
+            className="px-3.5 py-2 bg-gradient-to-r from-amber-500/20 via-amber-400/20 to-emerald-400/20 hover:from-amber-500/30 hover:to-emerald-400/30 text-amber-300 text-xs font-bold rounded-xl border border-amber-500/40 flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-amber-500/5 animate-pulse"
+          >
+            <Heart className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Apoiar via PIX
+          </button>
           <button
             onClick={onOpenDiscord}
             className="px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold rounded-xl border border-indigo-500/40 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
@@ -125,7 +133,14 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
               );
             })}
 
-            <div className="pt-2">
+            <div className="pt-2 space-y-1 border-t border-[#27272a]">
+              <button
+                onClick={onOpenDoacao}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 bg-gradient-to-r from-amber-500/10 to-emerald-500/10 hover:from-amber-500/20 hover:to-emerald-500/20 border border-amber-500/30 text-amber-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                <Coffee className="w-4 h-4 text-amber-400" />
+                Apoiar com PIX
+              </button>
               <button
                 onClick={onOpenDiscord}
                 className="w-full flex items-center gap-2.5 px-3.5 py-2.5 bg-indigo-600/10 hover:bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-xs font-semibold transition-all cursor-pointer"
@@ -145,7 +160,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
       {/* Footer */}
       <footer className="text-center mt-12 pt-6 border-t border-[#27272a] text-xs text-zinc-500">
-        ShuziroAstral Hub · Feito com <Heart className="w-3 h-3 inline text-zinc-400 mx-0.5 fill-zinc-400/20" /> por <strong className="text-zinc-300">bakai Shuziro</strong> · 2026
+        ShuziroAstral Hub · Feito com <Heart className="w-3 h-3 inline text-amber-400 mx-0.5 fill-amber-400/20" /> por <strong className="text-zinc-300">bakai Shuziro</strong> · 2026
       </footer>
     </div>
   );

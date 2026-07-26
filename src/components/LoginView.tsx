@@ -39,8 +39,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-black">
-      <div className="bg-[#09090b] border border-[#27272a] rounded-3xl p-8 max-w-md w-full shadow-[0_20px_60px_rgba(0,0,0,0.9)] relative overflow-hidden">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-transparent relative z-10">
+      <div className="bg-[#09090b]/90 backdrop-blur-xl border border-[#27272a] rounded-3xl p-8 max-w-md w-full shadow-[0_20px_60px_rgba(0,0,0,0.9)] relative overflow-hidden">
         {/* Subtle monochromatic glow */}
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-white/5 rounded-full blur-3xl pointer-events-none" />
 
