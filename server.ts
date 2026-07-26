@@ -29,22 +29,29 @@ async function startServer() {
 
     const agent = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
 
-    function getCustomTunnel(req?: express.Request): string | undefined {
+    function getCustomTunnel(req?: express.Request): { tunnel?: string; userAgent?: string; cookies?: string } | undefined {
         if (!req) return undefined;
         const headerVal = req.headers['x-tunnel-url'] || req.headers['x-backend-url'];
+        const userAgent = req.headers['user-agent'];
+        const cookies = req.headers['cookie'];
+        
+        let tunnel: string | undefined = undefined;
         if (typeof headerVal === 'string' && headerVal.trim()) {
             const trimmed = headerVal.trim();
-            if (trimmed.includes('shuziroastral.lol')) {
-                return undefined;
+            if (!trimmed.includes('shuziroastral.lol')) {
+                tunnel = trimmed;
             }
-            return trimmed;
         }
-        return undefined;
+        return { tunnel, userAgent, cookies };
     }
 
     // ======================= FUNÇÃO COM FALLBACK =======================
-    async function callOfficialApi(url: string, method: string, token: string, body?: any, customTunnel?: string) {
+    async function callOfficialApi(url: string, method: string, token: string, body?: any, customTunnelInfo?: string | { tunnel?: string; userAgent?: string; cookies?: string }) {
         let lastError: any = null;
+
+        const customTunnel = typeof customTunnelInfo === 'string' ? customTunnelInfo : customTunnelInfo?.tunnel;
+        const clientUserAgent = typeof customTunnelInfo === 'object' ? customTunnelInfo?.userAgent : undefined;
+        const clientCookies = typeof customTunnelInfo === 'object' ? customTunnelInfo?.cookies : undefined;
 
         const tunnelsToTry: string[] = [];
         if (customTunnel && customTunnel.trim()) {
@@ -86,8 +93,12 @@ async function startServer() {
                 'x-api-realm': 'edusp',
                 'origin': 'https://saladofuturo.educacao.sp.gov.br',
                 'referer': 'https://saladofuturo.educacao.sp.gov.br/',
-                'user-agent': USER_AGENT
+                'user-agent': clientUserAgent || USER_AGENT
             };
+
+            if (clientCookies) {
+                headers['cookie'] = clientCookies;
+            }
 
             // Para edusp-api.ip.tv direta, inclui sec-ch-ua se necessário; para workers.dev, mantemos headers limpos para não engatilhar WAF por TLS fingerprint mismatch
             if (!domain.includes('workers.dev')) {
