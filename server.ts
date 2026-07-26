@@ -33,7 +33,11 @@ async function startServer() {
         if (!req) return undefined;
         const headerVal = req.headers['x-tunnel-url'] || req.headers['x-backend-url'];
         if (typeof headerVal === 'string' && headerVal.trim()) {
-            return headerVal.trim();
+            const trimmed = headerVal.trim();
+            if (trimmed.includes('shuziroastral.lol')) {
+                return undefined;
+            }
+            return trimmed;
         }
         return undefined;
     }
@@ -74,7 +78,7 @@ async function startServer() {
                 urlsToTry = [`${domain}${cleanPath}`];
             }
 
-            const headers: Record<string, string> = {
+            let headers: Record<string, string> = {
                 'accept': 'application/json, text/plain, */*',
                 'content-type': 'application/json',
                 'x-api-key': token,
@@ -82,14 +86,19 @@ async function startServer() {
                 'x-api-realm': 'edusp',
                 'origin': 'https://saladofuturo.educacao.sp.gov.br',
                 'referer': 'https://saladofuturo.educacao.sp.gov.br/',
-                'user-agent': USER_AGENT,
-                'sec-ch-ua': '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"Windows"',
-                'sec-fetch-dest': 'empty',
-                'sec-fetch-mode': 'cors',
-                'sec-fetch-site': 'cross-site'
+                'user-agent': USER_AGENT
             };
+
+            // Para edusp-api.ip.tv direta, inclui sec-ch-ua se necessário; para workers.dev, mantemos headers limpos para não engatilhar WAF por TLS fingerprint mismatch
+            if (!domain.includes('workers.dev')) {
+                headers['sec-ch-ua'] = '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"';
+                headers['sec-ch-ua-mobile'] = '?0';
+                headers['sec-ch-ua-platform'] = '"Windows"';
+                headers['sec-fetch-dest'] = 'empty';
+                headers['sec-fetch-mode'] = 'cors';
+                headers['sec-fetch-site'] = 'cross-site';
+            }
+
             const options: any = { method, headers, signal: AbortSignal.timeout(7000) };
             if (body) options.body = typeof body === 'string' ? body : JSON.stringify(body);
 
@@ -121,7 +130,7 @@ async function startServer() {
                         if (isCloudflareBlock) {
                             console.warn(`[API] Cloudflare bloqueou a requisição em ${finalUrl}. Tentando próximo...`);
                             lastError = errObj;
-                            break;
+                            continue;
                         }
 
                         if (response.status === 400 || response.status === 401) {

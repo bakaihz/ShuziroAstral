@@ -54,7 +54,7 @@ export default function App() {
   
   const [tunnelUrl, setTunnelUrl] = useState(() => {
     const saved = typeof window !== 'undefined' ? (localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel')) : null;
-    if (saved && saved.trim()) return saved.trim();
+    if (saved && saved.trim() && !saved.includes('shuziroastral.lol')) return saved.trim();
     return DEFAULT_BACKEND_URL;
   });
   const [pingStatus, setPingStatus] = useState<'idle' | 'pinging' | 'success' | 'failed'>('idle');
@@ -64,7 +64,11 @@ export default function App() {
   // Load saved backend URL on mount
   useEffect(() => {
     const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
-    if (saved && saved.trim()) {
+    if (saved && (saved.includes('shuziroastral.lol') || !saved.trim())) {
+      localStorage.removeItem('shuziro_backend_url');
+      localStorage.removeItem('shuziro_termux_tunnel');
+      setTunnelUrl(DEFAULT_BACKEND_URL);
+    } else if (saved && saved.trim()) {
       setTunnelUrl(saved.trim());
     } else {
       setTunnelUrl(DEFAULT_BACKEND_URL);
