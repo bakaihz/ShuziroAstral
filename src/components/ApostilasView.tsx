@@ -38,14 +38,40 @@ export const ApostilasView: React.FC = () => {
     { id: '2b-2m', ano: '2ª Série EM', nivel: 'Médio', bimestre: 2, titulo: 'Caderno do Aluno 2º Bimestre - 2ª Série Médio', disciplinas: 'Linguagens, Matemática, Ciências da Natureza, Ciências Humanas', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/04/2em-2bim-aluno.pdf', atualizado: '2026' },
     { id: '2b-3m', ano: '3ª Série EM', nivel: 'Médio', bimestre: 2, titulo: 'Caderno do Aluno 2º Bimestre - 3ª Série Médio', disciplinas: 'Linguagens, Matemática, Ciências da Natureza, Ciências Humanas', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/04/3em-2bim-aluno.pdf', atualizado: '2026' },
 
-    // 3º BIMESTRE (Destaque recente)
-    { id: '3b-6f', ano: '6° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Apostila 3º Bimestre - 6º Ano Fundamental', disciplinas: 'Língua Portuguesa, Matemática, Ciências, História, Geografia, Inglês', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/07/6ano-3bim-aluno.pdf', atualizado: '2026 Novo' },
-    { id: '3b-7f', ano: '7° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Apostila 3º Bimestre - 7º Ano Fundamental', disciplinas: 'Língua Portuguesa, Matemática, Ciências, História, Geografia, Inglês', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/07/7ano-3bim-aluno.pdf', atualizado: '2026 Novo' },
-    { id: '3b-8f', ano: '8° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Apostila 3º Bimestre - 8º Ano Fundamental', disciplinas: 'Língua Portuguesa, Matemática, Ciências, História, Geografia, Inglês', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/07/8ano-3bim-aluno.pdf', atualizado: '2026 Novo' },
-    { id: '3b-9f', ano: '9° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Apostila 3º Bimestre - 9º Ano Fundamental', disciplinas: 'Língua Portuguesa, Matemática, Ciências, História, Geografia, Inglês', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/07/9ano-3bim-aluno.pdf', atualizado: '2026 Novo' },
-    { id: '3b-1m', ano: '1ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'Caderno do Aluno 3º Bimestre - 1ª Série Médio', disciplinas: 'Língua Portuguesa, Matemática, Física, Química, Biologia, Filosofia', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/07/1em-3bim-aluno.pdf', atualizado: '2026 Novo' },
-    { id: '3b-2m', ano: '2ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'Caderno do Aluno 3º Bimestre - 2ª Série Médio', disciplinas: 'Língua Portuguesa, Matemática, Física, Química, Biologia, Filosofia', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/07/2em-3bim-aluno.pdf', atualizado: '2026 Novo' },
-    { id: '3b-3m', ano: '3ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'Caderno do Aluno 3º Bimestre - 3ª Série Médio', disciplinas: 'Língua Portuguesa, Matemática, Física, Química, Biologia, Filosofia', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/07/3em-3bim-aluno.pdf', atualizado: '2026 Novo' },
+    // 3º BIMESTRE (Links Oficiais do Acervo CMSP)
+    // 6º ANO
+    { id: '3b-6f-pm', ano: '6° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Português e Matemática - 3º Bimestre', disciplinas: 'Língua Portuguesa, Matemática', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159112/1657614.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-6f-hg', ano: '6° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'História e Geografia - 3º Bimestre', disciplinas: 'História, Geografia', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159117/1657654.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-6f-cipv', ano: '6° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Ciências, Inglês e Projeto de Vida - 3º Bimestre', disciplinas: 'Ciências, Inglês, Projeto de Vida', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159114/1657643.pdf', atualizado: '2026 CMSP' },
+
+    // 7º ANO
+    { id: '3b-7f-pm', ano: '7° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Português e Matemática - 3º Bimestre', disciplinas: 'Língua Portuguesa, Matemática', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159124/1657696.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-7f-hg', ano: '7° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'História e Geografia - 3º Bimestre', disciplinas: 'História, Geografia', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159132/1657736.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-7f-cipv', ano: '7° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Ciências, Inglês e Projeto de Vida - 3º Bimestre', disciplinas: 'Ciências, Inglês, Projeto de Vida', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159129/1657718.pdf', atualizado: '2026 CMSP' },
+
+    // 8º ANO
+    { id: '3b-8f-pm', ano: '8° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Português e Matemática - 3º Bimestre', disciplinas: 'Língua Portuguesa, Matemática', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159139/1657771.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-8f-hg', ano: '8° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'História e Geografia - 3º Bimestre', disciplinas: 'História, Geografia', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159147/1657799.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-8f-cipv', ano: '8° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Ciências, Inglês e Projeto de Vida - 3º Bimestre', disciplinas: 'Ciências, Inglês, Projeto de Vida', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159143/1657780.pdf', atualizado: '2026 CMSP' },
+
+    // 9º ANO
+    { id: '3b-9f-pm', ano: '9° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Português e Matemática - 3º Bimestre', disciplinas: 'Língua Portuguesa, Matemática', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159151/1657823.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-9f-hg', ano: '9° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'História e Geografia - 3º Bimestre', disciplinas: 'História, Geografia', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159159/1657861.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-9f-cipv', ano: '9° Ano EF', nivel: 'Fundamental', bimestre: 3, titulo: 'Ciências, Inglês e Projeto de Vida - 3º Bimestre', disciplinas: 'Ciências, Inglês, Projeto de Vida', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159156/1657849.pdf', atualizado: '2026 CMSP' },
+
+    // 1ª SÉRIE EM
+    { id: '3b-1m-fbq', ano: '1ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'Física, Biologia e Química - 3º Bimestre', disciplinas: 'Física, Biologia, Química', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159072/1657331.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-1m-hgi', ano: '1ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'História, Geografia e Inglês - 3º Bimestre', disciplinas: 'História, Geografia, Inglês', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159074/1657382.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-1m-pm', ano: '1ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'Português e Matemática - 3º Bimestre', disciplinas: 'Língua Portuguesa, Matemática', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159093/1657490.pdf', atualizado: '2026 CMSP' },
+
+    // 2ª SÉRIE EM
+    { id: '3b-2m-fbq', ano: '2ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'Física, Biologia e Química - 3º Bimestre', disciplinas: 'Física, Biologia, Química', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159095/1657500.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-2m-hgi', ano: '2ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'História, Geografia e Inglês - 3º Bimestre', disciplinas: 'História, Geografia, Inglês', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159102/1657524.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-2m-pm', ano: '2ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'Português e Matemática - 3º Bimestre', disciplinas: 'Língua Portuguesa, Matemática', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159104/1657537.pdf', atualizado: '2026 CMSP' },
+
+    // 3ª SÉRIE EM
+    { id: '3b-3m-hfi', ano: '3ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'História, Física e Inglês - 3º Bimestre', disciplinas: 'História, Física, Inglês', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159106/1657566.pdf', atualizado: '2026 CMSP' },
+    { id: '3b-3m-pm', ano: '3ª Série EM', nivel: 'Médio', bimestre: 3, titulo: 'Português e Matemática - 3º Bimestre', disciplinas: 'Língua Portuguesa, Matemática', tipo: 'Aluno', linkUrl: 'https://acervocmsp.educacao.sp.gov.br/159108/1657577.pdf', atualizado: '2026 CMSP' },
 
     // 4º BIMESTRE
     { id: '4b-6f', ano: '6° Ano EF', nivel: 'Fundamental', bimestre: 4, titulo: 'Apostila 4º Bimestre - 6º Ano Fundamental', disciplinas: 'Língua Portuguesa, Matemática, Ciências, História, Geografia', tipo: 'Aluno', linkUrl: 'https://efape.educacao.sp.gov.br/curriculopaulista/wp-content/uploads/2024/10/6ano-4bim-aluno.pdf', atualizado: '2026' },
