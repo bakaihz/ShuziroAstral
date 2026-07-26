@@ -96,7 +96,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                 pingStatus === 'pinging' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
                 'bg-zinc-800 border-zinc-700 text-zinc-400'
               }`}>
-                {pingStatus === 'success' ? `ONLINE (${latency || 0}ms)` : pingStatus === 'pinging' ? 'TESTANDO...' : 'OFFLINE'}
+                <span>{pingStatus === 'success' ? `ONLINE (${latency || 0}ms)` : pingStatus === 'pinging' ? 'TESTANDO...' : 'OFFLINE'}</span>
               </span>
             </div>
             

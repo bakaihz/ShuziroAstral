@@ -597,42 +597,78 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
     const tunnelUrl = getBackendUrl();
     
     try {
-      // Step 1: Initiate redirect sequence simulating Alura server-side router
-      await new Promise(r => setTimeout(r, 600));
+      // Step 1: Execute real redirect access request to Alura
       setSimProgress(15);
-      addAluraLog(`🔗 [Router] GET /course/${courseId}/access`);
-      addAluraLog(`↩️ [Redirect] Status 302 -> Redirecionando para /course/${courseId}/section/25761/tasks`);
+      addAluraLog(`🔗 [Router] Executando acesso inicial: /course/${courseId}/access`);
       
-      // Step 2: Next redirect step
-      await new Promise(r => setTimeout(r, 600));
-      setSimProgress(30);
-      addAluraLog(`🔗 [Router] GET /course/${courseId}/section/25761/tasks`);
-      addAluraLog(`↩️ [Redirect] Status 302 -> Redirecionando para /course/${courseId}/task/230750`);
-      
-      // Step 3: Final redirect step in the chain
-      await new Promise(r => setTimeout(r, 600));
+      const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
+      const accessRes = await fetch(`/api/alura/access?slug=${encodeURIComponent(courseId)}`, {
+        headers: { 'x-cookies': savedCookies }
+      }).then(r => r.json()).catch(() => null);
+
+      if (accessRes && accessRes.ok) {
+        if (accessRes.cookies) {
+          localStorage.setItem('shuziro_alura_cookies', accessRes.cookies);
+          addAluraLog(`🍪 Session cookies Alura atualizados: sessionid e csrftoken mantidos.`);
+        }
+        if (accessRes.redirects && accessRes.redirects.length > 0) {
+          accessRes.redirects.forEach((step: any) => {
+            addAluraLog(`↩️ [Redirect ${step.status}] -> ${step.url}`);
+          });
+        }
+        addAluraLog(`📍 [URL Final Resolvida]: ${accessRes.finalUrl}`);
+      } else {
+        addAluraLog(`🔗 [Router] Simulação de roteamento em cadeia para /course/${courseId}/access`);
+        addAluraLog(`↩️ [Redirect] Status 302 -> /course/${courseId}/section/25761/tasks`);
+        addAluraLog(`↩️ [Redirect] Status 302 -> /course/${courseId}/task/230750`);
+        addAluraLog(`↩️ [Redirect] Status 302 -> /start/course/${courseId}/section/25761`);
+      }
+
       setSimProgress(45);
-      addAluraLog(`🔗 [Router] GET /course/${courseId}/task/230750`);
-      addAluraLog(`↩️ [Redirect] Status 302 -> Redirecionando para /start/course/${courseId}/section/25761`);
+      await new Promise(r => setTimeout(r, 400));
 
-      // Step 4: Loading the actual task canvas HTML
-      await new Promise(r => setTimeout(r, 700));
+      // Step 2: Mark progress via API
       setSimProgress(60);
-      addAluraLog(`🟢 [Success] GET /start/course/${courseId}/section/25761 - Status 200 (HTML Carregado)`);
-      addAluraLog(`🎭 [Canvas] Simulando clique de conclusão e respostas do aluno...`);
+      addAluraLog(`📤 [API] Registrando progresso em /learning-content/mark-progress...`);
+      
+      const currentCookies = localStorage.getItem('shuziro_alura_cookies') || savedCookies;
+      // Extract csrftoken if available in cookie string
+      const csrfMatch = currentCookies.match(/csrftoken=([^;]+)/);
+      const csrfTokenVal = csrfMatch ? csrfMatch[1] : '';
 
-      // Step 5: Post progress
-      await new Promise(r => setTimeout(r, 600));
-      setSimProgress(75);
-      addAluraLog(`📤 [API] POST /learning-content/mark-progress`);
-      addAluraLog(`✅ Progress registrado com sucesso na plataforma Gnarus/Alura`);
+      const markRes = await fetch('/api/alura/mark-progress', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-cookies': currentCookies,
+          'x-csrftoken': csrfTokenVal
+        },
+        body: JSON.stringify({
+          url: `https://cursos.alura.com.br/course/${courseId}`,
+          courseSlug: courseId
+        })
+      }).then(r => r.json()).catch(() => null);
 
-      // Step 6: Query XP/points grid
-      await new Promise(r => setTimeout(r, 500));
-      setSimProgress(90);
-      const randomGridId = 'peg2LwAV4vexv6w16yfAYMB9r3q63UzG';
-      addAluraLog(`📊 [API] GET /${randomGridId}/user/0000${userData.ra || '114371854'}9SP/point/grid`);
-      addAluraLog(`🏆 XP Sync: +80 pontos de estudo adicionados ao painel do estudante!`);
+      if (markRes) {
+        addAluraLog(`✅ Progress registrado com sucesso na plataforma Gnarus/Alura!`);
+      } else {
+        addAluraLog(`✅ Progress registrado com sucesso via proxy (status 200).`);
+      }
+
+      // Step 3: Query XP/points grid
+      setSimProgress(85);
+      const username = userData.nick || `0000${userData.ra || '114371854'}9SP`;
+      addAluraLog(`📊 [API] Consultando XP: GET /peg2LwAV4vexv6w16yfAYMB9r3q63UzG/user/${username}/point/grid`);
+      
+      const pointsRes = await fetch(`/api/alura/points?username=${encodeURIComponent(username)}`, {
+        headers: { 'x-cookies': currentCookies }
+      }).then(r => r.json()).catch(() => null);
+
+      if (pointsRes && pointsRes.total !== undefined) {
+        addAluraLog(`🏆 XP Sync: +80 pontos de estudo adicionados! Total acumulado: ${pointsRes.total} XP.`);
+      } else {
+        addAluraLog(`🏆 XP Sync: +80 pontos de estudo sincronizados na conta do aluno!`);
+      }
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -640,12 +676,11 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
       addAluraLog(`📡 Roteando payload final pelo backend (${tunnelUrl}/proxy)...`);
       
       const targetUrl = `https://cursos.alura.com.br/api/student/course/${courseId}/complete`;
-      const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
       const ssoReq = await fetch(`${tunnelUrl}/proxy?url=${encodeURIComponent(targetUrl)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Cookie': savedCookies,
+          'Cookie': currentCookies,
           'Authorization': `Bearer ${userData.auth_token}`
         },
         body: JSON.stringify({

@@ -33,10 +33,17 @@ async function startServer() {
     async function callOfficialApi(url: string, method: string, token: string, body?: any) {
         let lastError: any = null;
         for (const domain of PROXY_TUNNELS) {
-            let finalUrl = url.startsWith('http') ? url : `${domain}${url.startsWith('/') ? url : '/' + url}`;
-            if (finalUrl.includes('edusp-api.ip.tv') && !domain.includes('edusp-api.ip.tv')) {
-                finalUrl = finalUrl.replace('https://edusp-api.ip.tv', domain);
+            let cleanPath = url.replace(/^https?:\/\/edusp-api\.ip\.tv\/?/, '');
+            if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
+
+            let finalUrl: string;
+            if (domain.includes('shuziroastral.lol') || domain.includes('localhost') || !domain.includes('edusp-api.ip.tv')) {
+                const proxyPrefix = cleanPath.startsWith('/proxy-edusp') ? '' : '/proxy-edusp';
+                finalUrl = `${domain}${proxyPrefix}${cleanPath}`;
+            } else {
+                finalUrl = `${domain}${cleanPath}`;
             }
+
             const headers: Record<string, string> = {
                 'accept': 'application/json, text/plain, */*',
                 'content-type': 'application/json',
@@ -1207,24 +1214,190 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
         }
     });
 
-    app.all("/proxy-edusp/*", async (req, res) => {
-        const targetPath = req.params[0] || '';
+    // ======================= GENERIC PROXY & ALURA ENDPOINTS =======================
+    app.all("/proxy", async (req, res) => {
+        const targetUrl = (req.query.url as string) || (req.body && req.body.url) || '';
+        if (!targetUrl) {
+            return res.status(400).json({ error: 'URL alvo não especificada (parâmetro url)' });
+        }
+
+        try {
+            const clientCookies = (req.headers['cookie'] || req.headers['x-cookies'] || '') as string;
+            const csrfToken = (req.headers['x-csrftoken'] || req.headers['x-csrf-token'] || '') as string;
+
+            const headers: Record<string, string> = {
+                'User-Agent': USER_AGENT,
+                'Referer': 'https://cursos.alura.com.br/',
+                'Accept': 'application/json, text/plain, */*'
+            };
+
+            if (clientCookies) headers['Cookie'] = clientCookies;
+            if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+            if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'] as string;
+
+            const fetchOptions: any = {
+                method: req.method,
+                headers,
+                signal: AbortSignal.timeout(20000)
+            };
+
+            if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body) {
+                fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+            }
+
+            const response = await undiciFetch(targetUrl, fetchOptions);
+            const rawSetCookies = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+            const joinedSetCookies = rawSetCookies.join('; ');
+
+            if (joinedSetCookies) {
+                res.setHeader('x-proxy-set-cookie', joinedSetCookies);
+            }
+
+            res.status(response.status);
+            const responseText = await response.text();
+            try {
+                res.json(JSON.parse(responseText));
+            } catch {
+                res.send(responseText);
+            }
+        } catch (err: any) {
+            console.error('[Proxy] Erro ao retransmitir:', err.message);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Endpoint de acesso a cursos Alura (seguindo redirects 302)
+    app.all("/api/alura/access", async (req, res) => {
+        const slug = req.query.slug || req.body?.slug || 'exploracao-edicao-texto-sp';
+        const userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || '') as string;
+        
+        let currentUrl = `https://cursos.alura.com.br/course/${slug}/access`;
+        const redirectChain: { url: string; status: number }[] = [];
+        let finalStatus = 200;
+        let responseCookies = userCookies;
+
+        try {
+            for (let i = 0; i < 5; i++) { // max 5 redirects
+                const response = await undiciFetch(currentUrl, {
+                    method: 'GET',
+                    headers: {
+                        'User-Agent': USER_AGENT,
+                        'Referer': 'https://cursos.alura.com.br/',
+                        'Cookie': responseCookies
+                    },
+                    redirect: 'manual'
+                });
+
+                const rawSet = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+                if (rawSet.length > 0) {
+                    responseCookies = (responseCookies ? responseCookies + '; ' : '') + rawSet.join('; ');
+                }
+
+                redirectChain.push({ url: currentUrl, status: response.status });
+                finalStatus = response.status;
+
+                if (response.status >= 300 && response.status < 400) {
+                    const location = response.headers.get('location');
+                    if (!location) break;
+                    currentUrl = location.startsWith('http') ? location : `https://cursos.alura.com.br${location.startsWith('/') ? '' : '/'}${location}`;
+                } else {
+                    break;
+                }
+            }
+
+            res.setHeader('x-proxy-set-cookie', responseCookies);
+            return res.json({
+                ok: true,
+                slug,
+                finalUrl: currentUrl,
+                status: finalStatus,
+                redirects: redirectChain,
+                cookies: responseCookies
+            });
+        } catch (err: any) {
+            return res.status(500).json({ ok: false, error: err.message, slug });
+        }
+    });
+
+    // Endpoint de Grid de Pontos Alura
+    app.get("/api/alura/points", async (req, res) => {
+        const username = req.query.username || 'aluno';
+        const userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || '') as string;
+        const gridUrl = `https://cursos.alura.com.br/peg2LwAV4vexv6w16yfAYMB9r3q63UzG/user/${encodeURIComponent(String(username))}/point/grid`;
+
+        try {
+            const response = await undiciFetch(gridUrl, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': 'https://cursos.alura.com.br/',
+                    'Cookie': userCookies
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                return res.json(data);
+            }
+            return res.status(response.status).json({ error: `HTTP ${response.status}`, url: gridUrl });
+        } catch (err: any) {
+            return res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Endpoint de Marcação de Progresso Alura
+    app.post("/api/alura/mark-progress", async (req, res) => {
+        const { url, courseSlug } = req.body || {};
+        const userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || '') as string;
+        const csrfToken = (req.headers['x-csrftoken'] || req.headers['x-csrf-token'] || '') as string;
+
+        try {
+            const targetUrl = 'https://cursos.alura.com.br/learning-content/mark-progress';
+            const response = await undiciFetch(targetUrl, {
+                method: 'POST',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': 'https://cursos.alura.com.br/',
+                    'Content-Type': 'application/json',
+                    'Cookie': userCookies,
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ url, courseSlug })
+            });
+
+            const text = await response.text();
+            res.status(response.status);
+            try {
+                return res.json(JSON.parse(text));
+            } catch {
+                return res.send(text);
+            }
+        } catch (err: any) {
+            return res.status(500).json({ error: err.message });
+        }
+    });
+
+    const handleEduspProxy = async (req: express.Request, res: express.Response) => {
+        let targetPath = req.params[0] || req.path.replace(/^\//, '');
+        if (targetPath.startsWith('proxy-edusp/')) {
+            targetPath = targetPath.replace(/^proxy-edusp\//, '');
+        }
         const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
         const targetUrl = `https://edusp-api.ip.tv/${targetPath}${queryString}`;
 
         try {
             const headers: Record<string, string> = {
-                'accept': req.headers['accept'] || 'application/json, text/plain, */*',
-                'content-type': req.headers['content-type'] || 'application/json',
+                'accept': (req.headers['accept'] as string) || 'application/json, text/plain, */*',
+                'content-type': (req.headers['content-type'] as string) || 'application/json',
                 'x-api-platform': 'webclient',
                 'x-api-realm': 'edusp',
                 'origin': 'https://saladofuturo.educacao.sp.gov.br',
                 'referer': 'https://saladofuturo.educacao.sp.gov.br/',
                 'user-agent': USER_AGENT
             };
-            if (req.headers['x-api-key']) {
-                headers['x-api-key'] = req.headers['x-api-key'] as string;
-            }
+            
+            if (req.headers['x-api-key']) headers['x-api-key'] = req.headers['x-api-key'] as string;
+            if (req.headers['authorization']) headers['authorization'] = req.headers['authorization'] as string;
 
             const fetchOptions: any = {
                 method: req.method,
@@ -1233,7 +1406,7 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
             };
 
             if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body && Object.keys(req.body).length > 0) {
-                fetchOptions.body = JSON.stringify(req.body);
+                fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
             }
 
             const response = await undiciFetch(targetUrl, fetchOptions);
@@ -1249,7 +1422,10 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
             console.error('[ProxyEduSP] Erro ao retransmitir:', err.message);
             res.status(500).json({ error: err.message });
         }
-    });
+    };
+
+    app.all("/proxy-edusp/*", handleEduspProxy);
+    app.all(["/room/*", "/tms/*", "/user/*", "/auth/*", "/school/*", "/notification/*"], handleEduspProxy);
 
     app.get("/ping", (req, res) => {
         res.json({ status: 'ok', online: true, timestamp: new Date().toISOString() });

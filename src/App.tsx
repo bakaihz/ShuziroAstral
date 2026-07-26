@@ -397,7 +397,7 @@ export default function App() {
           toastMessage.type === 'error' ? 'bg-[#121214] border-red-500/50 text-red-400' :
           'bg-[#121214] border-zinc-700 text-zinc-200'
         }`}>
-          {toastMessage.text}
+          <span>{toastMessage.text}</span>
         </div>
       )}
 
