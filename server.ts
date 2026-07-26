@@ -10,14 +10,14 @@ import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
-const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 const EDUSP_API = 'https://edusp-api.ip.tv';
 const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/credenciais/api/LoginCompletoToken';
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
-    "https://edusp-api.ip.tv",
-    "https://backend.shuziroastral.lol"
+    "https://backend.shuziroastral.lol",
+    "https://edusp-api.ip.tv"
 ];
 
 async function startServer() {
@@ -29,10 +29,31 @@ async function startServer() {
 
     const agent = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
 
+    function getCustomTunnel(req?: express.Request): string | undefined {
+        if (!req) return undefined;
+        const headerVal = req.headers['x-tunnel-url'] || req.headers['x-backend-url'];
+        if (typeof headerVal === 'string' && headerVal.trim()) {
+            return headerVal.trim();
+        }
+        return undefined;
+    }
+
     // ======================= FUNÇÃO COM FALLBACK =======================
-    async function callOfficialApi(url: string, method: string, token: string, body?: any) {
+    async function callOfficialApi(url: string, method: string, token: string, body?: any, customTunnel?: string) {
         let lastError: any = null;
-        for (const domain of PROXY_TUNNELS) {
+
+        const tunnelsToTry: string[] = [];
+        if (customTunnel && customTunnel.trim()) {
+            const clean = customTunnel.trim().replace(/\/+$/, '');
+            tunnelsToTry.push(clean);
+        }
+        PROXY_TUNNELS.forEach(t => {
+            if (!tunnelsToTry.includes(t)) {
+                tunnelsToTry.push(t);
+            }
+        });
+
+        for (const domain of tunnelsToTry) {
             let cleanPath = url.replace(/^https?:\/\/edusp-api\.ip\.tv\/?/, '');
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
@@ -55,10 +76,16 @@ async function startServer() {
                 'x-api-realm': 'edusp',
                 'origin': 'https://saladofuturo.educacao.sp.gov.br',
                 'referer': 'https://saladofuturo.educacao.sp.gov.br/',
-                'user-agent': USER_AGENT
+                'user-agent': USER_AGENT,
+                'sec-ch-ua': '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'cross-site'
             };
-            const options: any = { method, headers, signal: AbortSignal.timeout(20000) };
-            if (body) options.body = JSON.stringify(body);
+            const options: any = { method, headers, signal: AbortSignal.timeout(7000) };
+            if (body) options.body = typeof body === 'string' ? body : JSON.stringify(body);
 
             for (const finalUrl of urlsToTry) {
                 try {
@@ -86,7 +113,7 @@ async function startServer() {
                         errObj.status = response.status;
 
                         if (isCloudflareBlock) {
-                            console.warn(`[API] Cloudflare bloqueou a requisição em ${finalUrl}. Tentando próximo túnel...`);
+                            console.warn(`[API] Cloudflare bloqueou a requisição em ${finalUrl}. Tentando próximo...`);
                             lastError = errObj;
                             break;
                         }
@@ -396,7 +423,7 @@ async function startServer() {
         const token = req.headers['x-api-key'] as string;
         if (!token) return res.status(401).json({ error: "Token ausente" });
         try {
-            const data = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token);
+            const data = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, getCustomTunnel(req));
             res.json(data);
         } catch (err: any) {
             res.status(err.status || 500).json({ error: err.message });
@@ -418,7 +445,7 @@ async function startServer() {
         }
 
         try {
-            const data = await callOfficialApi(officialUrl, 'GET', token);
+            const data = await callOfficialApi(officialUrl, 'GET', token, undefined, getCustomTunnel(req));
             const tasks = Array.isArray(data) ? data : (data.results || data.items || []);
             res.json(tasks);
         } catch (err: any) {
@@ -426,9 +453,9 @@ async function startServer() {
         }
     });
 
-async function getFallbackRoomSlug(token: string): Promise<string> {
+async function getFallbackRoomSlug(token: string, customTunnel?: string): Promise<string> {
     try {
-        const data = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token);
+        const data = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
         const rooms = data?.rooms || data?.items || (Array.isArray(data) ? data : []);
         for (const room of rooms) {
             const inner = (typeof room.room === 'object' && room.room) ? room.room : {};
@@ -449,6 +476,7 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
         const token = req.headers['x-api-key'] as string;
         const { taskId } = req.params;
         const room_name = String(req.query.room_name || '').trim();
+        const customTunnel = getCustomTunnel(req);
         if (!token) return res.status(401).json({ error: "Token ausente" });
         console.log(`[Apply] taskId=${taskId}, room_name=${room_name || 'não fornecido'}`);
 
@@ -462,7 +490,7 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
         applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false`);
 
         if (!isValidSlug) {
-            const fallbackSlug = await getFallbackRoomSlug(token);
+            const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
             if (fallbackSlug) {
                 applyUrls.unshift(`/tms/task/${taskId}/apply?preview_mode=false&token_code=null&room_name=${encodeURIComponent(fallbackSlug)}`);
             }
@@ -471,7 +499,7 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
         let lastErr: any = null;
         for (const url of applyUrls) {
             try {
-                const data = await callOfficialApi(url, 'GET', token);
+                const data = await callOfficialApi(url, 'GET', token, undefined, customTunnel);
                 if (data) return res.json(data);
             } catch (err: any) {
                 console.warn(`[Apply] Tentativa na URL ${url} resultou em: ${err.message}`);
@@ -551,6 +579,7 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
 
     app.post("/api/complete", async (req, res) => {
         const { task_id, question_id, room_for_apply, auth_token, titulo, texto, answer_id, status } = req.body;
+        const customTunnel = getCustomTunnel(req);
         if (!auth_token) return res.status(401).json({ error: "Token ausente" });
 
         const sendTitle = titulo || 'Redação';
@@ -570,7 +599,7 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
         let execOn = isValidSlug ? rawRoom : '';
 
         if (!execOn) {
-            execOn = await getFallbackRoomSlug(auth_token);
+            execOn = await getFallbackRoomSlug(auth_token, customTunnel);
             console.log(`[Complete] Room slug resolvida automaticamente: '${execOn}'`);
         }
 
@@ -588,13 +617,13 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
         const sendAnswer = async (p: any) => {
             if (answer_id) {
                 try {
-                    return await callOfficialApi(`/tms/task/${task_id}/answer/${answer_id}`, 'PUT', auth_token, p);
+                    return await callOfficialApi(`/tms/task/${task_id}/answer/${answer_id}`, 'PUT', auth_token, p, customTunnel);
                 } catch (putErr: any) {
                     console.warn(`[Complete] PUT falhou (${putErr.message}), tentando POST...`);
-                    return await callOfficialApi(`/tms/task/${task_id}/answer`, 'POST', auth_token, p);
+                    return await callOfficialApi(`/tms/task/${task_id}/answer`, 'POST', auth_token, p, customTunnel);
                 }
             }
-            return await callOfficialApi(`/tms/task/${task_id}/answer`, 'POST', auth_token, p);
+            return await callOfficialApi(`/tms/task/${task_id}/answer`, 'POST', auth_token, p, customTunnel);
         };
 
         try {
@@ -603,7 +632,7 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
                 data = await sendAnswer(payload);
             } catch (err: any) {
                 if (err.message && err.message.includes('executed_on')) {
-                    const freshSlug = await getFallbackRoomSlug(auth_token);
+                    const freshSlug = await getFallbackRoomSlug(auth_token, customTunnel);
                     if (freshSlug && freshSlug !== payload.executed_on) {
                         console.warn(`[Complete] Re-tentando com room slug fresca: '${freshSlug}'`);
                         payload.executed_on = freshSlug;
@@ -1239,12 +1268,32 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
             const clientCookies = (req.headers['cookie'] || req.headers['x-cookies'] || '') as string;
             const csrfToken = (req.headers['x-csrftoken'] || req.headers['x-csrf-token'] || '') as string;
 
+            const isEdusp = targetUrl.includes('edusp-api.ip.tv');
+            const isAlura = targetUrl.includes('alura.com.br');
+
             const headers: Record<string, string> = {
                 'User-Agent': USER_AGENT,
-                'Referer': 'https://cursos.alura.com.br/',
-                'Accept': 'application/json, text/plain, */*'
+                'Accept': (req.headers['accept'] as string) || 'application/json, text/plain, */*',
+                'sec-ch-ua': '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"'
             };
 
+            if (isEdusp) {
+                headers['Referer'] = 'https://saladofuturo.educacao.sp.gov.br/';
+                headers['Origin'] = 'https://saladofuturo.educacao.sp.gov.br';
+                headers['x-api-platform'] = 'webclient';
+                headers['x-api-realm'] = 'edusp';
+            } else if (isAlura) {
+                headers['Referer'] = 'https://cursos.alura.com.br/';
+            } else if (req.headers['referer']) {
+                headers['Referer'] = req.headers['referer'] as string;
+            }
+
+            if (req.headers['x-api-key']) headers['x-api-key'] = req.headers['x-api-key'] as string;
+            if (req.headers['authorization']) headers['Authorization'] = req.headers['authorization'] as string;
+            if (req.headers['x-api-platform']) headers['x-api-platform'] = req.headers['x-api-platform'] as string;
+            if (req.headers['x-api-realm']) headers['x-api-realm'] = req.headers['x-api-realm'] as string;
             if (clientCookies) headers['Cookie'] = clientCookies;
             if (csrfToken) headers['X-CSRFToken'] = csrfToken;
             if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'] as string;
@@ -1252,7 +1301,7 @@ async function getFallbackRoomSlug(token: string): Promise<string> {
             const fetchOptions: any = {
                 method: req.method,
                 headers,
-                signal: AbortSignal.timeout(20000)
+                signal: AbortSignal.timeout(10000)
             };
 
             if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body) {

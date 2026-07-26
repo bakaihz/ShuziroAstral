@@ -209,8 +209,11 @@ export default function App() {
 
   const fetchTasks = async (token: string, currentData: UserData) => {
     try {
+      const authHeaders: Record<string, string> = { 'x-api-key': token };
+      if (tunnelUrl) authHeaders['x-tunnel-url'] = tunnelUrl;
+
       const roomsRes = await fetch('/api/rooms', {
-        headers: { 'x-api-key': token }
+        headers: authHeaders
       });
       let rooms: any[] = [];
       if (roomsRes.ok) {
@@ -248,8 +251,8 @@ export default function App() {
         const targetParams = uniqueTargets.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
         try {
           const [tRes, eRes] = await Promise.all([
-            fetch(`/api/tms/task/todo?is_essay=false&${targetParams}`, { headers: { 'x-api-key': token } }),
-            fetch(`/api/tms/task/todo?is_essay=true&${targetParams}`, { headers: { 'x-api-key': token } })
+            fetch(`/api/tms/task/todo?is_essay=false&${targetParams}`, { headers: authHeaders }),
+            fetch(`/api/tms/task/todo?is_essay=true&${targetParams}`, { headers: authHeaders })
           ]);
           if (tRes.ok) addTasks(await tRes.json());
           if (eRes.ok) addTasks(await eRes.json());
@@ -262,8 +265,8 @@ export default function App() {
             try {
               const encTarget = encodeURIComponent(t);
               const [tRes, eRes] = await Promise.all([
-                fetch(`/api/tms/task/todo?is_essay=false&publication_target=${encTarget}`, { headers: { 'x-api-key': token } }),
-                fetch(`/api/tms/task/todo?is_essay=true&publication_target=${encTarget}`, { headers: { 'x-api-key': token } })
+                fetch(`/api/tms/task/todo?is_essay=false&publication_target=${encTarget}`, { headers: authHeaders }),
+                fetch(`/api/tms/task/todo?is_essay=true&publication_target=${encTarget}`, { headers: authHeaders })
               ]);
               if (tRes.ok) addTasks(await tRes.json());
               if (eRes.ok) addTasks(await eRes.json());
