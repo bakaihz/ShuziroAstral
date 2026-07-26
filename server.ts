@@ -16,8 +16,8 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
-    "https://api.davilucas99kk.workers.dev",
-    "https://edusp-api.ip.tv"
+    "https://edusp-api.ip.tv",
+    "https://api.davilucas99kk.workers.dev"
 ];
 
 async function startServer() {
@@ -88,13 +88,17 @@ async function startServer() {
             let headers: Record<string, string> = {
                 'accept': 'application/json, text/plain, */*',
                 'content-type': 'application/json',
-                'x-api-key': token,
                 'x-api-platform': 'webclient',
                 'x-api-realm': 'edusp',
                 'origin': 'https://saladofuturo.educacao.sp.gov.br',
                 'referer': 'https://saladofuturo.educacao.sp.gov.br/',
                 'user-agent': clientUserAgent || USER_AGENT
             };
+
+            if (token) {
+                headers['x-api-key'] = token;
+                headers['authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+            }
 
             if (clientCookies) {
                 headers['cookie'] = clientCookies;
