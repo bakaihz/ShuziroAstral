@@ -16,8 +16,9 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
-    "https://edusp-api.ip.tv",
-    "https://api.shuziroastral.lol"
+    "https://api.davilucas99kk.workers.dev",
+    "https://api.shuziroastral.lol",
+    "https://edusp-api.ip.tv"
 ];
 
 async function startServer() {
