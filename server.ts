@@ -87,12 +87,19 @@ async function startServer() {
 
             let headers: Record<string, string> = {
                 'accept': 'application/json, text/plain, */*',
+                'accept-language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
                 'content-type': 'application/json',
                 'x-api-platform': 'webclient',
                 'x-api-realm': 'edusp',
                 'origin': 'https://saladofuturo.educacao.sp.gov.br',
                 'referer': 'https://saladofuturo.educacao.sp.gov.br/',
-                'user-agent': clientUserAgent || USER_AGENT
+                'user-agent': clientUserAgent || USER_AGENT,
+                'sec-ch-ua': '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'cross-site'
             };
 
             if (token) {
@@ -102,16 +109,6 @@ async function startServer() {
 
             if (clientCookies) {
                 headers['cookie'] = clientCookies;
-            }
-
-            // Para edusp-api.ip.tv direta, inclui sec-ch-ua se necessário; para workers.dev, mantemos headers limpos para não engatilhar WAF por TLS fingerprint mismatch
-            if (!domain.includes('workers.dev')) {
-                headers['sec-ch-ua'] = '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"';
-                headers['sec-ch-ua-mobile'] = '?0';
-                headers['sec-ch-ua-platform'] = '"Windows"';
-                headers['sec-fetch-dest'] = 'empty';
-                headers['sec-fetch-mode'] = 'cors';
-                headers['sec-fetch-site'] = 'cross-site';
             }
 
             const options: any = { method, headers, signal: AbortSignal.timeout(7000) };
