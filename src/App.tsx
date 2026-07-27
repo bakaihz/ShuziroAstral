@@ -215,7 +215,10 @@ export default function App() {
 
   const fetchTasks = async (token: string, currentData: UserData) => {
     try {
-      const authHeaders: Record<string, string> = { 'x-api-key': token };
+      const authHeaders: Record<string, string> = { 
+        'x-api-key': token,
+        'x-client-user-agent': navigator.userAgent
+      };
       if (tunnelUrl) authHeaders['x-tunnel-url'] = tunnelUrl;
 
       const roomsRes = await fetch('/api/rooms', {
@@ -281,6 +284,18 @@ export default function App() {
             }
           }
         }
+      }
+
+      // Sempre realiza a busca direta geral (sem filtro de target) para garantir que NENHUMA tarefa/redação fique de fora
+      try {
+        const [tDirect, eDirect] = await Promise.all([
+          fetch(`/api/tms/task/todo?is_essay=false`, { headers: authHeaders }),
+          fetch(`/api/tms/task/todo?is_essay=true`, { headers: authHeaders })
+        ]);
+        if (tDirect.ok) addTasks(await tDirect.json());
+        if (eDirect.ok) addTasks(await eDirect.json());
+      } catch (e) {
+        console.warn('Erro ao buscar tarefas diretas:', e);
       }
 
       setTasks(allFetchedTasks);

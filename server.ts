@@ -32,8 +32,8 @@ async function startServer() {
     function getCustomTunnel(req?: express.Request): { tunnel?: string; userAgent?: string; cookies?: string } | undefined {
         if (!req) return undefined;
         const headerVal = req.headers['x-tunnel-url'] || req.headers['x-backend-url'];
-        const userAgent = req.headers['user-agent'];
-        const cookies = req.headers['cookie'];
+        const userAgent = (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string);
+        const cookies = (req.headers['x-custom-cookie'] as string) || (req.headers['cookie'] as string);
         
         let tunnel: string | undefined = undefined;
         if (typeof headerVal === 'string' && headerVal.trim()) {
@@ -480,7 +480,8 @@ async function startServer() {
             const data = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, getCustomTunnel(req));
             res.json(data);
         } catch (err: any) {
-            res.status(err.status || 500).json({ error: err.message });
+            console.warn(`[/api/rooms] Aviso: Busca de salas retornou erro (${err.message}). Retornando lista de salas vazia para prosseguir.`);
+            res.json({ rooms: [], items: [], blocked: true, message: err.message });
         }
     });
 
