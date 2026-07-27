@@ -52,12 +52,12 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Global backend / tunnel ping states
-  const DEFAULT_BACKEND_URL = 'https://api.davilucas99kk.workers.dev';
+  const DEFAULT_BACKEND_URL = '';
   
   const [tunnelUrl, setTunnelUrl] = useState(() => {
     const saved = typeof window !== 'undefined' ? (localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel')) : null;
-    if (saved && saved.trim() && !saved.includes('shuziroastral.lol')) return saved.trim();
-    return DEFAULT_BACKEND_URL;
+    if (saved && saved.trim() && saved !== 'https://shuziroastral.lol') return saved.trim();
+    return '';
   });
   const [pingStatus, setPingStatus] = useState<'idle' | 'pinging' | 'success' | 'failed'>('idle');
   const [pingResponse, setPingResponse] = useState<any>(null);
@@ -66,14 +66,10 @@ export default function App() {
   // Load saved backend URL on mount
   useEffect(() => {
     const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
-    if (saved && (saved.includes('shuziroastral.lol') || !saved.trim())) {
-      localStorage.removeItem('shuziro_backend_url');
-      localStorage.removeItem('shuziro_termux_tunnel');
-      setTunnelUrl(DEFAULT_BACKEND_URL);
-    } else if (saved && saved.trim()) {
+    if (saved && saved.trim() && saved !== 'https://shuziroastral.lol') {
       setTunnelUrl(saved.trim());
     } else {
-      setTunnelUrl(DEFAULT_BACKEND_URL);
+      setTunnelUrl('');
     }
   }, []);
 
@@ -87,7 +83,9 @@ export default function App() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2500); // 2.5s timeout
 
-      const res = await fetch(`${url}/ping`, {
+      const targetPingUrl = url && url.startsWith('http') ? `${url}/ping` : '/api/ping';
+
+      const res = await fetch(targetPingUrl, {
         method: 'GET',
         signal: controller.signal,
         headers: {
@@ -108,7 +106,6 @@ export default function App() {
       setPingResponse(data);
       setPingStatus('success');
     } catch (err: any) {
-      console.warn('Erro ao pingar o servidor backend:', err);
       setPingStatus('failed');
     }
   };

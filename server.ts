@@ -17,12 +17,12 @@ const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
     "https://edusp-api.ip.tv",
-    "https://api.davilucas99kk.workers.dev"
+    "https://api.shuziroastral.lol"
 ];
 
 async function startServer() {
     const app = express();
-    const PORT = Number(process.env.PORT) || 9000;
+    const PORT = Number(process.env.PORT) || 3000;
 
     app.use(cors());
     app.use(express.json());
@@ -38,7 +38,8 @@ async function startServer() {
         let tunnel: string | undefined = undefined;
         if (typeof headerVal === 'string' && headerVal.trim()) {
             const trimmed = headerVal.trim();
-            if (!trimmed.includes('shuziroastral.lol')) {
+            // Permite api.shuziroastral.lol e outros túneis válidos
+            if (trimmed !== 'https://shuziroastral.lol' && trimmed !== 'http://shuziroastral.lol') {
                 tunnel = trimmed;
             }
         }
@@ -68,21 +69,9 @@ async function startServer() {
             let cleanPath = url.replace(/^https?:\/\/edusp-api\.ip\.tv\/?/, '');
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
-            let urlsToTry: string[] = [];
-            if (domain.includes('workers.dev')) {
-                const targetFull = `https://edusp-api.ip.tv${cleanPath}`;
-                urlsToTry = [
-                    `${domain}${cleanPath}`,
-                    `${domain}?url=${encodeURIComponent(targetFull)}`
-                ];
-            } else if (domain.includes('localhost')) {
-                const targetFull = `https://edusp-api.ip.tv${cleanPath}`;
-                urlsToTry = [
-                    `${domain}/proxy?url=${encodeURIComponent(targetFull)}`,
-                    `${domain}${cleanPath}`
-                ];
-            } else {
-                urlsToTry = [`${domain}${cleanPath}`];
+            let urlsToTry: string[] = [`${domain}${cleanPath}`];
+            if (domain.includes('localhost') && !domain.includes('localhost:3000')) {
+                urlsToTry.push(`${domain}/proxy?url=${encodeURIComponent(`https://edusp-api.ip.tv${cleanPath}`)}`);
             }
 
             let headers: Record<string, string> = {
@@ -486,10 +475,70 @@ async function startServer() {
         const token = req.headers['x-api-key'] as string;
         if (!token) return res.status(401).json({ error: "Token ausente" });
         const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?') + 1) : '';
-        const hasIsEssay = queryString.includes('is_essay=');
-        
+        const customTunnel = getCustomTunnel(req);
+
+        // Se a requisição NÃO veio com publication_target na querystring
+        if (!queryString.includes('publication_target=')) {
+            try {
+                // Busca as salas do aluno para extrair os publication_targets
+                const roomData = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
+                const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
+                const targets: string[] = [];
+                for (const r of rooms) {
+                    const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
+                    const candidates = [r.publication_target, r.name, r.room_name, inner.name, inner.room_name, r.id, r.code];
+                    for (const c of candidates) {
+                        if (c) targets.push(String(c).trim());
+                    }
+                }
+                const uniqueTargets = [...new Set(targets)].filter(Boolean);
+
+                if (uniqueTargets.length > 0) {
+                    const allTasks: any[] = [];
+                    const seenIds = new Set<string>();
+
+                    for (const target of uniqueTargets) {
+                        let targetUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true&publication_target=${encodeURIComponent(target)}`;
+                        if (queryString) targetUrl += `&${queryString}`;
+                        if (!queryString.includes('is_essay=')) targetUrl += `&is_essay=true`;
+
+                        try {
+                            const data = await callOfficialApi(targetUrl, 'GET', token, undefined, customTunnel);
+                            const items = Array.isArray(data) ? data : (data.results || data.items || []);
+                            for (const item of items) {
+                                const id = String(item.id || item.task_id || '');
+                                if (id && !seenIds.has(id)) {
+                                    seenIds.add(id);
+                                    allTasks.push(item);
+                                }
+                            }
+                        } catch (e: any) {
+                            // Ignora erro de sala individual
+                        }
+                    }
+                    return res.json(allTasks);
+                } else {
+                    const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
+                    if (fallbackSlug) {
+                        let targetUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true&publication_target=${encodeURIComponent(fallbackSlug)}`;
+                        if (queryString) targetUrl += `&${queryString}`;
+                        if (!queryString.includes('is_essay=')) targetUrl += `&is_essay=true`;
+
+                        const data = await callOfficialApi(targetUrl, 'GET', token, undefined, customTunnel);
+                        const tasks = Array.isArray(data) ? data : (data.results || data.items || []);
+                        return res.json(tasks);
+                    }
+                }
+                return res.json([]);
+            } catch (err: any) {
+                console.warn(`[/api/tms/task/todo] Erro ao auto-resolver publication_target: ${err.message}`);
+                return res.json([]);
+            }
+        }
+
+        // Se publication_target foi passado na querystring
         let officialUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`;
-        if (!hasIsEssay) {
+        if (!queryString.includes('is_essay=')) {
             officialUrl += `&is_essay=true`;
         }
         if (queryString) {
@@ -497,11 +546,12 @@ async function startServer() {
         }
 
         try {
-            const data = await callOfficialApi(officialUrl, 'GET', token, undefined, getCustomTunnel(req));
+            const data = await callOfficialApi(officialUrl, 'GET', token, undefined, customTunnel);
             const tasks = Array.isArray(data) ? data : (data.results || data.items || []);
             res.json(tasks);
         } catch (err: any) {
-            res.status(err.status || 500).json({ error: err.message });
+            console.warn(`[/api/tms/task/todo] Erro na busca de tarefas (${err.message}).`);
+            res.json([]);
         }
     });
 
