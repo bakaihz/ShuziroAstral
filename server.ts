@@ -71,8 +71,10 @@ async function startServer() {
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
             let urlsToTry: string[] = [`${domain}${cleanPath}`];
-            if (domain.includes('localhost') && !domain.includes('localhost:3000')) {
-                urlsToTry.push(`${domain}/proxy?url=${encodeURIComponent(`https://edusp-api.ip.tv${cleanPath}`)}`);
+            if (!domain.includes('edusp-api.ip.tv')) {
+                const targetFull = `https://edusp-api.ip.tv${cleanPath}`;
+                urlsToTry.push(`${domain}?url=${encodeURIComponent(targetFull)}`);
+                urlsToTry.push(`${domain}/proxy?url=${encodeURIComponent(targetFull)}`);
             }
 
             let headers: Record<string, string> = {
