@@ -8,7 +8,7 @@
  * Deploy:
  * 1. https://dash.cloudflare.com → Workers & Pages → Create Worker
  * 2. Cole este código e salve.
- * 3. Settings → Triggers → Custom Domains → add seu domínio (ex: api.shuziroastral.lol)
+ * 3. Settings → Triggers → Custom Domains → add seu domínio (ex: api.shuziroastral.lol ou api.davilucas99kk.workers.dev)
  * 4. No painel do Cloudflare, desative "Bot Fight Mode" em Security → Bots
  * 5. Em Security → WAF → Custom Rules: crie regra Skip para seu hostname.
  */
@@ -34,8 +34,10 @@ export default {
     }
 
     try {
-      // ─── 2. HEALTHCHECK ───
-      if (url.pathname === '/ping' || url.pathname === '/health' || url.pathname === '/') {
+      const customUrl = url.searchParams.get('url');
+
+      // ─── 2. HEALTHCHECK (Apenas se NÃO houver parâmetro ?url= de redirecionamento) ───
+      if (!customUrl && (url.pathname === '/ping' || url.pathname === '/health' || url.pathname === '/')) {
         return jsonResponse({
           status: 'ok',
           online: true,
@@ -48,10 +50,9 @@ export default {
 
       // ─── 3. MONTA URL DE DESTINO ───
       let targetUrl;
-      const customUrl = url.searchParams.get('url');
 
       if (customUrl) {
-        // Modo proxy genérico (Alura, Matific, etc)
+        // Modo proxy genérico (Alura, Matific, EduSP com query full)
         targetUrl = customUrl;
       } else {
         // Modo EduSP direto — prefixa o host
@@ -96,7 +97,6 @@ export default {
         headers.set('Origin', 'https://cursos.alura.com.br');
         headers.set('Referer', 'https://cursos.alura.com.br/');
       } else {
-        // Origem genérica — mantém ou define um referer plausível
         if (!headers.has('Origin')) headers.set('Origin', 'https://saladofuturo.educacao.sp.gov.br');
         if (!headers.has('Referer')) headers.set('Referer', 'https://saladofuturo.educacao.sp.gov.br/');
       }
@@ -126,7 +126,6 @@ export default {
       responseHeaders.set('Access-Control-Allow-Headers', '*');
       responseHeaders.set('Access-Control-Expose-Headers', '*');
 
-      // Se houver Set-Cookie, expõe pro frontend
       const setCookie = responseHeaders.get('set-cookie');
       if (setCookie) {
         responseHeaders.set('x-proxy-set-cookie', setCookie);
