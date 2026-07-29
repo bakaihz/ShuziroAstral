@@ -300,7 +300,10 @@ export default function App() {
 
   const handleStartAutomation = async (taskIds: string[], timeSec: number, mode: 'draft' | 'submitted') => {
     setProgressOpen(true);
-    setProgressTitle('Gerando e enviando redações via IA...');
+    const firstTask = tasks.find(t => String(t.id || t.task_id) === taskIds[0]);
+    const isEssayAutomation = firstTask?.is_essay !== false;
+
+    setProgressTitle(isEssayAutomation ? 'Gerando e enviando redações via IA...' : 'Resolvendo e enviando tarefas SP...');
     setProgressCurrent(0);
     setProgressTotal(taskIds.length);
     setProgressLogs([]);
@@ -312,21 +315,31 @@ export default function App() {
     for (let i = 0; i < taskIds.length; i++) {
       const tid = taskIds[i];
       const taskItem = tasks.find(t => String(t.id || t.task_id) === tid);
-      const title = taskItem?.title || `Redação #${tid}`;
+      const title = taskItem?.title || `Atividade #${tid}`;
+      const isEssay = taskItem?.is_essay !== false;
 
       try {
-        logs.unshift({ text: `Gerando redação: "${title}"...`, type: 'info' });
-        setProgressLogs([...logs]);
+        let genTitle = title;
+        let genTexto = '';
 
-        // 1. Generate via AI
-        const genRes = await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ genero: 'dissertativo-argumentativo', contexto: title })
-        });
-        const genData = await genRes.json();
+        if (isEssay) {
+          logs.unshift({ text: `Gerando redação com IA: "${title}"...`, type: 'info' });
+          setProgressLogs([...logs]);
 
-        // 2. Apply task details
+          const genRes = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ genero: 'dissertativo-argumentativo', contexto: title })
+          });
+          const genData = await genRes.json();
+          genTitle = genData.titulo || title;
+          genTexto = genData.texto || 'Redação desenvolvida com sucesso.';
+        } else {
+          logs.unshift({ text: `Resolvendo tarefa: "${title}"...`, type: 'info' });
+          setProgressLogs([...logs]);
+        }
+
+        // Apply task details
         let rawRoomTarget = taskItem?.publication_target || taskItem?.room_name || taskItem?.room_for_apply || '';
         if (typeof rawRoomTarget !== 'string' || !(/^r[0-9a-f]+-l$/i.test(rawRoomTarget) || (rawRoomTarget.startsWith('r') && rawRoomTarget.length >= 10))) {
           rawRoomTarget = '';
@@ -339,8 +352,6 @@ export default function App() {
           });
           if (applyRes.ok) {
             applyData = await applyRes.json();
-          } else {
-            console.warn(`[Apply] Resposta HTTP ${applyRes.status} para tarefa #${tid}. Prosseguindo diretamente com o envio...`);
           }
         } catch (e: any) {
           console.warn(`[Apply] Aviso ao aplicar task ${tid}:`, e.message);
@@ -350,7 +361,7 @@ export default function App() {
         const answerId = applyData.answers?.[String(questionId)]?.answer_id;
         const roomForApply = applyData.room_name || applyData.executed_on || applyData.publication_target || applyData.room_for_apply || roomTarget;
 
-        // 3. Complete / Submit task
+        // Complete / Submit task
         const compRes = await fetch('/api/complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -359,8 +370,10 @@ export default function App() {
             question_id: questionId,
             room_for_apply: roomForApply,
             auth_token: authToken,
-            titulo: genData.titulo || title,
-            texto: genData.texto || 'Redação gerada com sucesso pelo ShuziroAstral Hub.',
+            is_essay: isEssay,
+            titulo: genTitle,
+            texto: genTexto,
+            questions: applyData.questions || [],
             answer_id: answerId,
             status: mode,
             duration: timeSec || 30,
@@ -375,7 +388,7 @@ export default function App() {
         }
 
         successCount++;
-        logs.unshift({ text: `Sucesso: "${title}" processada!`, type: 'ok' });
+        logs.unshift({ text: `Sucesso: "${title}" ${mode === 'submitted' ? 'concluída' : 'salva como rascunho'}!`, type: 'ok' });
       } catch (err: any) {
         logs.unshift({ text: `Erro em "${title}": ${err.message}`, type: 'err' });
       }
@@ -389,7 +402,7 @@ export default function App() {
     }
 
     setIsCompleted(true);
-    showToast(`Automação concluída: ${successCount}/${taskIds.length} enviadas!`, 'success');
+    showToast(`Automação concluída: ${successCount}/${taskIds.length} processadas!`, 'success');
     fetchTasks(authToken, userData);
   };
 
@@ -469,7 +482,9 @@ export default function App() {
           {currentPage === 'tarefas' && (
             <TarefasView 
               tasks={tasks} 
+              authToken={authToken}
               onRefresh={() => fetchTasks(authToken, userData)} 
+              onStartAutomation={handleStartAutomation}
             />
           )}
           {currentPage === 'redacoes' && (

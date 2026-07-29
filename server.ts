@@ -626,19 +626,19 @@ async function startServer() {
         if (fallbackSlug) targetsToTry.add(fallbackSlug);
 
         // 2. Busca tarefas e redações para cada alvo (publication_target) encontrado
-        // A API EduSP exige obrigatoriamente publication_target na querystring
         for (const target of targetsToTry) {
             const encTarget = encodeURIComponent(target);
             const targetQueries = [
-                `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true&publication_target=${encTarget}${essayFilter}`,
-                `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`
+                `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`,
+                `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
+                `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
+                `/tms/task/draft?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`
             ];
 
             for (const qUrl of targetQueries) {
                 try {
                     const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
                     addItems(data);
-                    if (Array.isArray(data) && data.length > 0) break; // Se já retornou tarefas para este target, não precisa da query redundante
                 } catch (e: any) {
                     // ignora erros de alvos individuais que não tenham tarefas
                 }
@@ -773,21 +773,9 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.post("/api/complete", async (req, res) => {
-        const { task_id, question_id, room_for_apply, auth_token, titulo, texto, answer_id, status } = req.body;
+        const { task_id, question_id, room_for_apply, auth_token, titulo, texto, answer_id, status, is_essay, questions: reqQuestions } = req.body;
         const customTunnel = getCustomTunnel(req);
         if (!auth_token) return res.status(401).json({ error: "Token ausente" });
-
-        const sendTitle = titulo || 'Redação';
-        const sendBody = texto || '';
-
-        const answerEntry: any = {
-            question_id: Number(question_id) || 0,
-            question_type: "essay",
-            answer: {
-                title: sendTitle,
-                body: sendBody
-            }
-        };
 
         const rawRoom = typeof room_for_apply === 'string' ? room_for_apply.trim() : '';
         const isValidSlug = /^r[0-9a-f]+-l$/i.test(rawRoom) || (rawRoom.startsWith('r') && rawRoom.length >= 10);
@@ -798,14 +786,72 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             console.log(`[Complete] Room slug resolvida automaticamente: '${execOn}'`);
         }
 
+        let answersMap: Record<string, any> = {};
+
+        if (is_essay !== false && (titulo || texto || question_id)) {
+            // Fluxo de Redação
+            const sendTitle = titulo || 'Redação';
+            const sendBody = texto || '';
+            const qId = Number(question_id) || 0;
+            answersMap[String(qId)] = {
+                question_id: qId,
+                question_type: "essay",
+                answer: {
+                    title: sendTitle,
+                    body: sendBody
+                }
+            };
+        } else {
+            // Fluxo de Tarefa Normal (Múltipla Escolha / Lição de Casa)
+            let questionsList = reqQuestions;
+            if (!Array.isArray(questionsList) || questionsList.length === 0) {
+                try {
+                    const applyRes = await callOfficialApi(`/tms/task/${task_id}/apply`, 'GET', auth_token, undefined, customTunnel);
+                    questionsList = applyRes?.questions || applyRes?.items || [];
+                } catch (e: any) {
+                    console.warn(`[Complete] Erro ao buscar questões da task ${task_id}:`, e.message);
+                }
+            }
+
+            if (Array.isArray(questionsList) && questionsList.length > 0) {
+                questionsList.forEach((q: any) => {
+                    const qId = Number(q.id || q.question_id);
+                    if (!qId) return;
+
+                    const qType = q.type || q.question_type || "options";
+                    if (qType === "options" || Array.isArray(q.options)) {
+                        const opts = Array.isArray(q.options) ? q.options : [];
+                        const correctOpt = opts.find((o: any) => o.is_correct === true || o.correct === true) || opts[0];
+                        const optId = correctOpt ? (correctOpt.id || correctOpt.option_id) : 1;
+                        answersMap[String(qId)] = {
+                            question_id: qId,
+                            question_type: "options",
+                            answer: Array.isArray(optId) ? optId : [optId]
+                        };
+                    } else {
+                        answersMap[String(qId)] = {
+                            question_id: qId,
+                            question_type: qType,
+                            answer: "Resposta desenvolvida com sucesso."
+                        };
+                    }
+                });
+            } else {
+                const qId = Number(question_id) || 1;
+                answersMap[String(qId)] = {
+                    question_id: qId,
+                    question_type: "options",
+                    answer: [1]
+                };
+            }
+        }
+
         const payload: any = {
             status: status === 'submitted' ? 'submitted' : 'draft',
             accessed_on: 'room',
             executed_on: execOn,
             duration: Number(req.body.duration) || 30,
-            answers: {
-                [String(question_id || 0)]: answerEntry
-            }
+            answers: answersMap
         };
         if (req.body.token) payload.token = req.body.token;
 
