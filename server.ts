@@ -300,13 +300,19 @@ async function startServer() {
             const officialRes: any = await callOfficialApi(
                 '/registration/edusp/token',
                 'POST',
-                '',
+                sedToken,
                 { token: sedToken },
                 customTunnelInfo
             );
-            if (officialRes && officialRes.auth_token) {
-                console.log(`[Token Worker] Sucesso ao obter auth_token EduSP via Worker!`);
-                return officialRes;
+            if (officialRes) {
+                const eduspToken = officialRes.auth_token || officialRes.token || officialRes.access_token || officialRes.data?.auth_token;
+                if (eduspToken) {
+                    console.log(`[Token Worker] Sucesso ao obter auth_token EduSP via Worker!`);
+                    return {
+                        auth_token: eduspToken,
+                        nick: officialRes.nick || officialRes.name || officialRes.nickname || "Aluno SP"
+                    };
+                }
             }
         } catch (workerErr: any) {
             console.warn(`[Token Worker] Falha ao obter token via Worker: ${workerErr.message}`);
@@ -363,6 +369,8 @@ async function startServer() {
                     "content-type": "application/json",
                     "x-api-platform": "webclient",
                     "x-api-realm": "edusp",
+                    "x-api-key": sedToken,
+                    "authorization": `Bearer ${sedToken}`,
                     "user-agent": clientUA,
                     "referer": "https://saladofuturo.educacao.sp.gov.br/",
                     "origin": "https://saladofuturo.educacao.sp.gov.br"
@@ -370,7 +378,8 @@ async function startServer() {
                 body: JSON.stringify({ token: sedToken })
             });
             const data: any = await vsfApi.json();
-            if (data && data.auth_token) return data;
+            const eduspToken = data?.auth_token || data?.token || data?.access_token;
+            if (eduspToken) return { auth_token: eduspToken, nick: data.nick || "Aluno SP" };
             throw new Error(data?.message || 'Falha ao obter auth_token da EduSP');
         } catch (err: any) {
             console.warn(`[Token JSDOM] erro: ${err.message}, tentando chamada direta...`);
@@ -380,6 +389,8 @@ async function startServer() {
                     "content-type": "application/json",
                     "x-api-platform": "webclient",
                     "x-api-realm": "edusp",
+                    "x-api-key": sedToken,
+                    "authorization": `Bearer ${sedToken}`,
                     "user-agent": clientUA,
                     "referer": "https://saladofuturo.educacao.sp.gov.br/",
                     "origin": "https://saladofuturo.educacao.sp.gov.br"
@@ -392,7 +403,8 @@ async function startServer() {
                 });
                 if (response.ok) {
                     const data: any = await response.json();
-                    if (data && data.auth_token) return data;
+                    const eduspToken = data?.auth_token || data?.token || data?.access_token;
+                    if (eduspToken) return { auth_token: eduspToken, nick: data.nick || "Aluno SP" };
                 }
             } catch (directErr: any) {
                 console.warn(`[Token Chamada Direta] erro: ${directErr.message}`);
