@@ -128,8 +128,21 @@ async function startServer() {
                             cleanText.startsWith('<html')
                         );
 
-                        const errObj: any = new Error(`HTTP ${response.status}: ${cleanText.substring(0, 150) || 'Erro no servidor'}`);
+                        const isCredentialError = (response.status === 403 || response.status === 401 || response.status === 400) && (
+                            cleanText.toLowerCase().includes('wrong credentials') ||
+                            cleanText.toLowerCase().includes('x-api-key') ||
+                            cleanText.toLowerCase().includes('invalid token') ||
+                            cleanText.toLowerCase().includes('unauthorized')
+                        );
+
+                        const errObj: any = new Error(isCredentialError ? "Token de acesso inválido ou recusado pela EduSP." : `HTTP ${response.status}: ${cleanText.substring(0, 150) || 'Erro no servidor'}`);
                         errObj.status = response.status;
+                        errObj.isCredentialError = isCredentialError;
+
+                        if (isCredentialError) {
+                            console.warn(`[API] Credenciais rejeitadas pela EduSP (${response.status}): ${cleanText.substring(0, 150)}`);
+                            throw errObj;
+                        }
 
                         if (isCloudflareBlock) {
                             console.warn(`[API] Cloudflare bloqueou a requisição em ${finalUrl}. Tentando próximo...`);
@@ -149,7 +162,7 @@ async function startServer() {
                     let isHealthCheckObj = false;
                     try {
                         const parsedObj = JSON.parse(text);
-                        if (parsedObj && typeof parsedObj === 'object') {
+                        if (parsedObj && typeof parsedObj === 'object' && !Array.isArray(parsedObj)) {
                             const isPingSignal = Boolean(
                                 parsedObj.worker ||
                                 parsedObj.tunnel ||
@@ -163,7 +176,8 @@ async function startServer() {
                                 parsedObj.data ||
                                 parsedObj.id ||
                                 parsedObj.token ||
-                                parsedObj.user
+                                parsedObj.user ||
+                                parsedObj.results
                             );
                             if (isPingSignal && !hasDataPayload) {
                                 isHealthCheckObj = true;
@@ -171,7 +185,7 @@ async function startServer() {
                         }
                     } catch {}
 
-                    if (isHealthCheckObj || text.includes('"worker":') || text.includes('"tunnel":') || text.includes('Shuziro') || text.includes('Local Tunnel')) {
+                    if (isHealthCheckObj) {
                         console.warn(`[API] ${finalUrl} retornou status ping do Worker/Túnel ao invés dos dados da API EduSP. Tentando próxima URL...`);
                         lastError = new Error(`Healthcheck do Worker/Túnel interceptado em ${finalUrl}`);
                         continue;
@@ -183,7 +197,7 @@ async function startServer() {
                         return text;
                     }
                 } catch (err: any) {
-                    if (err.status === 400 || err.status === 401) {
+                    if (err.isCredentialError || err.status === 400 || err.status === 401) {
                         throw err;
                     }
                     console.warn(`[API] Falha de conexão em ${finalUrl}: ${err.message}`);
@@ -305,12 +319,16 @@ async function startServer() {
                 customTunnelInfo
             );
             if (officialRes) {
-                const eduspToken = officialRes.auth_token || officialRes.token || officialRes.access_token || officialRes.data?.auth_token;
+                if (typeof officialRes === 'string' && officialRes.startsWith('eyJ')) {
+                    console.log(`[Token Worker] Sucesso ao obter auth_token EduSP (String JWT) via Worker!`);
+                    return { auth_token: officialRes, nick: "Aluno SP" };
+                }
+                const eduspToken = officialRes.auth_token || officialRes.token || officialRes.access_token || officialRes.jwt || officialRes.data?.auth_token || officialRes.data?.token || officialRes.data?.access_token;
                 if (eduspToken) {
                     console.log(`[Token Worker] Sucesso ao obter auth_token EduSP via Worker!`);
                     return {
                         auth_token: eduspToken,
-                        nick: officialRes.nick || officialRes.name || officialRes.nickname || "Aluno SP"
+                        nick: officialRes.nick || officialRes.name || officialRes.nickname || officialRes.user?.name || "Aluno SP"
                     };
                 }
             }
