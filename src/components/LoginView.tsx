@@ -136,7 +136,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         {/* Discord community button */}
         <div className="mt-4">
           <a
-            href="https://discord.gg/CK8RHMBtX"
+            href="https://discord.gg/eKwvNFY8v"
             target="_blank"
             rel="noreferrer"
             className="w-full py-2.5 px-4 bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-[#5865F2]/20 cursor-pointer"
