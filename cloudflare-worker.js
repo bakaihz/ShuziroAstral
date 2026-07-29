@@ -36,8 +36,12 @@ export default {
     try {
       const customUrl = url.searchParams.get('url');
 
-      // ─── 2. HEALTHCHECK (Apenas se NÃO houver parâmetro ?url= de redirecionamento) ───
-      if (!customUrl && (url.pathname === '/ping' || url.pathname === '/health' || url.pathname === '/')) {
+      // ─── 2. HEALTHCHECK ───
+      // SÓ dispara healthcheck em /ping, /health ou na raiz vazia sem query params
+      const isHealthCheckPath = url.pathname === '/ping' || url.pathname === '/health';
+      const isEmptyRoot = url.pathname === '/' && !url.search && !customUrl;
+
+      if (isHealthCheckPath || isEmptyRoot) {
         return jsonResponse({
           status: 'ok',
           online: true,

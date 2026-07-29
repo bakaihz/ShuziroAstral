@@ -146,7 +146,15 @@ async function startServer() {
                     }
 
                     // Se a resposta for 200 OK mas for o JSON de status/ping do próprio Worker e não da API
-                    if (text.includes('"worker":"shuziro-tunnel') || text.includes('ShuziroAstral Cloudflare Worker') || text.includes('Shuziro Local Tunnel') || text.includes('ShuziroAstral Local Tunnel')) {
+                    let isHealthCheckObj = false;
+                    try {
+                        const parsedObj = JSON.parse(text);
+                        if (parsedObj && (parsedObj.worker || parsedObj.service) && parsedObj.status === 'ok' && !parsedObj.rooms && !parsedObj.items) {
+                            isHealthCheckObj = true;
+                        }
+                    } catch {}
+
+                    if (isHealthCheckObj || text.includes('"worker":"shuziro-tunnel') || text.includes('ShuziroAstral Cloudflare Worker') || text.includes('Shuziro Local Tunnel') || text.includes('ShuziroAstral Local Tunnel')) {
                         console.warn(`[API] ${finalUrl} retornou status ping do Worker ao invés dos dados da API EduSP. Tentando próxima URL...`);
                         lastError = new Error(`Healthcheck do Worker interceptado em ${finalUrl}`);
                         continue;
