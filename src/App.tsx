@@ -227,18 +227,6 @@ export default function App() {
         rooms = roomsData.rooms || roomsData.items || (Array.isArray(roomsData) ? roomsData : []);
       }
 
-      const targets: string[] = [];
-
-      rooms.forEach((room: any) => {
-        if (room.publication_target) targets.push(room.publication_target);
-        if (room.name) targets.push(room.name);
-        if (room.id) targets.push(room.id.toString());
-        if (room.code) targets.push(room.code.toString());
-        if (room.subjects) room.subjects.forEach((s: any) => s.id && targets.push(s.id.toString()));
-        if (room.group_categories) room.group_categories.forEach((c: any) => c.id && targets.push(c.id.toString()));
-      });
-
-      const uniqueTargets = [...new Set(targets)].filter(Boolean);
       const allFetchedTasks: any[] = [];
       const seenIds = new Set<string>();
 
@@ -253,37 +241,7 @@ export default function App() {
         });
       };
 
-      if (uniqueTargets.length > 0) {
-        const targetParams = uniqueTargets.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
-        try {
-          const [tRes, eRes] = await Promise.all([
-            fetch(`/api/tms/task/todo?is_essay=false&${targetParams}`, { headers: authHeaders }),
-            fetch(`/api/tms/task/todo?is_essay=true&${targetParams}`, { headers: authHeaders })
-          ]);
-          if (tRes.ok) addTasks(await tRes.json());
-          if (eRes.ok) addTasks(await eRes.json());
-        } catch (e) {
-          console.warn('Erro ao buscar tarefas combinadas:', e);
-        }
-
-        if (allFetchedTasks.length === 0) {
-          for (const t of uniqueTargets) {
-            try {
-              const encTarget = encodeURIComponent(t);
-              const [tRes, eRes] = await Promise.all([
-                fetch(`/api/tms/task/todo?is_essay=false&publication_target=${encTarget}`, { headers: authHeaders }),
-                fetch(`/api/tms/task/todo?is_essay=true&publication_target=${encTarget}`, { headers: authHeaders })
-              ]);
-              if (tRes.ok) addTasks(await tRes.json());
-              if (eRes.ok) addTasks(await eRes.json());
-            } catch (e) {
-              console.warn(`Erro ao buscar target ${t}:`, e);
-            }
-          }
-        }
-      }
-
-      // Sempre realiza a busca direta geral (sem filtro de target) para garantir que NENHUMA tarefa/redação fique de fora
+      // 1. Faz a busca direta geral (sem filtro de target) para garantir que NENHUMA tarefa/redação fique de fora
       try {
         const [tDirect, eDirect] = await Promise.all([
           fetch(`/api/tms/task/todo?is_essay=false`, { headers: authHeaders }),
@@ -293,6 +251,32 @@ export default function App() {
         if (eDirect.ok) addTasks(await eDirect.json());
       } catch (e) {
         console.warn('Erro ao buscar tarefas diretas:', e);
+      }
+
+      // 2. Se houver salas com publication_target válido (não numérico), busca para cada sala também
+      const targets: string[] = [];
+      rooms.forEach((room: any) => {
+        const pt = room.publication_target || (room.room && room.room.publication_target);
+        if (pt && typeof pt === 'string' && !/^\d+$/.test(pt.trim())) {
+          targets.push(pt.trim());
+        }
+      });
+      const uniqueTargets = [...new Set(targets)];
+
+      if (uniqueTargets.length > 0) {
+        for (const t of uniqueTargets) {
+          try {
+            const encTarget = encodeURIComponent(t);
+            const [tRes, eRes] = await Promise.all([
+              fetch(`/api/tms/task/todo?is_essay=false&publication_target=${encTarget}`, { headers: authHeaders }),
+              fetch(`/api/tms/task/todo?is_essay=true&publication_target=${encTarget}`, { headers: authHeaders })
+            ]);
+            if (tRes.ok) addTasks(await tRes.json());
+            if (eRes.ok) addTasks(await eRes.json());
+          } catch (e) {
+            console.warn(`Erro ao buscar target ${t}:`, e);
+          }
+        }
       }
 
       setTasks(allFetchedTasks);

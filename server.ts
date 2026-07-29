@@ -558,85 +558,94 @@ async function startServer() {
     app.get("/api/tms/task/todo", async (req, res) => {
         const token = req.headers['x-api-key'] as string;
         if (!token) return res.status(401).json({ error: "Token ausente" });
-        const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?') + 1) : '';
         const customTunnel = getCustomTunnel(req);
 
-        // Se a requisição NÃO veio com publication_target na querystring
-        if (!queryString.includes('publication_target=')) {
-            try {
-                // Busca as salas do aluno para extrair os publication_targets
-                const roomData = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
-                const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
-                const targets: string[] = [];
-                for (const r of rooms) {
-                    const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
-                    const candidates = [r.publication_target, r.name, r.room_name, inner.name, inner.room_name, r.id, r.code];
-                    for (const c of candidates) {
-                        if (c) targets.push(String(c).trim());
+        // Extrai parâmetros de consulta
+        const fullUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const isEssayParam = fullUrl.searchParams.get('is_essay');
+        const publicationTargets = fullUrl.searchParams.getAll('publication_target').filter(t => t && t.trim());
+
+        const allTasks: any[] = [];
+        const seenIds = new Set<string>();
+
+        const addItems = (data: any) => {
+            const items = Array.isArray(data) ? data : (data?.results || data?.items || []);
+            if (Array.isArray(items)) {
+                for (const item of items) {
+                    const id = String(item.id || item.task_id || '');
+                    if (id && !seenIds.has(id)) {
+                        seenIds.add(id);
+                        allTasks.push(item);
                     }
                 }
-                const uniqueTargets = [...new Set(targets)].filter(Boolean);
+            }
+        };
 
-                if (uniqueTargets.length > 0) {
-                    const allTasks: any[] = [];
-                    const seenIds = new Set<string>();
+        // 1. Tenta a busca direta no EduSP (sem obrigatoriedade de publication_target e sem filtros restritivos)
+        try {
+            let directUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0`;
+            if (isEssayParam !== null) {
+                directUrl += `&is_essay=${isEssayParam}`;
+            }
+            const data = await callOfficialApi(directUrl, 'GET', token, undefined, customTunnel);
+            addItems(data);
+        } catch (e: any) {
+            console.warn(`[/api/tms/task/todo] Falha na busca direta principal: ${e.message}`);
+        }
 
-                    for (const target of uniqueTargets) {
-                        let targetUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true&publication_target=${encodeURIComponent(target)}`;
-                        if (queryString) targetUrl += `&${queryString}`;
-                        if (!queryString.includes('is_essay=')) targetUrl += `&is_essay=true`;
+        // 2. Se a requisição passou publication_target explícito e não-numérico, busca para cada um
+        if (publicationTargets.length > 0) {
+            for (const target of publicationTargets) {
+                const cleanTarget = target.trim();
+                // Ignora targets puramente numéricos (como IDs de matérias 1852/1826) que a EduSP rejeita
+                if (/^\d+$/.test(cleanTarget)) continue;
 
-                        try {
-                            const data = await callOfficialApi(targetUrl, 'GET', token, undefined, customTunnel);
-                            const items = Array.isArray(data) ? data : (data.results || data.items || []);
-                            for (const item of items) {
-                                const id = String(item.id || item.task_id || '');
-                                if (id && !seenIds.has(id)) {
-                                    seenIds.add(id);
-                                    allTasks.push(item);
-                                }
-                            }
-                        } catch (e: any) {
-                            // Ignora erro de sala individual
-                        }
+                try {
+                    let targetUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encodeURIComponent(cleanTarget)}`;
+                    if (isEssayParam !== null) {
+                        targetUrl += `&is_essay=${isEssayParam}`;
                     }
-                    return res.json(allTasks);
-                } else {
-                    const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
-                    if (fallbackSlug) {
-                        let targetUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true&publication_target=${encodeURIComponent(fallbackSlug)}`;
-                        if (queryString) targetUrl += `&${queryString}`;
-                        if (!queryString.includes('is_essay=')) targetUrl += `&is_essay=true`;
-
-                        const data = await callOfficialApi(targetUrl, 'GET', token, undefined, customTunnel);
-                        const tasks = Array.isArray(data) ? data : (data.results || data.items || []);
-                        return res.json(tasks);
-                    }
+                    const data = await callOfficialApi(targetUrl, 'GET', token, undefined, customTunnel);
+                    addItems(data);
+                } catch (e: any) {
+                    console.warn(`[/api/tms/task/todo] Falha ao buscar target (${cleanTarget}): ${e.message}`);
                 }
-                return res.json([]);
-            } catch (err: any) {
-                console.warn(`[/api/tms/task/todo] Erro ao auto-resolver publication_target: ${err.message}`);
-                return res.json([]);
             }
         }
 
-        // Se publication_target foi passado na querystring
-        let officialUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`;
-        if (!queryString.includes('is_essay=')) {
-            officialUrl += `&is_essay=true`;
-        }
-        if (queryString) {
-            officialUrl += `&${queryString}`;
+        // 3. Se ainda não vieram tarefas ou se não havia targets, busca as salas do usuário para obter os slugs válidos
+        if (allTasks.length === 0) {
+            try {
+                const roomData = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
+                const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
+                const roomTargets: string[] = [];
+                for (const r of rooms) {
+                    const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
+                    const candidate = r.publication_target || inner.publication_target;
+                    if (candidate && typeof candidate === 'string' && !/^\d+$/.test(candidate.trim())) {
+                        roomTargets.push(candidate.trim());
+                    }
+                }
+                const uniqueRoomTargets = [...new Set(roomTargets)];
+
+                for (const target of uniqueRoomTargets) {
+                    try {
+                        let targetUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encodeURIComponent(target)}`;
+                        if (isEssayParam !== null) {
+                            targetUrl += `&is_essay=${isEssayParam}`;
+                        }
+                        const data = await callOfficialApi(targetUrl, 'GET', token, undefined, customTunnel);
+                        addItems(data);
+                    } catch (e: any) {
+                        // ignora erro de sala individual
+                    }
+                }
+            } catch (e: any) {
+                console.warn(`[/api/tms/task/todo] Erro ao auto-resolver salas: ${e.message}`);
+            }
         }
 
-        try {
-            const data = await callOfficialApi(officialUrl, 'GET', token, undefined, customTunnel);
-            const tasks = Array.isArray(data) ? data : (data.results || data.items || []);
-            res.json(tasks);
-        } catch (err: any) {
-            console.warn(`[/api/tms/task/todo] Erro na busca de tarefas (${err.message}).`);
-            res.json([]);
-        }
+        res.json(allTasks);
     });
 
 async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunnel?: string; userAgent?: string; cookies?: string }): Promise<string> {
