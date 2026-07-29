@@ -145,18 +145,34 @@ async function startServer() {
                         continue;
                     }
 
-                    // Se a resposta for 200 OK mas for o JSON de status/ping do próprio Worker e não da API
+                    // Se a resposta for 200 OK mas for o JSON de status/ping do próprio Worker/Túnel e não da API
                     let isHealthCheckObj = false;
                     try {
                         const parsedObj = JSON.parse(text);
-                        if (parsedObj && (parsedObj.worker || parsedObj.service) && parsedObj.status === 'ok' && !parsedObj.rooms && !parsedObj.items) {
-                            isHealthCheckObj = true;
+                        if (parsedObj && typeof parsedObj === 'object') {
+                            const isPingSignal = Boolean(
+                                parsedObj.worker ||
+                                parsedObj.tunnel ||
+                                parsedObj.service ||
+                                (parsedObj.status === 'ok' && (parsedObj.online === true || parsedObj.target))
+                            );
+                            const hasDataPayload = Boolean(
+                                parsedObj.rooms ||
+                                parsedObj.items ||
+                                parsedObj.data ||
+                                parsedObj.id ||
+                                parsedObj.token ||
+                                parsedObj.user
+                            );
+                            if (isPingSignal && !hasDataPayload) {
+                                isHealthCheckObj = true;
+                            }
                         }
                     } catch {}
 
-                    if (isHealthCheckObj || text.includes('"worker":"shuziro-tunnel') || text.includes('ShuziroAstral Cloudflare Worker') || text.includes('Shuziro Local Tunnel') || text.includes('ShuziroAstral Local Tunnel')) {
-                        console.warn(`[API] ${finalUrl} retornou status ping do Worker ao invés dos dados da API EduSP. Tentando próxima URL...`);
-                        lastError = new Error(`Healthcheck do Worker interceptado em ${finalUrl}`);
+                    if (isHealthCheckObj || text.includes('"worker":') || text.includes('"tunnel":') || text.includes('Shuziro') || text.includes('Local Tunnel')) {
+                        console.warn(`[API] ${finalUrl} retornou status ping do Worker/Túnel ao invés dos dados da API EduSP. Tentando próxima URL...`);
+                        lastError = new Error(`Healthcheck do Worker/Túnel interceptado em ${finalUrl}`);
                         continue;
                     }
 
