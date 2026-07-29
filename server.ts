@@ -631,8 +631,7 @@ async function startServer() {
             const targetQueries = [
                 `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`,
                 `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
-                `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
-                `/tms/task/draft?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`
+                `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`
             ];
 
             for (const qUrl of targetQueries) {
@@ -819,20 +818,29 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                     if (!qId) return;
 
                     const qType = q.type || q.question_type || "options";
-                    if (qType === "options" || Array.isArray(q.options)) {
+                    if (qType === "essay") {
+                        const sendTitle = titulo || q.title || 'Redação';
+                        const sendBody = texto || 'Redação desenvolvida com sucesso.';
+                        answersMap[String(qId)] = {
+                            question_id: qId,
+                            question_type: "essay",
+                            answer: {
+                                title: sendTitle,
+                                body: sendBody
+                            }
+                        };
+                    } else {
+                        // Múltipla escolha (options) ou questões normais
                         const opts = Array.isArray(q.options) ? q.options : [];
                         const correctOpt = opts.find((o: any) => o.is_correct === true || o.correct === true) || opts[0];
-                        const optId = correctOpt ? (correctOpt.id || correctOpt.option_id) : 1;
+                        let optVal = 1;
+                        if (correctOpt) {
+                            optVal = Number(correctOpt.id || correctOpt.option_id || correctOpt.value || 1);
+                        }
                         answersMap[String(qId)] = {
                             question_id: qId,
                             question_type: "options",
-                            answer: Array.isArray(optId) ? optId : [optId]
-                        };
-                    } else {
-                        answersMap[String(qId)] = {
-                            question_id: qId,
-                            question_type: qType,
-                            answer: "Resposta desenvolvida com sucesso."
+                            answer: [isNaN(optVal) ? 1 : optVal]
                         };
                     }
                 });
