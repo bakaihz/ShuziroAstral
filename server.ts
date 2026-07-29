@@ -157,6 +157,7 @@ async function startServer() {
                                 (parsedObj.status === 'ok' && (parsedObj.online === true || parsedObj.target))
                             );
                             const hasDataPayload = Boolean(
+                                parsedObj.auth_token ||
                                 parsedObj.rooms ||
                                 parsedObj.items ||
                                 parsedObj.data ||
@@ -292,6 +293,25 @@ async function startServer() {
     async function getEduSpToken(sedToken: string, customTunnelInfo?: { tunnel?: string; userAgent?: string; cookies?: string }) {
         const clientUA = customTunnelInfo?.userAgent || USER_AGENT;
         const clientCookies = customTunnelInfo?.cookies;
+
+        // 1. Tenta obter o auth_token EduSP via Worker/Túneis oficiais (bypasses Cloudflare)
+        try {
+            console.log(`[Token Worker] Tentando obter auth_token EduSP via Worker/Túneis...`);
+            const officialRes: any = await callOfficialApi(
+                '/registration/edusp/token',
+                'POST',
+                '',
+                { token: sedToken },
+                customTunnelInfo
+            );
+            if (officialRes && officialRes.auth_token) {
+                console.log(`[Token Worker] Sucesso ao obter auth_token EduSP via Worker!`);
+                return officialRes;
+            }
+        } catch (workerErr: any) {
+            console.warn(`[Token Worker] Falha ao obter token via Worker: ${workerErr.message}`);
+        }
+
         try {
             const cookieJar = new CookieJar();
             const agentLocal = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
