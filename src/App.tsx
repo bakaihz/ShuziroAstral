@@ -349,13 +349,10 @@ export default function App() {
           if (applyRes.ok) {
             applyData = await applyRes.json();
           } else {
-            if (applyRes.status === 403) {
-              throw new Error(`Permissão negada (403) para a tarefa #${tid}`);
-            }
+            console.warn(`[Apply] Resposta HTTP ${applyRes.status} para tarefa #${tid}. Prosseguindo diretamente com o envio...`);
           }
         } catch (e: any) {
           console.warn(`[Apply] Aviso ao aplicar task ${tid}:`, e.message);
-          if (e.message.includes('403')) throw e;
         }
 
         const questionId = applyData.questions?.[0]?.id || applyData.question_id || 1;

@@ -617,20 +617,20 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         console.log(`[Apply] taskId=${taskId}, room_name=${room_name || 'não fornecido'}`);
 
         const isValidSlug = room_name && (/^r[0-9a-f]+-l$/i.test(room_name) || (room_name.startsWith('r') && room_name.length >= 10));
+        const tokenCodeParam = (req.query.token_code && req.query.token_code !== 'null') ? `&token_code=${encodeURIComponent(String(req.query.token_code))}` : '';
 
         const applyUrls: string[] = [];
         if (isValidSlug) {
-            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&token_code=null&room_name=${encodeURIComponent(room_name)}`);
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(room_name)}${tokenCodeParam}`);
         }
-        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&token_code=null`);
-        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false`);
 
-        if (!isValidSlug) {
-            const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
-            if (fallbackSlug) {
-                applyUrls.unshift(`/tms/task/${taskId}/apply?preview_mode=false&token_code=null&room_name=${encodeURIComponent(fallbackSlug)}`);
-            }
+        const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
+        if (fallbackSlug && fallbackSlug !== room_name) {
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(fallbackSlug)}${tokenCodeParam}`);
         }
+
+        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}`);
+        applyUrls.push(`/tms/task/${taskId}/apply`);
 
         let lastErr: any = null;
         for (const url of applyUrls) {
@@ -767,15 +767,27 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             try {
                 data = await sendAnswer(payload);
             } catch (err: any) {
-                if (err.message && err.message.includes('executed_on')) {
-                    const freshSlug = await getFallbackRoomSlug(auth_token, customTunnel);
-                    if (freshSlug && freshSlug !== payload.executed_on) {
-                        console.warn(`[Complete] Re-tentando com room slug fresca: '${freshSlug}'`);
-                        payload.executed_on = freshSlug;
+                const freshSlug = await getFallbackRoomSlug(auth_token, customTunnel);
+                if (freshSlug && freshSlug !== payload.executed_on) {
+                    console.warn(`[Complete] Re-tentando com room slug fresca: '${freshSlug}'`);
+                    payload.executed_on = freshSlug;
+                    try {
                         data = await sendAnswer(payload);
-                    } else {
-                        throw err;
+                    } catch (retryErr: any) {
+                        if (payload.executed_on) {
+                            console.warn(`[Complete] Re-tentando sem executed_on...`);
+                            const payloadCopy = { ...payload };
+                            delete payloadCopy.executed_on;
+                            data = await sendAnswer(payloadCopy);
+                        } else {
+                            throw retryErr;
+                        }
                     }
+                } else if (payload.executed_on) {
+                    console.warn(`[Complete] Re-tentando sem executed_on...`);
+                    const payloadCopy = { ...payload };
+                    delete payloadCopy.executed_on;
+                    data = await sendAnswer(payloadCopy);
                 } else {
                     throw err;
                 }
