@@ -563,7 +563,7 @@ async function startServer() {
         // Extrai parâmetros de consulta
         const fullUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
         const isEssayParam = fullUrl.searchParams.get('is_essay');
-        const publicationTargets = fullUrl.searchParams.getAll('publication_target').filter(t => t && t.trim());
+        const publicationTargetsFromQuery = fullUrl.searchParams.getAll('publication_target').filter(t => t && t.trim());
 
         const allTasks: any[] = [];
         const seenIds = new Set<string>();
@@ -581,67 +581,67 @@ async function startServer() {
             }
         };
 
-        // 1. Tenta a busca direta no EduSP (sem obrigatoriedade de publication_target e sem filtros restritivos)
+        const essayFilter = isEssayParam !== null ? `&is_essay=${isEssayParam}` : '';
+
+        // 1. Coleta todos os alvos (targets) de salas disponíveis
+        const targetsToTry = new Set<string>(publicationTargetsFromQuery);
+
         try {
-            let directUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0`;
-            if (isEssayParam !== null) {
-                directUrl += `&is_essay=${isEssayParam}`;
-            }
-            const data = await callOfficialApi(directUrl, 'GET', token, undefined, customTunnel);
-            addItems(data);
-        } catch (e: any) {
-            console.warn(`[/api/tms/task/todo] Falha na busca direta principal: ${e.message}`);
-        }
-
-        // 2. Se a requisição passou publication_target explícito e não-numérico, busca para cada um
-        if (publicationTargets.length > 0) {
-            for (const target of publicationTargets) {
-                const cleanTarget = target.trim();
-                // Ignora targets puramente numéricos (como IDs de matérias 1852/1826) que a EduSP rejeita
-                if (/^\d+$/.test(cleanTarget)) continue;
-
-                try {
-                    let targetUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encodeURIComponent(cleanTarget)}`;
-                    if (isEssayParam !== null) {
-                        targetUrl += `&is_essay=${isEssayParam}`;
-                    }
-                    const data = await callOfficialApi(targetUrl, 'GET', token, undefined, customTunnel);
-                    addItems(data);
-                } catch (e: any) {
-                    console.warn(`[/api/tms/task/todo] Falha ao buscar target (${cleanTarget}): ${e.message}`);
+            const roomData = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
+            const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
+            for (const r of rooms) {
+                const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
+                const candidates = [
+                    r.publication_target, r.name, r.room_name, r.slug, r.id, r.code,
+                    inner.publication_target, inner.name, inner.room_name, inner.slug, inner.id, inner.code
+                ];
+                if (Array.isArray(r.subjects)) {
+                    r.subjects.forEach((s: any) => {
+                        if (s?.publication_target) candidates.push(s.publication_target);
+                        if (s?.id) candidates.push(s.id);
+                        if (s?.code) candidates.push(s.code);
+                    });
                 }
-            }
-        }
-
-        // 3. Se ainda não vieram tarefas ou se não havia targets, busca as salas do usuário para obter os slugs válidos
-        if (allTasks.length === 0) {
-            try {
-                const roomData = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
-                const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
-                const roomTargets: string[] = [];
-                for (const r of rooms) {
-                    const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
-                    const candidate = r.publication_target || inner.publication_target;
-                    if (candidate && typeof candidate === 'string' && !/^\d+$/.test(candidate.trim())) {
-                        roomTargets.push(candidate.trim());
-                    }
+                if (Array.isArray(inner.subjects)) {
+                    inner.subjects.forEach((s: any) => {
+                        if (s?.publication_target) candidates.push(s.publication_target);
+                        if (s?.id) candidates.push(s.id);
+                        if (s?.code) candidates.push(s.code);
+                    });
                 }
-                const uniqueRoomTargets = [...new Set(roomTargets)];
-
-                for (const target of uniqueRoomTargets) {
-                    try {
-                        let targetUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encodeURIComponent(target)}`;
-                        if (isEssayParam !== null) {
-                            targetUrl += `&is_essay=${isEssayParam}`;
+                for (const c of candidates) {
+                    if (c !== undefined && c !== null) {
+                        const str = String(c).trim();
+                        if (str && str !== 'null' && str !== 'undefined') {
+                            targetsToTry.add(str);
                         }
-                        const data = await callOfficialApi(targetUrl, 'GET', token, undefined, customTunnel);
-                        addItems(data);
-                    } catch (e: any) {
-                        // ignora erro de sala individual
                     }
                 }
-            } catch (e: any) {
-                console.warn(`[/api/tms/task/todo] Erro ao auto-resolver salas: ${e.message}`);
+            }
+        } catch (e: any) {
+            console.warn(`[/api/tms/task/todo] Falha ao listar salas do usuário: ${e.message}`);
+        }
+
+        const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
+        if (fallbackSlug) targetsToTry.add(fallbackSlug);
+
+        // 2. Busca tarefas e redações para cada alvo (publication_target) encontrado
+        // A API EduSP exige obrigatoriamente publication_target na querystring
+        for (const target of targetsToTry) {
+            const encTarget = encodeURIComponent(target);
+            const targetQueries = [
+                `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true&publication_target=${encTarget}${essayFilter}`,
+                `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`
+            ];
+
+            for (const qUrl of targetQueries) {
+                try {
+                    const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
+                    addItems(data);
+                    if (Array.isArray(data) && data.length > 0) break; // Se já retornou tarefas para este target, não precisa da query redundante
+                } catch (e: any) {
+                    // ignora erros de alvos individuais que não tenham tarefas
+                }
             }
         }
 
