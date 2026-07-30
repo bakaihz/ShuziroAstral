@@ -18,6 +18,7 @@ const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 const PROXY_TUNNELS = [
     "https://api.davilucas99kk.workers.dev",
     "https://api.shuziroastral.lol",
+    "https://corsproxy.io/?",
     "https://edusp-api.ip.tv"
 ];
 
@@ -70,8 +71,13 @@ async function startServer() {
             let cleanPath = url.replace(/^https?:\/\/edusp-api\.ip\.tv\/?/, '');
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
-            let urlsToTry: string[] = [`${domain}${cleanPath}`];
-            if (!domain.includes('edusp-api.ip.tv')) {
+            let urlsToTry: string[] = [];
+            if (domain.includes('corsproxy.io') || domain.includes('allorigins')) {
+                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
+            } else if (domain.includes('edusp-api.ip.tv')) {
+                urlsToTry.push(`https://edusp-api.ip.tv${cleanPath}`);
+            } else {
+                urlsToTry.push(`${domain}${cleanPath}`);
                 const targetFull = `https://edusp-api.ip.tv${cleanPath}`;
                 urlsToTry.push(`${domain}?url=${encodeURIComponent(targetFull)}`);
                 urlsToTry.push(`${domain}/proxy?url=${encodeURIComponent(targetFull)}`);
@@ -120,15 +126,16 @@ async function startServer() {
                             continue;
                         }
 
-                        const isCloudflareBlock = response.status === 403 && (
+                        const isCloudflareBlock = (response.status === 403 || response.status === 530 || response.status === 520 || response.status === 525) && (
                             cleanText.toLowerCase().includes('just a moment') ||
                             cleanText.toLowerCase().includes('cloudflare') ||
                             cleanText.toLowerCase().includes('attention required') ||
+                            cleanText.toLowerCase().includes('error 1033') ||
                             cleanText.startsWith('<!doctype') ||
                             cleanText.startsWith('<html')
                         );
 
-                        const isCredentialError = (response.status === 403 || response.status === 401 || response.status === 400) && (
+                        const isCredentialError = !isCloudflareBlock && (response.status === 403 || response.status === 401 || response.status === 400) && (
                             cleanText.toLowerCase().includes('wrong credentials') ||
                             cleanText.toLowerCase().includes('x-api-key') ||
                             cleanText.toLowerCase().includes('invalid token') ||
