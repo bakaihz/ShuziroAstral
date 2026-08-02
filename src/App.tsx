@@ -218,15 +218,6 @@ export default function App() {
       };
       if (tunnelUrl) authHeaders['x-tunnel-url'] = tunnelUrl;
 
-      const roomsRes = await fetch('/api/rooms', {
-        headers: authHeaders
-      });
-      let rooms: any[] = [];
-      if (roomsRes.ok) {
-        const roomsData = await roomsRes.json();
-        rooms = roomsData.rooms || roomsData.items || (Array.isArray(roomsData) ? roomsData : []);
-      }
-
       const allFetchedTasks: any[] = [];
       const seenIds = new Set<string>();
 
@@ -241,7 +232,7 @@ export default function App() {
         });
       };
 
-      // 1. Faz a busca direta geral (sem filtro de target) para garantir que NENHUMA tarefa/redação fique de fora
+      // 1. Faz a busca direta principal (tarefas e redações)
       try {
         const [tDirect, eDirect] = await Promise.all([
           fetch(`/api/tms/task/todo?is_essay=false`, { headers: authHeaders }),
@@ -253,44 +244,52 @@ export default function App() {
         console.warn('Erro ao buscar tarefas diretas:', e);
       }
 
-      // 2. Se houver salas com publication_target, ID ou slug, busca especificando cada um deles
-      const targets: string[] = [];
-      rooms.forEach((room: any) => {
-        const inner = (typeof room.room === 'object' && room.room) ? room.room : {};
-        const candidates = [
-          room.publication_target, room.id, room.code, room.name, room.room_name,
-          inner.publication_target, inner.id, inner.code, inner.name, inner.room_name
-        ];
-        candidates.forEach(c => {
-          if (c !== undefined && c !== null) {
-            const str = String(c).trim();
-            if (str && str !== 'null' && str !== 'undefined') targets.push(str);
-          }
-        });
-      });
-      const uniqueTargets = [...new Set(targets)];
+      // 2. Se nada foi encontrado, tenta buscar salas e consultar apenas alvos válidos (IDs numéricos ou slugs r...-l)
+      if (allFetchedTasks.length === 0) {
+        try {
+          const roomsRes = await fetch('/api/rooms', { headers: authHeaders });
+          if (roomsRes.ok) {
+            const roomsData = await roomsRes.json();
+            if (roomsData.blocked && roomsData.message) {
+              showToast(roomsData.message + ' Faça login novamente.', 'error');
+            }
+            const rooms = roomsData.rooms || roomsData.items || (Array.isArray(roomsData) ? roomsData : []);
+            const validTargets: string[] = [];
+            
+            rooms.forEach((room: any) => {
+              const inner = (typeof room.room === 'object' && room.room) ? room.room : {};
+              const candidates = [room.publication_target, room.slug, inner.publication_target, inner.slug];
+              candidates.forEach(c => {
+                if (c !== undefined && c !== null) {
+                  const str = String(c).trim();
+                  if (str && (/^\d+$/.test(str) || /^r[0-9a-f]+-l$/i.test(str))) {
+                    validTargets.push(str);
+                  }
+                }
+              });
+            });
 
-      if (uniqueTargets.length > 0) {
-        for (const t of uniqueTargets) {
-          try {
-            const encTarget = encodeURIComponent(t);
-            const [tRes, eRes] = await Promise.all([
-              fetch(`/api/tms/task/todo?is_essay=false&publication_target=${encTarget}`, { headers: authHeaders }),
-              fetch(`/api/tms/task/todo?is_essay=true&publication_target=${encTarget}`, { headers: authHeaders })
-            ]);
-            if (tRes.ok) addTasks(await tRes.json());
-            if (eRes.ok) addTasks(await eRes.json());
-          } catch (e) {
-            console.warn(`Erro ao buscar target ${t}:`, e);
+            const uniqueTargets = [...new Set(validTargets)];
+            for (const t of uniqueTargets) {
+              const encTarget = encodeURIComponent(t);
+              const [tRes, eRes] = await Promise.all([
+                fetch(`/api/tms/task/todo?is_essay=false&publication_target=${encTarget}`, { headers: authHeaders }),
+                fetch(`/api/tms/task/todo?is_essay=true&publication_target=${encTarget}`, { headers: authHeaders })
+              ]);
+              if (tRes.ok) addTasks(await tRes.json());
+              if (eRes.ok) addTasks(await eRes.json());
+            }
           }
+        } catch (e) {
+          console.warn('Erro no fallback por salas:', e);
         }
       }
 
       setTasks(allFetchedTasks);
       if (allFetchedTasks.length > 0) {
-        showToast(`${allFetchedTasks.length} tarefas e redações reais encontradas!`, 'success');
+        showToast(`${allFetchedTasks.length} tarefas e redações encontradas!`, 'success');
       } else {
-        showToast('Nenhuma tarefa ou redação pendente encontrada nas salas.', 'info');
+        showToast('Nenhuma tarefa ou redação pendente encontrada.', 'info');
       }
     } catch (err: any) {
       console.warn('Erro ao carregar tarefas:', err);

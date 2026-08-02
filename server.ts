@@ -17,7 +17,6 @@ const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
     "https://api.davilucas99kk.workers.dev",
-    "https://api.shuziroastral.lol",
     "https://corsproxy.io/?",
     "https://edusp-api.ip.tv"
 ];
@@ -157,10 +156,6 @@ async function startServer() {
                             continue;
                         }
 
-                        if (response.status === 400 || response.status === 401) {
-                            throw errObj;
-                        }
-
                         lastError = errObj;
                         continue;
                     }
@@ -204,7 +199,7 @@ async function startServer() {
                         return text;
                     }
                 } catch (err: any) {
-                    if (err.isCredentialError || err.status === 400 || err.status === 401) {
+                    if (err.isCredentialError) {
                         throw err;
                     }
                     console.warn(`[API] Falha de conexão em ${finalUrl}: ${err.message}`);
@@ -322,7 +317,7 @@ async function startServer() {
                 '/registration/edusp/token',
                 'POST',
                 sedToken,
-                { token: sedToken },
+                { token: sedToken, message: sedToken },
                 customTunnelInfo
             );
             if (officialRes) {
@@ -582,6 +577,11 @@ async function startServer() {
                     const id = String(item.id || item.task_id || '');
                     if (id && !seenIds.has(id)) {
                         seenIds.add(id);
+                        if (isEssayParam === 'true') {
+                            item.is_essay = true;
+                        } else if (isEssayParam === 'false' && item.is_essay === undefined) {
+                            item.is_essay = false;
+                        }
                         allTasks.push(item);
                     }
                 }
@@ -590,7 +590,7 @@ async function startServer() {
 
         const essayFilter = isEssayParam !== null ? `&is_essay=${isEssayParam}` : '';
 
-        // 1. Coleta todos os alvos (targets) de salas disponíveis
+        // 1. Coleta os alvos de publicação (publication_target) fornecidos via query ou vindos das salas do aluno
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
 
         try {
@@ -599,21 +599,13 @@ async function startServer() {
             for (const r of rooms) {
                 const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
                 const candidates = [
-                    r.publication_target, r.name, r.room_name, r.slug, r.id, r.code,
-                    inner.publication_target, inner.name, inner.room_name, inner.slug, inner.id, inner.code
+                    r.publication_target, r.slug, r.id, r.code,
+                    inner.publication_target, inner.slug, inner.id, inner.code
                 ];
                 if (Array.isArray(r.subjects)) {
                     r.subjects.forEach((s: any) => {
                         if (s?.publication_target) candidates.push(s.publication_target);
                         if (s?.id) candidates.push(s.id);
-                        if (s?.code) candidates.push(s.code);
-                    });
-                }
-                if (Array.isArray(inner.subjects)) {
-                    inner.subjects.forEach((s: any) => {
-                        if (s?.publication_target) candidates.push(s.publication_target);
-                        if (s?.id) candidates.push(s.id);
-                        if (s?.code) candidates.push(s.code);
                     });
                 }
                 for (const c of candidates) {
@@ -626,27 +618,28 @@ async function startServer() {
                 }
             }
         } catch (e: any) {
-            console.warn(`[/api/tms/task/todo] Falha ao listar salas do usuário: ${e.message}`);
+            console.warn(`[/api/tms/task/todo] Aviso ao buscar salas: ${e.message}`);
         }
 
         const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
         if (fallbackSlug) targetsToTry.add(fallbackSlug);
 
-        // 2. Busca tarefas e redações para cada alvo (publication_target) encontrado
-        for (const target of targetsToTry) {
-            const encTarget = encodeURIComponent(target);
-            const targetQueries = [
-                `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`,
-                `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
-                `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`
-            ];
-
-            for (const qUrl of targetQueries) {
-                try {
-                    const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
-                    addItems(data);
-                } catch (e: any) {
-                    // ignora erros de alvos individuais que não tenham tarefas
+        // 2. Busca tarefas e redações para cada publication_target encontrado
+        if (targetsToTry.size > 0) {
+            for (const target of targetsToTry) {
+                const encTarget = encodeURIComponent(target);
+                const targetQueries = [
+                    `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
+                    `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`,
+                    `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`
+                ];
+                for (const qUrl of targetQueries) {
+                    try {
+                        const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
+                        addItems(data);
+                    } catch (e: any) {
+                        // silencia erros individuais de target sem tarefas
+                    }
                 }
             }
         }
