@@ -802,17 +802,26 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         let applyToken = req.body.token;
 
         if (!Array.isArray(questionsList) || questionsList.length === 0 || !question_id || Number(question_id) === 0) {
-            try {
-                const applyRes = await callOfficialApi(`/tms/task/${task_id}/apply`, 'GET', auth_token, undefined, customTunnel);
-                if (applyRes) {
-                    questionsList = applyRes.questions || applyRes.items || [];
-                    if (applyRes.token) applyToken = applyRes.token;
-                    if (!execOn && (applyRes.executed_on || applyRes.room_name || applyRes.publication_target)) {
-                        execOn = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
+            const tryApplyUrls = [
+                execOn ? `/tms/task/${task_id}/apply?preview_mode=false&room_name=${encodeURIComponent(execOn)}` : null,
+                `/tms/task/${task_id}/apply?preview_mode=false`,
+                `/tms/task/${task_id}/apply`
+            ].filter(Boolean) as string[];
+
+            for (const url of tryApplyUrls) {
+                try {
+                    const applyRes = await callOfficialApi(url, 'GET', auth_token, undefined, customTunnel);
+                    if (applyRes && (Array.isArray(applyRes.questions) || Array.isArray(applyRes.items))) {
+                        questionsList = applyRes.questions || applyRes.items || [];
+                        if (applyRes.token) applyToken = applyRes.token;
+                        if (!execOn && (applyRes.executed_on || applyRes.room_name || applyRes.publication_target)) {
+                            execOn = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
+                        }
+                        if (questionsList.length > 0) break;
                     }
+                } catch (e: any) {
+                    console.warn(`[Complete] Aviso ao aplicar task ${task_id} em ${url}:`, e.message);
                 }
-            } catch (e: any) {
-                console.warn(`[Complete] Erro ao aplicar task ${task_id}:`, e.message);
             }
         }
 
@@ -838,15 +847,27 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                         }
                     };
                 } else {
-                    const opts = Array.isArray(q.options) ? q.options : [];
-                    const correctOpt = opts.find((o: any) => o.is_correct === true || o.correct === true) || opts[0];
-                    let optVal: any = 1;
+                    const opts = Array.isArray(q.options) ? q.options :
+                                 Array.isArray(q.choices) ? q.choices :
+                                 Array.isArray(q.alternatives) ? q.alternatives :
+                                 Array.isArray(q.items) ? q.items :
+                                 Array.isArray(q.answers) ? q.answers : [];
+
+                    const correctOpt = opts.find((o: any) => o.is_correct === true || o.correct === true || o.is_right === true) || opts[0];
+                    let optVal: any = null;
+
                     if (correctOpt) {
-                        const candidate = correctOpt.id ?? correctOpt.option_id ?? correctOpt.value;
+                        const candidate = correctOpt.id ?? correctOpt.option_id ?? correctOpt.value ?? correctOpt.key ?? correctOpt.code;
                         if (candidate !== undefined && candidate !== null) {
                             optVal = isNaN(Number(candidate)) ? candidate : Number(candidate);
                         }
                     }
+
+                    if (optVal === null || optVal === undefined) {
+                        // Se não encontrou opções válidas nas questões, usa qId ou fallback numérico
+                        optVal = Number(qId) || 1;
+                    }
+
                     answersMap[String(qId)] = {
                         question_id: qId,
                         question_type: qType,
@@ -871,7 +892,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 answersMap[String(fallbackQId)] = {
                     question_id: fallbackQId,
                     question_type: "single_choice",
-                    answer: [1]
+                    answer: [fallbackQId]
                 };
             }
         }
@@ -901,29 +922,56 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             try {
                 return await sendAnswer(p);
             } catch (err: any) {
-                if (err.message && (err.message.includes("question_type") || err.message.includes("invalid answer"))) {
-                    console.warn(`[Complete] question_type rejeitado pelo EDUSP. Tentando com alternativas...`);
-                    const pCopy = JSON.parse(JSON.stringify(p));
-                    for (const k of Object.keys(pCopy.answers)) {
-                        if (pCopy.answers[k].question_type === 'options') {
-                            pCopy.answers[k].question_type = 'single_choice';
-                        } else if (pCopy.answers[k].question_type === 'single_choice') {
-                            pCopy.answers[k].question_type = 'essay';
-                            pCopy.answers[k].answer = { title: titulo || 'Redação', body: texto || 'Resposta em texto.' };
-                        } else {
-                            pCopy.answers[k].question_type = 'options';
+                const errStr = String(err.message || err).toLowerCase();
+                if (
+                    errStr.includes("question_type") ||
+                    errStr.includes("invalid answer") ||
+                    errStr.includes("not allowed") ||
+                    errStr.includes("badrequesterror") ||
+                    errStr.includes("400")
+                ) {
+                    console.warn(`[Complete] Resposta rejeitada pelo EDUSP (${err.message}). Tentando retentativa com variações...`);
+                    
+                    // Variação 1: Mudar respostas array [val] para valor escalar val (ou vice-versa)
+                    const pScalar = JSON.parse(JSON.stringify(p));
+                    for (const k of Object.keys(pScalar.answers)) {
+                        const item = pScalar.answers[k];
+                        if (Array.isArray(item.answer) && item.answer.length > 0) {
+                            item.answer = item.answer[0];
                         }
                     }
                     try {
-                        return await sendAnswer(pCopy);
-                    } catch (err2: any) {
-                        const pEssay = JSON.parse(JSON.stringify(p));
-                        for (const k of Object.keys(pEssay.answers)) {
-                            pEssay.answers[k].question_type = 'essay';
-                            pEssay.answers[k].answer = { title: titulo || 'Redação', body: texto || 'Resposta desenvolvida.' };
-                        }
-                        return await sendAnswer(pEssay);
+                        return await sendAnswer(pScalar);
+                    } catch (e1: any) {
+                        console.warn(`[Complete] Variação escalar falhou: ${e1.message}`);
                     }
+
+                    // Variação 2: Alternar question_type entre single_choice e options
+                    const pTypeSwap = JSON.parse(JSON.stringify(p));
+                    for (const k of Object.keys(pTypeSwap.answers)) {
+                        const item = pTypeSwap.answers[k];
+                        if (item.question_type === 'options') {
+                            item.question_type = 'single_choice';
+                        } else if (item.question_type === 'single_choice') {
+                            item.question_type = 'options';
+                        }
+                    }
+                    try {
+                        return await sendAnswer(pTypeSwap);
+                    } catch (e2: any) {
+                        console.warn(`[Complete] Variação question_type falhou: ${e2.message}`);
+                    }
+
+                    // Variação 3: Se ainda falhou, converte para tipo essay (redação / texto)
+                    const pEssay = JSON.parse(JSON.stringify(p));
+                    for (const k of Object.keys(pEssay.answers)) {
+                        pEssay.answers[k].question_type = 'essay';
+                        pEssay.answers[k].answer = {
+                            title: titulo || 'Resposta da Atividade',
+                            body: texto || 'Atividade desenvolvida e enviada com sucesso.'
+                        };
+                    }
+                    return await sendAnswer(pEssay);
                 }
                 throw err;
             }
