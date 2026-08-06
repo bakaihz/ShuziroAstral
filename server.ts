@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import { fetch as undiciFetch, Agent } from "undici";
 import { CookieJar } from "tough-cookie";
 import { JSDOM } from "jsdom";
@@ -16,7 +15,6 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
-    "https://api.davilucas99kk.workers.dev",
     "https://corsproxy.io/?",
     "https://edusp-api.ip.tv"
 ];
@@ -25,7 +23,6 @@ async function startServer() {
     const app = express();
     const PORT = Number(process.env.PORT) || 3000;
 
-    app.use(cors());
     app.use(express.json());
 
     const agent = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
@@ -39,8 +36,8 @@ async function startServer() {
         let tunnel: string | undefined = undefined;
         if (typeof headerVal === 'string' && headerVal.trim()) {
             const trimmed = headerVal.trim();
-            // Permite api.shuziroastral.lol e outros túneis válidos
-            if (trimmed !== 'https://shuziroastral.lol' && trimmed !== 'http://shuziroastral.lol') {
+            // Ignora o domínio do frontend para evitar auto-requisição/erro 530
+            if (!trimmed.includes('shuziroastral.lol')) {
                 tunnel = trimmed;
             }
         }
@@ -577,9 +574,22 @@ async function startServer() {
                     const id = String(item.id || item.task_id || '');
                     if (id && !seenIds.has(id)) {
                         seenIds.add(id);
-                        if (isEssayParam === 'true') {
+                        const titleLower = String(item.title || item.name || '').toLowerCase();
+                        const catLower = String(item.category || item.type || item.task_type || '').toLowerCase();
+                        
+                        if (
+                            item.is_essay === true ||
+                            isEssayParam === 'true' ||
+                            catLower.includes('essay') ||
+                            catLower.includes('redação') ||
+                            catLower.includes('redacao') ||
+                            titleLower.includes('redação') ||
+                            titleLower.includes('redacao')
+                        ) {
                             item.is_essay = true;
-                        } else if (isEssayParam === 'false' && item.is_essay === undefined) {
+                        } else if (item.is_essay === false) {
+                            item.is_essay = false;
+                        } else {
                             item.is_essay = false;
                         }
                         allTasks.push(item);
@@ -590,7 +600,7 @@ async function startServer() {
 
         const essayFilter = isEssayParam !== null ? `&is_essay=${isEssayParam}` : '';
 
-        // 1. Coleta os alvos de publicação (publication_target) fornecidos via query ou vindos das salas do aluno
+        // Coleta os alvos de publicação (publication_target) fornecidos via query ou vindos das salas do aluno
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
 
         try {
@@ -624,14 +634,17 @@ async function startServer() {
         const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
         if (fallbackSlug) targetsToTry.add(fallbackSlug);
 
-        // 2. Busca tarefas e redações para cada publication_target encontrado
+        // Busca tarefas e redações para cada publication_target encontrado
         if (targetsToTry.size > 0) {
             for (const target of targetsToTry) {
                 const encTarget = encodeURIComponent(target);
                 const targetQueries = [
+                    `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
+                    `/tms/task/todo?expired_only=true&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
                     `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
                     `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`,
-                    `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`
+                    `/tms/task/todo?expired_only=true&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
+                    `/tms/task/todo?expired_only=true&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`
                 ];
                 for (const qUrl of targetQueries) {
                     try {
@@ -785,70 +798,79 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             console.log(`[Complete] Room slug resolvida automaticamente: '${execOn}'`);
         }
 
+        let questionsList = reqQuestions;
+        let applyToken = req.body.token;
+
+        if (!Array.isArray(questionsList) || questionsList.length === 0 || !question_id || Number(question_id) === 0) {
+            try {
+                const applyRes = await callOfficialApi(`/tms/task/${task_id}/apply`, 'GET', auth_token, undefined, customTunnel);
+                if (applyRes) {
+                    questionsList = applyRes.questions || applyRes.items || [];
+                    if (applyRes.token) applyToken = applyRes.token;
+                    if (!execOn && (applyRes.executed_on || applyRes.room_name || applyRes.publication_target)) {
+                        execOn = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
+                    }
+                }
+            } catch (e: any) {
+                console.warn(`[Complete] Erro ao aplicar task ${task_id}:`, e.message);
+            }
+        }
+
         let answersMap: Record<string, any> = {};
 
-        if (is_essay !== false && (titulo || texto || question_id)) {
-            // Fluxo de Redação
-            const sendTitle = titulo || 'Redação';
-            const sendBody = texto || '';
-            const qId = Number(question_id) || 0;
-            answersMap[String(qId)] = {
-                question_id: qId,
-                question_type: "essay",
-                answer: {
-                    title: sendTitle,
-                    body: sendBody
-                }
-            };
-        } else {
-            // Fluxo de Tarefa Normal (Múltipla Escolha / Lição de Casa)
-            let questionsList = reqQuestions;
-            if (!Array.isArray(questionsList) || questionsList.length === 0) {
-                try {
-                    const applyRes = await callOfficialApi(`/tms/task/${task_id}/apply`, 'GET', auth_token, undefined, customTunnel);
-                    questionsList = applyRes?.questions || applyRes?.items || [];
-                } catch (e: any) {
-                    console.warn(`[Complete] Erro ao buscar questões da task ${task_id}:`, e.message);
-                }
-            }
+        if (Array.isArray(questionsList) && questionsList.length > 0) {
+            questionsList.forEach((q: any) => {
+                const qId = Number(q.id || q.question_id || question_id) || 0;
+                if (!qId) return;
 
-            if (Array.isArray(questionsList) && questionsList.length > 0) {
-                questionsList.forEach((q: any) => {
-                    const qId = Number(q.id || q.question_id);
-                    if (!qId) return;
+                let qType = q.type || q.question_type || (is_essay ? "essay" : "single_choice");
+                if (qType === "options") qType = "single_choice";
 
-                    const qType = q.type || q.question_type || "options";
-                    if (qType === "essay") {
-                        const sendTitle = titulo || q.title || 'Redação';
-                        const sendBody = texto || 'Redação desenvolvida com sucesso.';
-                        answersMap[String(qId)] = {
-                            question_id: qId,
-                            question_type: "essay",
-                            answer: {
-                                title: sendTitle,
-                                body: sendBody
-                            }
-                        };
-                    } else {
-                        // Múltipla escolha (options) ou questões normais
-                        const opts = Array.isArray(q.options) ? q.options : [];
-                        const correctOpt = opts.find((o: any) => o.is_correct === true || o.correct === true) || opts[0];
-                        let optVal = 1;
-                        if (correctOpt) {
-                            optVal = Number(correctOpt.id || correctOpt.option_id || correctOpt.value || 1);
+                if (qType === "essay" || is_essay === true) {
+                    const sendTitle = titulo || q.title || 'Redação';
+                    const sendBody = texto || 'Redação desenvolvida com sucesso.';
+                    answersMap[String(qId)] = {
+                        question_id: qId,
+                        question_type: "essay",
+                        answer: {
+                            title: sendTitle,
+                            body: sendBody
                         }
-                        answersMap[String(qId)] = {
-                            question_id: qId,
-                            question_type: "options",
-                            answer: [isNaN(optVal) ? 1 : optVal]
-                        };
+                    };
+                } else {
+                    const opts = Array.isArray(q.options) ? q.options : [];
+                    const correctOpt = opts.find((o: any) => o.is_correct === true || o.correct === true) || opts[0];
+                    let optVal: any = 1;
+                    if (correctOpt) {
+                        const candidate = correctOpt.id ?? correctOpt.option_id ?? correctOpt.value;
+                        if (candidate !== undefined && candidate !== null) {
+                            optVal = isNaN(Number(candidate)) ? candidate : Number(candidate);
+                        }
                     }
-                });
+                    answersMap[String(qId)] = {
+                        question_id: qId,
+                        question_type: qType,
+                        answer: Array.isArray(optVal) ? optVal : [optVal]
+                    };
+                }
+            });
+        }
+
+        if (Object.keys(answersMap).length === 0) {
+            const fallbackQId = Number(question_id) || 1;
+            if (is_essay === true || (titulo && texto)) {
+                answersMap[String(fallbackQId)] = {
+                    question_id: fallbackQId,
+                    question_type: "essay",
+                    answer: {
+                        title: titulo || 'Redação',
+                        body: texto || 'Redação desenvolvida.'
+                    }
+                };
             } else {
-                const qId = Number(question_id) || 1;
-                answersMap[String(qId)] = {
-                    question_id: qId,
-                    question_type: "options",
+                answersMap[String(fallbackQId)] = {
+                    question_id: fallbackQId,
+                    question_type: "single_choice",
                     answer: [1]
                 };
             }
@@ -861,7 +883,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             duration: Number(req.body.duration) || 30,
             answers: answersMap
         };
-        if (req.body.token) payload.token = req.body.token;
+        if (applyToken) payload.token = applyToken;
 
         const sendAnswer = async (p: any) => {
             if (answer_id) {
@@ -875,23 +897,55 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             return await callOfficialApi(`/tms/task/${task_id}/answer`, 'POST', auth_token, p, customTunnel);
         };
 
+        const tryWithFallbackTypes = async (p: any) => {
+            try {
+                return await sendAnswer(p);
+            } catch (err: any) {
+                if (err.message && (err.message.includes("question_type") || err.message.includes("invalid answer"))) {
+                    console.warn(`[Complete] question_type rejeitado pelo EDUSP. Tentando com alternativas...`);
+                    const pCopy = JSON.parse(JSON.stringify(p));
+                    for (const k of Object.keys(pCopy.answers)) {
+                        if (pCopy.answers[k].question_type === 'options') {
+                            pCopy.answers[k].question_type = 'single_choice';
+                        } else if (pCopy.answers[k].question_type === 'single_choice') {
+                            pCopy.answers[k].question_type = 'essay';
+                            pCopy.answers[k].answer = { title: titulo || 'Redação', body: texto || 'Resposta em texto.' };
+                        } else {
+                            pCopy.answers[k].question_type = 'options';
+                        }
+                    }
+                    try {
+                        return await sendAnswer(pCopy);
+                    } catch (err2: any) {
+                        const pEssay = JSON.parse(JSON.stringify(p));
+                        for (const k of Object.keys(pEssay.answers)) {
+                            pEssay.answers[k].question_type = 'essay';
+                            pEssay.answers[k].answer = { title: titulo || 'Redação', body: texto || 'Resposta desenvolvida.' };
+                        }
+                        return await sendAnswer(pEssay);
+                    }
+                }
+                throw err;
+            }
+        };
+
         try {
             let data: any;
             try {
-                data = await sendAnswer(payload);
+                data = await tryWithFallbackTypes(payload);
             } catch (err: any) {
                 const freshSlug = await getFallbackRoomSlug(auth_token, customTunnel);
                 if (freshSlug && freshSlug !== payload.executed_on) {
                     console.warn(`[Complete] Re-tentando com room slug fresca: '${freshSlug}'`);
                     payload.executed_on = freshSlug;
                     try {
-                        data = await sendAnswer(payload);
+                        data = await tryWithFallbackTypes(payload);
                     } catch (retryErr: any) {
                         if (payload.executed_on) {
                             console.warn(`[Complete] Re-tentando sem executed_on...`);
                             const payloadCopy = { ...payload };
                             delete payloadCopy.executed_on;
-                            data = await sendAnswer(payloadCopy);
+                            data = await tryWithFallbackTypes(payloadCopy);
                         } else {
                             throw retryErr;
                         }
@@ -900,7 +954,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                     console.warn(`[Complete] Re-tentando sem executed_on...`);
                     const payloadCopy = { ...payload };
                     delete payloadCopy.executed_on;
-                    data = await sendAnswer(payloadCopy);
+                    data = await tryWithFallbackTypes(payloadCopy);
                 } else {
                     throw err;
                 }
@@ -1568,7 +1622,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     // ======================= GENERIC PROXY & ALURA ENDPOINTS =======================
-    app.all("/proxy", async (req, res) => {
+    app.all(["/api/proxy", "/proxy"], async (req, res) => {
         const targetUrl = (req.query.url as string) || (req.body && req.body.url) || '';
         if (!targetUrl) {
             return res.status(400).json({ error: 'URL alvo não especificada (parâmetro url)' });
@@ -1768,10 +1822,13 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         }
     };
 
-    app.all("/proxy-edusp/*", handleEduspProxy);
-    app.all(["/room/*", "/tms/*", "/user/*", "/auth/*", "/school/*", "/notification/*"], handleEduspProxy);
+    app.all(["/api/proxy-edusp/*", "/proxy-edusp/*"], handleEduspProxy);
+    app.all([
+        "/api/room/*", "/api/tms/*", "/api/user/*", "/api/auth/*", "/api/school/*", "/api/notification/*",
+        "/room/*", "/tms/*", "/user/*", "/auth/*", "/school/*", "/notification/*"
+    ], handleEduspProxy);
 
-    app.get("/ping", (req, res) => {
+    app.get(["/api/ping", "/ping"], (req, res) => {
         res.json({ status: 'ok', online: true, timestamp: new Date().toISOString() });
     });
 
@@ -1779,7 +1836,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         res.json({ status: 'ok', timestamp: new Date().toISOString() });
     });
 
-    // Vite middleware setup
+    // Vite middleware setup (dev mode) or static file serving (production mode)
     if (process.env.NODE_ENV !== "production") {
         const vite = await createViteServer({
             server: { middlewareMode: true },
@@ -1789,13 +1846,14 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     } else {
         const distPath = path.join(process.cwd(), 'dist');
         app.use(express.static(distPath));
-        app.get('*all', (req, res) => {
+        app.get('*', (req, res, next) => {
+            if (req.path.startsWith('/api')) return next();
             res.sendFile(path.join(distPath, 'index.html'));
         });
     }
 
     app.listen(PORT, "0.0.0.0", () => {
-        console.log(`🚀 ShuziroAstral Hub rodando em http://localhost:${PORT}`);
+        console.log(`🚀 ShuziroAstral Hub rodando em http://0.0.0.0:${PORT}`);
     });
 }
 

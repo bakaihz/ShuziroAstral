@@ -345,9 +345,13 @@ export default function App() {
         }
         const roomTarget = rawRoomTarget;
         let applyData: any = {};
+
+        const applyHeaders: Record<string, string> = { 'x-api-key': authToken };
+        if (tunnelUrl) applyHeaders['x-tunnel-url'] = tunnelUrl;
+
         try {
           const applyRes = await fetch(`/api/tms/task/${tid}/apply?room_name=${encodeURIComponent(roomTarget)}`, {
-            headers: { 'x-api-key': authToken }
+            headers: applyHeaders
           });
           if (applyRes.ok) {
             applyData = await applyRes.json();
@@ -361,9 +365,15 @@ export default function App() {
         const roomForApply = applyData.room_name || applyData.executed_on || applyData.publication_target || applyData.room_for_apply || roomTarget;
 
         // Complete / Submit task
+        const compHeaders: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-api-key': authToken
+        };
+        if (tunnelUrl) compHeaders['x-tunnel-url'] = tunnelUrl;
+
         const compRes = await fetch('/api/complete', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: compHeaders,
           body: JSON.stringify({
             task_id: tid,
             question_id: questionId,
