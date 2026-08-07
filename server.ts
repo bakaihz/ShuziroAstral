@@ -45,8 +45,70 @@ async function startServer() {
     }
 
     // ======================= FUNÇÃO COM FALLBACK =======================
-    async function callOfficialApi(url: string, method: string, token: string, body?: any, customTunnelInfo?: string | { tunnel?: string; userAgent?: string; cookies?: string }) {
+    const sedToEduSpCache = new Map<string, { token: string; expiresAt: number }>();
+
+    function isSedToken(token: string): boolean {
+        if (!token) return false;
+        try {
+            const clean = token.replace(/^Bearer\s+/i, '').trim();
+            const parts = clean.split('.');
+            if (parts.length >= 2) {
+                const payloadStr = Buffer.from(parts[1], 'base64').toString('utf8');
+                const payload = JSON.parse(payloadStr);
+                if (payload.LOGIN || payload.aud === 'SED' || payload.AUD === 'SED' || (payload.iss && payload.iss.includes('azurewebsites'))) {
+                    return true;
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+        return false;
+    }
+
+    async function resolveEduSpToken(token: string, customTunnelInfo?: any): Promise<string> {
+        if (!token) return token;
+        const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
+        if (!isSedToken(cleanToken)) {
+            return cleanToken;
+        }
+
+        const cached = sedToEduSpCache.get(cleanToken);
+        if (cached && cached.expiresAt > Date.now()) {
+            return cached.token;
+        }
+
+        try {
+            console.log(`[Token Auto-Exchange] Token recebido é JWT da SED. Trocando por auth_token da EduSP...`);
+            const res = await getEduSpToken(cleanToken, customTunnelInfo);
+            if (res && res.auth_token) {
+                sedToEduSpCache.set(cleanToken, {
+                    token: res.auth_token,
+                    expiresAt: Date.now() + 1000 * 60 * 30
+                });
+                console.log(`[Token Auto-Exchange] Trocado com sucesso para auth_token da EduSP!`);
+                return res.auth_token;
+            }
+        } catch (e: any) {
+            console.warn(`[Token Auto-Exchange] Falha ao trocar token SED -> EduSP: ${e.message}`);
+        }
+
+        return cleanToken;
+    }
+
+    async function callOfficialApi(
+        url: string,
+        method: string,
+        token: string,
+        body?: any,
+        customTunnelInfo?: string | { tunnel?: string; userAgent?: string; cookies?: string },
+        skipTokenExchange: boolean = false
+    ) {
         let lastError: any = null;
+
+        let effectiveToken = token;
+        if (!skipTokenExchange && token && !url.includes('/registration/edusp/token')) {
+            effectiveToken = await resolveEduSpToken(token, customTunnelInfo);
+        }
 
         const customTunnel = typeof customTunnelInfo === 'string' ? customTunnelInfo : customTunnelInfo?.tunnel;
         const clientUserAgent = typeof customTunnelInfo === 'object' ? customTunnelInfo?.userAgent : undefined;
@@ -96,8 +158,8 @@ async function startServer() {
                 'sec-fetch-site': 'cross-site'
             };
 
-            if (token) {
-                const cleanJwt = token.replace(/^Bearer\s+/i, '').trim();
+            if (effectiveToken) {
+                const cleanJwt = effectiveToken.replace(/^Bearer\s+/i, '').trim();
                 headers['x-api-key'] = cleanJwt;
                 headers['authorization'] = `Bearer ${cleanJwt}`;
                 headers['x-access-token'] = cleanJwt;
@@ -318,7 +380,8 @@ async function startServer() {
                 'POST',
                 sedToken,
                 { token: sedToken, message: sedToken },
-                customTunnelInfo
+                customTunnelInfo,
+                true
             );
             if (officialRes) {
                 if (typeof officialRes === 'string' && officialRes.startsWith('eyJ')) {
