@@ -614,52 +614,53 @@ async function startServer() {
 
         const essayFilter = isEssayParam !== null ? `&is_essay=${isEssayParam}` : '';
 
-        // 1. Tenta buscar tarefas diretamente via endpoints genéricos do EDUSP
-        const directQueries = [
-            `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}`,
-            `/tms/task/todo?expired_only=true&limit=100&offset=0${essayFilter}`,
-            `/tms/task/todo?limit=100&offset=0${essayFilter}`,
-            `/tms/task/todo?answer_statuses=pending&limit=100&offset=0${essayFilter}`,
-            `/tms/task/todo?answer_statuses=draft&limit=100&offset=0${essayFilter}`
-        ];
-        for (const qUrl of directQueries) {
-            try {
-                const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
-                addItems(data);
-            } catch (e: any) {
-                // silencia
-            }
-        }
-
-        // 2. Coleta os alvos de publicação (publication_target) fornecidos via query ou vindos das salas do aluno
+        // Coleta os alvos de publicação (publication_target) fornecidos via query ou vindos das salas do aluno.
+        // O parâmetro `publication_target` é estritamente OBRIGATÓRIO pela API EDUSP.
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
 
-        try {
-            const roomData = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
-            const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
-            for (const r of rooms) {
-                const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
-                const candidates = [
-                    r.publication_target, r.slug, r.id, r.code,
-                    inner.publication_target, inner.slug, inner.id, inner.code
-                ];
-                if (Array.isArray(r.subjects)) {
-                    r.subjects.forEach((s: any) => {
-                        if (s?.publication_target) candidates.push(s.publication_target);
-                        if (s?.id) candidates.push(s.id);
-                    });
-                }
-                for (const c of candidates) {
-                    if (c !== undefined && c !== null) {
-                        const str = String(c).trim();
-                        if (str && str !== 'null' && str !== 'undefined') {
-                            targetsToTry.add(str);
+        // Tenta buscar salas de múltiplos endpoints para extrair publication_targets válidos
+        const roomEndpoints = [
+            '/room/user?list_all=true&with_cards=true',
+            '/room/user',
+            '/v1/room/user'
+        ];
+
+        for (const ep of roomEndpoints) {
+            try {
+                const roomData = await callOfficialApi(ep, 'GET', token, undefined, customTunnel);
+                const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
+                for (const r of rooms) {
+                    const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
+                    const candidates = [
+                        r.publication_target, r.slug, r.id, r.code, r.room_id, r.name, r.room_name, r.topic,
+                        inner.publication_target, inner.slug, inner.id, inner.code, inner.room_id, inner.name, inner.room_name, inner.topic
+                    ];
+                    if (Array.isArray(r.group_categories)) {
+                        r.group_categories.forEach((gc: any) => {
+                            if (gc?.name) candidates.push(gc.name);
+                            if (gc?.id) candidates.push(gc.id);
+                        });
+                    }
+                    if (Array.isArray(r.subjects)) {
+                        r.subjects.forEach((s: any) => {
+                            if (s?.publication_target) candidates.push(s.publication_target);
+                            if (s?.id) candidates.push(s.id);
+                            if (s?.code) candidates.push(s.code);
+                        });
+                    }
+                    for (const c of candidates) {
+                        if (c !== undefined && c !== null) {
+                            const str = String(c).trim();
+                            if (str && str !== 'null' && str !== 'undefined') {
+                                targetsToTry.add(str);
+                            }
                         }
                     }
                 }
+                if (targetsToTry.size > 0) break;
+            } catch (e: any) {
+                // Silencia aviso de busca de salas para endpoints secundários
             }
-        } catch (e: any) {
-            console.warn(`[/api/tms/task/todo] Aviso ao buscar salas: ${e.message}`);
         }
 
         const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
