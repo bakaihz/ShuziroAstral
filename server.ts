@@ -568,6 +568,21 @@ async function startServer() {
         res.json({ rooms: [], items: [], blocked: false, message: lastErrMessage || "Nenhuma sala encontrada." });
     });
 
+function extractUserNickFromToken(token: string): string {
+    try {
+        const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
+        const parts = cleanToken.split('.');
+        if (parts.length >= 2) {
+            const jsonStr = Buffer.from(parts[1], 'base64').toString('utf8');
+            const payload = JSON.parse(jsonStr);
+            return payload.nick || payload.NICKNAME || payload.nickname || payload.LOGIN || payload.user_id || '';
+        }
+    } catch (e) {
+        // silencia erros de parse do JWT
+    }
+    return '';
+}
+
     app.get("/api/tms/task/todo", async (req, res) => {
         const token = (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string) || (req.headers['x-access-token'] as string);
         if (!token) return res.status(401).json({ error: "Token ausente" });
@@ -614,6 +629,9 @@ async function startServer() {
 
         const essayFilter = isEssayParam !== null ? `&is_essay=${isEssayParam}` : '';
 
+        // Extract user nick from JWT if available
+        const userNick = extractUserNickFromToken(token);
+
         // Coleta os alvos de publicação (publication_target) fornecidos via query ou vindos das salas do aluno.
         // O parâmetro `publication_target` é estritamente OBRIGATÓRIO pela API EDUSP.
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
@@ -631,20 +649,24 @@ async function startServer() {
                 const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
                 for (const r of rooms) {
                     const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
+                    const roomName = (r.name || r.room_name || inner.name || inner.room_name || '').trim();
                     const candidates = [
-                        r.publication_target, r.slug, r.id, r.code, r.room_id, r.name, r.room_name, r.topic,
-                        inner.publication_target, inner.slug, inner.id, inner.code, inner.room_id, inner.name, inner.room_name, inner.topic
+                        r.publication_target, r.slug, r.id, r.code, r.room_id, roomName, r.topic,
+                        inner.publication_target, inner.slug, inner.id, inner.code, inner.room_id, inner.topic
                     ];
+                    if (roomName && userNick) {
+                        candidates.push(`${roomName}:${userNick}`);
+                    }
                     if (Array.isArray(r.group_categories)) {
                         r.group_categories.forEach((gc: any) => {
+                            if (gc?.id !== undefined) candidates.push(String(gc.id));
                             if (gc?.name) candidates.push(gc.name);
-                            if (gc?.id) candidates.push(gc.id);
                         });
                     }
                     if (Array.isArray(r.subjects)) {
                         r.subjects.forEach((s: any) => {
                             if (s?.publication_target) candidates.push(s.publication_target);
-                            if (s?.id) candidates.push(s.id);
+                            if (s?.id !== undefined) candidates.push(String(s.id));
                             if (s?.code) candidates.push(s.code);
                         });
                     }
@@ -664,26 +686,48 @@ async function startServer() {
         }
 
         const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
-        if (fallbackSlug) targetsToTry.add(fallbackSlug);
+        if (fallbackSlug) {
+            targetsToTry.add(fallbackSlug);
+            if (userNick) targetsToTry.add(`${fallbackSlug}:${userNick}`);
+        }
 
-        // Busca tarefas e redações para cada publication_target encontrado
+        // Busca tarefas e redações
         if (targetsToTry.size > 0) {
+            const allTargetsArr = Array.from(targetsToTry);
+            const multiTargetQueryStr = allTargetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
+
+            // 1. Tenta query combinada oficial (passando múltiplos publication_target ao mesmo tempo)
+            const officialMultiQueries = [
+                `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
+                `/tms/task/todo?expired_only=true&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
+                `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`,
+                `/tms/task/todo?expired_only=true&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`
+            ];
+
+            for (const qUrl of officialMultiQueries) {
+                try {
+                    const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
+                    addItems(data);
+                } catch (e: any) {
+                    // silencia
+                }
+            }
+
+            // 2. Se a query combinada não trouxe itens, ou para garantir cobertura total, busca por alvos individuais
             for (const target of targetsToTry) {
                 const encTarget = encodeURIComponent(target);
                 const targetQueries = [
                     `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
                     `/tms/task/todo?expired_only=true&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
                     `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
-                    `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`,
-                    `/tms/task/todo?expired_only=true&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
-                    `/tms/task/todo?expired_only=true&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`
+                    `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`
                 ];
                 for (const qUrl of targetQueries) {
                     try {
                         const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
                         addItems(data);
                     } catch (e: any) {
-                        // silencia erros individuais de target sem tarefas
+                        // silencia erros individuais
                     }
                 }
             }
