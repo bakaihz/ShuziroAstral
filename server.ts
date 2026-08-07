@@ -159,7 +159,7 @@ async function startServer() {
                 'sec-fetch-site': 'cross-site'
             };
 
-            if (effectiveToken) {
+            if (effectiveToken && !cleanPath.includes('/registration/edusp/token')) {
                 const cleanJwt = effectiveToken.replace(/^Bearer\s+/i, '').trim();
                 headers['x-api-key'] = cleanJwt;
                 headers['authorization'] = `Bearer ${cleanJwt}`;
@@ -196,7 +196,7 @@ async function startServer() {
                             cleanText.startsWith('<html')
                         );
 
-                        const isCredentialError = !isCloudflareBlock && (response.status === 401 || (response.status === 403 && (
+                        const isCredentialError = !cleanPath.includes('/registration/edusp/token') && !isCloudflareBlock && (response.status === 401 || (response.status === 403 && (
                             cleanText.toLowerCase().includes('wrong credentials') ||
                             cleanText.toLowerCase().includes('x-api-key') ||
                             cleanText.toLowerCase().includes('invalid token') ||
@@ -468,8 +468,6 @@ async function startServer() {
                     "content-type": "application/json",
                     "x-api-platform": "webclient",
                     "x-api-realm": "edusp",
-                    "x-api-key": sedToken,
-                    "authorization": `Bearer ${sedToken}`,
                     "user-agent": clientUA,
                     "referer": "https://saladofuturo.educacao.sp.gov.br/",
                     "origin": "https://saladofuturo.educacao.sp.gov.br"
@@ -488,8 +486,6 @@ async function startServer() {
                     "content-type": "application/json",
                     "x-api-platform": "webclient",
                     "x-api-realm": "edusp",
-                    "x-api-key": sedToken,
-                    "authorization": `Bearer ${sedToken}`,
                     "user-agent": clientUA,
                     "referer": "https://saladofuturo.educacao.sp.gov.br/",
                     "origin": "https://saladofuturo.educacao.sp.gov.br"
