@@ -624,6 +624,31 @@ async function startServer() {
         }
     });
 
+function extractUserNickFromToken(token: string): string {
+    try {
+        const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
+        const parts = cleanToken.split('.');
+        if (parts.length >= 2) {
+            const jsonStr = Buffer.from(parts[1], 'base64').toString('utf8');
+            const payload = JSON.parse(jsonStr);
+            if (payload.nick) return payload.nick;
+            if (payload.skey && typeof payload.skey === 'string' && payload.skey.includes(':')) {
+                const skeyParts = payload.skey.split(':');
+                const last = skeyParts[skeyParts.length - 1];
+                if (last) return last;
+            }
+            let nick = payload.NICKNAME || payload.nickname || payload.LOGIN || payload.user_id || '';
+            if (nick && !nick.endsWith('-sp') && (payload.LOGIN?.endsWith('SP') || payload.realm === 'edusp' || payload.AUD === 'SED' || payload.aud === 'SED')) {
+                nick = nick + '-sp';
+            }
+            return nick;
+        }
+    } catch (e) {
+        // silencia erros de parse do JWT
+    }
+    return '';
+}
+
     app.get("/api/rooms", async (req, res) => {
         const token = (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string) || (req.headers['x-access-token'] as string);
         if (!token) return res.status(401).json({ error: "Token ausente" });
@@ -634,6 +659,7 @@ async function startServer() {
             '/v1/room/user'
         ];
         let lastErrMessage = '';
+        let isCredError = false;
         for (const ep of roomEndpoints) {
             try {
                 const data = await callOfficialApi(ep, 'GET', token, undefined, customTunnel);
@@ -642,25 +668,21 @@ async function startServer() {
                 }
             } catch (err: any) {
                 lastErrMessage = err.message || String(err);
+                if (err.isCredentialError) {
+                    isCredError = true;
+                }
             }
+        }
+        if (isCredError) {
+            return res.status(401).json({
+                rooms: [],
+                items: [],
+                blocked: true,
+                message: "Token de acesso inválido ou recusado pela EduSP."
+            });
         }
         res.json({ rooms: [], items: [], blocked: false, message: lastErrMessage || "Nenhuma sala encontrada." });
     });
-
-function extractUserNickFromToken(token: string): string {
-    try {
-        const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
-        const parts = cleanToken.split('.');
-        if (parts.length >= 2) {
-            const jsonStr = Buffer.from(parts[1], 'base64').toString('utf8');
-            const payload = JSON.parse(jsonStr);
-            return payload.nick || payload.NICKNAME || payload.nickname || payload.LOGIN || payload.user_id || '';
-        }
-    } catch (e) {
-        // silencia erros de parse do JWT
-    }
-    return '';
-}
 
     app.get("/api/tms/task/todo", async (req, res) => {
         const token = (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string) || (req.headers['x-access-token'] as string);
