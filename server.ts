@@ -97,8 +97,10 @@ async function startServer() {
             };
 
             if (token) {
-                headers['x-api-key'] = token;
-                headers['authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+                const cleanJwt = token.replace(/^Bearer\s+/i, '').trim();
+                headers['x-api-key'] = cleanJwt;
+                headers['authorization'] = `Bearer ${cleanJwt}`;
+                headers['x-access-token'] = cleanJwt;
             }
 
             if (clientCookies) {
@@ -544,19 +546,30 @@ async function startServer() {
     });
 
     app.get("/api/rooms", async (req, res) => {
-        const token = req.headers['x-api-key'] as string;
+        const token = (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string) || (req.headers['x-access-token'] as string);
         if (!token) return res.status(401).json({ error: "Token ausente" });
-        try {
-            const data = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, getCustomTunnel(req));
-            res.json(data);
-        } catch (err: any) {
-            console.warn(`[/api/rooms] Aviso: Busca de salas retornou erro (${err.message}). Retornando lista de salas vazia para prosseguir.`);
-            res.json({ rooms: [], items: [], blocked: true, message: err.message });
+        const customTunnel = getCustomTunnel(req);
+        const roomEndpoints = [
+            '/room/user?list_all=true&with_cards=true',
+            '/room/user',
+            '/v1/room/user'
+        ];
+        let lastErrMessage = '';
+        for (const ep of roomEndpoints) {
+            try {
+                const data = await callOfficialApi(ep, 'GET', token, undefined, customTunnel);
+                if (data && (data.rooms || data.items || Array.isArray(data))) {
+                    return res.json(data);
+                }
+            } catch (err: any) {
+                lastErrMessage = err.message || String(err);
+            }
         }
+        res.json({ rooms: [], items: [], blocked: false, message: lastErrMessage || "Nenhuma sala encontrada." });
     });
 
     app.get("/api/tms/task/todo", async (req, res) => {
-        const token = req.headers['x-api-key'] as string;
+        const token = (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string) || (req.headers['x-access-token'] as string);
         if (!token) return res.status(401).json({ error: "Token ausente" });
         const customTunnel = getCustomTunnel(req);
 
@@ -601,7 +614,24 @@ async function startServer() {
 
         const essayFilter = isEssayParam !== null ? `&is_essay=${isEssayParam}` : '';
 
-        // Coleta os alvos de publicação (publication_target) fornecidos via query ou vindos das salas do aluno
+        // 1. Tenta buscar tarefas diretamente via endpoints genéricos do EDUSP
+        const directQueries = [
+            `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}`,
+            `/tms/task/todo?expired_only=true&limit=100&offset=0${essayFilter}`,
+            `/tms/task/todo?limit=100&offset=0${essayFilter}`,
+            `/tms/task/todo?answer_statuses=pending&limit=100&offset=0${essayFilter}`,
+            `/tms/task/todo?answer_statuses=draft&limit=100&offset=0${essayFilter}`
+        ];
+        for (const qUrl of directQueries) {
+            try {
+                const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
+                addItems(data);
+            } catch (e: any) {
+                // silencia
+            }
+        }
+
+        // 2. Coleta os alvos de publicação (publication_target) fornecidos via query ou vindos das salas do aluno
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
 
         try {
