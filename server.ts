@@ -29,15 +29,14 @@ async function startServer() {
 
     function getCustomTunnel(req?: express.Request): { tunnel?: string; userAgent?: string; cookies?: string } | undefined {
         if (!req) return undefined;
-        const headerVal = req.headers['x-tunnel-url'] || req.headers['x-backend-url'];
+        const headerVal = req.headers['x-tunnel-url'] || req.headers['x-backend-url'] || req.headers['x-proxy-url'] || req.headers['x-custom-tunnel'] || req.headers['x-target-url'];
         const userAgent = (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string);
         const cookies = (req.headers['x-custom-cookie'] as string) || (req.headers['cookie'] as string);
         
         let tunnel: string | undefined = undefined;
         if (typeof headerVal === 'string' && headerVal.trim()) {
             const trimmed = headerVal.trim();
-            // Ignora o domínio do frontend para evitar auto-requisição/erro 530
-            if (!trimmed.includes('shuziroastral.lol')) {
+            if (!trimmed.includes('shuziroastral.lol') && !trimmed.includes('ais-dev-') && !trimmed.includes('ais-pre-')) {
                 tunnel = trimmed;
             }
         }
@@ -80,12 +79,14 @@ async function startServer() {
         try {
             console.log(`[Token Auto-Exchange] Token recebido é JWT da SED. Trocando por auth_token da EduSP...`);
             const res = await getEduSpToken(cleanToken, customTunnelInfo);
-            if (res && res.auth_token) {
+            if (res && res.auth_token && res.auth_token !== cleanToken) {
                 sedToEduSpCache.set(cleanToken, {
                     token: res.auth_token,
                     expiresAt: Date.now() + 1000 * 60 * 30
                 });
                 console.log(`[Token Auto-Exchange] Trocado com sucesso para auth_token da EduSP!`);
+                return res.auth_token;
+            } else if (res && res.auth_token) {
                 return res.auth_token;
             }
         } catch (e: any) {
@@ -208,6 +209,13 @@ async function startServer() {
                         errObj.isCredentialError = isCredentialError;
 
                         if (isCredentialError) {
+                            if (token) {
+                                const clean = token.replace(/^Bearer\s+/i, '').trim();
+                                sedToEduSpCache.delete(clean);
+                                for (const [k, v] of sedToEduSpCache.entries()) {
+                                    if (v.token === clean) sedToEduSpCache.delete(k);
+                                }
+                            }
                             console.warn(`[API] Credenciais rejeitadas pela EduSP (${response.status}): ${cleanText.substring(0, 150)}`);
                             throw errObj;
                         }
@@ -373,32 +381,40 @@ async function startServer() {
         const clientCookies = customTunnelInfo?.cookies;
 
         // 1. Tenta obter o auth_token EduSP via Worker/Túneis oficiais (bypasses Cloudflare)
-        try {
-            console.log(`[Token Worker] Tentando obter auth_token EduSP via Worker/Túneis...`);
-            const officialRes: any = await callOfficialApi(
-                '/registration/edusp/token',
-                'POST',
-                sedToken,
-                { token: sedToken, message: sedToken },
-                customTunnelInfo,
-                true
-            );
-            if (officialRes) {
-                if (typeof officialRes === 'string' && officialRes.startsWith('eyJ')) {
-                    console.log(`[Token Worker] Sucesso ao obter auth_token EduSP (String JWT) via Worker!`);
-                    return { auth_token: officialRes, nick: "Aluno SP" };
+        const payloadVariants = [
+            { token: sedToken },
+            { token: sedToken, message: sedToken },
+            { auth_token: sedToken }
+        ];
+
+        for (const bodyPayload of payloadVariants) {
+            try {
+                console.log(`[Token Worker] Tentando obter auth_token EduSP via Worker/Túneis...`);
+                const officialRes: any = await callOfficialApi(
+                    '/registration/edusp/token',
+                    'POST',
+                    sedToken,
+                    bodyPayload,
+                    customTunnelInfo,
+                    true
+                );
+                if (officialRes) {
+                    if (typeof officialRes === 'string' && officialRes.startsWith('eyJ')) {
+                        console.log(`[Token Worker] Sucesso ao obter auth_token EduSP (String JWT) via Worker!`);
+                        return { auth_token: officialRes, nick: "Aluno SP" };
+                    }
+                    const eduspToken = officialRes.auth_token || officialRes.token || officialRes.access_token || officialRes.jwt || officialRes.data?.auth_token || officialRes.data?.token || officialRes.data?.access_token;
+                    if (eduspToken) {
+                        console.log(`[Token Worker] Sucesso ao obter auth_token EduSP via Worker!`);
+                        return {
+                            auth_token: eduspToken,
+                            nick: officialRes.nick || officialRes.name || officialRes.nickname || officialRes.user?.name || "Aluno SP"
+                        };
+                    }
                 }
-                const eduspToken = officialRes.auth_token || officialRes.token || officialRes.access_token || officialRes.jwt || officialRes.data?.auth_token || officialRes.data?.token || officialRes.data?.access_token;
-                if (eduspToken) {
-                    console.log(`[Token Worker] Sucesso ao obter auth_token EduSP via Worker!`);
-                    return {
-                        auth_token: eduspToken,
-                        nick: officialRes.nick || officialRes.name || officialRes.nickname || officialRes.user?.name || "Aluno SP"
-                    };
-                }
+            } catch (workerErr: any) {
+                console.warn(`[Token Worker] Falha na tentativa com payload: ${workerErr.message}`);
             }
-        } catch (workerErr: any) {
-            console.warn(`[Token Worker] Falha ao obter token via Worker: ${workerErr.message}`);
         }
 
         try {
