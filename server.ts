@@ -16,6 +16,10 @@ const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
     "https://corsproxy.io/?",
+    "https://corsproxy.org/?",
+    "https://api.allorigins.win/raw?url=",
+    "https://api.codetabs.com/v1/proxy?quest=",
+    "https://thingproxy.freeboard.io/fetch/",
     "https://edusp-api.ip.tv"
 ];
 
@@ -131,8 +135,14 @@ async function startServer() {
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
             let urlsToTry: string[] = [];
-            if (domain.includes('corsproxy.io') || domain.includes('allorigins')) {
+            if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
                 urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
+            } else if (domain.includes('allorigins')) {
+                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
+            } else if (domain.includes('codetabs')) {
+                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
+            } else if (domain.includes('thingproxy')) {
+                urlsToTry.push(`${domain}${'https://edusp-api.ip.tv' + cleanPath}`);
             } else if (domain.includes('edusp-api.ip.tv')) {
                 urlsToTry.push(`https://edusp-api.ip.tv${cleanPath}`);
             } else {
@@ -184,6 +194,12 @@ async function startServer() {
 
                         if (response.status === 404) {
                             lastError = new Error(`HTTP 404 em ${finalUrl}`);
+                            continue;
+                        }
+
+                        if (response.status === 429) {
+                            console.warn(`[API] Rate limit 429 no proxy ${finalUrl}. Tentando próximo túnel...`);
+                            lastError = new Error(`Proxy Rate Limit (429) em ${finalUrl}`);
                             continue;
                         }
 
@@ -659,8 +675,19 @@ function extractUserNickFromToken(token: string): string {
         for (const ep of roomEndpoints) {
             try {
                 const data = await callOfficialApi(ep, 'GET', token, undefined, customTunnel);
-                if (data && (data.rooms || data.items || Array.isArray(data))) {
-                    return res.json(data);
+                if (data) {
+                    if (Array.isArray(data)) {
+                        return res.json({ rooms: data, items: data, blocked: false });
+                    }
+                    if (data.rooms || data.items || data.data || data.result) {
+                        const list = data.rooms || data.items || data.data || data.result || [];
+                        return res.json({
+                            ...data,
+                            rooms: list,
+                            items: list,
+                            blocked: false
+                        });
+                    }
                 }
             } catch (err: any) {
                 lastErrMessage = err.message || String(err);
