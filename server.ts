@@ -131,12 +131,13 @@ async function startServer() {
                             cleanText.startsWith('<html')
                         );
 
-                        const isCredentialError = !isCloudflareBlock && (response.status === 403 || response.status === 401 || response.status === 400) && (
+                        const isCredentialError = !isCloudflareBlock && (response.status === 401 || (response.status === 403 && (
                             cleanText.toLowerCase().includes('wrong credentials') ||
                             cleanText.toLowerCase().includes('x-api-key') ||
                             cleanText.toLowerCase().includes('invalid token') ||
-                            cleanText.toLowerCase().includes('unauthorized')
-                        );
+                            cleanText.toLowerCase().includes('unauthorized') ||
+                            cleanText.toLowerCase().includes('token expirado')
+                        )));
 
                         const errObj: any = new Error(isCredentialError ? "Token de acesso inválido ou recusado pela EduSP." : `HTTP ${response.status}: ${cleanText.substring(0, 150) || 'Erro no servidor'}`);
                         errObj.status = response.status;
