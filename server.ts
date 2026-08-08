@@ -154,7 +154,9 @@ async function startServer() {
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
             let urlsToTry: string[] = [];
-            if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
+            if (domain.includes('workers.dev') || domain.includes('worker') || domain.includes('127.0.0.1') || domain.includes('localhost')) {
+                urlsToTry.push(`${domain}${cleanPath}`);
+            } else if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
                 urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
             } else if (domain.includes('allorigins')) {
                 urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
@@ -199,7 +201,8 @@ async function startServer() {
                 headers['cookie'] = clientCookies;
             }
 
-            const options: any = { method, headers, signal: AbortSignal.timeout(7000) };
+            const timeoutMs = (domain.includes('workers.dev') || domain.includes('worker') || domain.includes('127.0.0.1') || domain.includes('edusp-api.ip.tv')) ? 12000 : 6000;
+            const options: any = { method, headers, signal: AbortSignal.timeout(timeoutMs) };
             if (body) options.body = typeof body === 'string' ? body : JSON.stringify(body);
 
             for (const finalUrl of urlsToTry) {
@@ -310,7 +313,7 @@ async function startServer() {
 
                     if (isHtmlPage) {
                         console.warn(`[API] ${finalUrl} retornou página HTML/bloqueio ao invés de dados da API EduSP. Tentando próxima URL...`);
-                        lastError = new Error(`Resposta HTML/Bloqueio recebida em ${finalUrl}`);
+                        lastError = new Error(`Bloqueio de segurança (Cloudflare/Proxy) retornado em ${finalUrl}`);
                         continue;
                     }
 
@@ -329,12 +332,16 @@ async function startServer() {
                     if (err.isCredentialError) {
                         throw err;
                     }
-                    console.warn(`[API] Falha de conexão em ${finalUrl}: ${err.message}`);
-                    lastError = err;
+                    const errMsg = err.name === 'AbortError' ? 'Timeout de conexão' : (err.message || String(err));
+                    console.warn(`[API] Falha de conexão em ${finalUrl}: ${errMsg}`);
+                    lastError = new Error(`Falha no túnel (${finalUrl}): ${errMsg}`);
                 }
             }
         }
-        throw lastError || new Error("Nenhum túnel disponível conseguiu se conectar.");
+        const userFriendlyMsg = lastError?.message && !lastError.message.includes('fetch failed')
+            ? lastError.message
+            : "Não foi possível conectar à API EduSP. Verifique o status do seu Túnel/Worker ou conexões ativas.";
+        throw new Error(userFriendlyMsg);
     }
 
     // ======================= AUTENTICAÇÃO =======================
@@ -934,11 +941,11 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         const applyUrls: string[] = [];
         if (isValidSlug) {
             applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(room_name)}${tokenCodeParam}`);
-        }
-
-        const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
-        if (fallbackSlug && fallbackSlug !== room_name) {
-            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(fallbackSlug)}${tokenCodeParam}`);
+        } else {
+            const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
+            if (fallbackSlug) {
+                applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(fallbackSlug)}${tokenCodeParam}`);
+            }
         }
 
         applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}`);
@@ -1223,6 +1230,10 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             try {
                 data = await tryWithFallbackTypes(payload);
             } catch (err: any) {
+                const isConnectionError = !err.status || err.status >= 500 || String(err.message).includes("Conexão") || String(err.message).includes("Túnel") || String(err.message).includes("Bloqueio") || String(err.message).includes("fetch failed");
+                if (isConnectionError) {
+                    throw err;
+                }
                 const freshSlug = await getFallbackRoomSlug(auth_token, customTunnel);
                 if (freshSlug && freshSlug !== payload.executed_on) {
                     console.warn(`[Complete] Re-tentando com room slug fresca: '${freshSlug}'`);
