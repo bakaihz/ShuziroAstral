@@ -143,15 +143,17 @@ async function startServer() {
             const clean = process.env.EDUSP_PROXY_URL.trim().replace(/\/+$/, '');
             if (!tunnelsToTry.includes(clean)) tunnelsToTry.push(clean);
         }
-        // Tenta também o túnel local (local-proxy.js na porta 4000) se estiver rodando
-        if (!tunnelsToTry.includes("http://127.0.0.1:4000")) {
-            tunnelsToTry.push("http://127.0.0.1:4000");
-        }
+        
         PROXY_TUNNELS.forEach(t => {
             if (!tunnelsToTry.includes(t)) {
                 tunnelsToTry.push(t);
             }
         });
+
+        // Tenta também o túnel local (local-proxy.js na porta 4000) se estiver rodando
+        if (!tunnelsToTry.includes("http://127.0.0.1:4000")) {
+            tunnelsToTry.push("http://127.0.0.1:4000");
+        }
 
         for (const domain of tunnelsToTry) {
             let cleanPath = url.replace(/^https?:\/\/edusp-api\.ip\.tv\/?/, '');
@@ -205,7 +207,17 @@ async function startServer() {
                 headers['cookie'] = clientCookies;
             }
 
-            const timeoutMs = (domain.includes('workers.dev') || domain.includes('worker') || domain.includes('127.0.0.1') || domain.includes('edusp-api.ip.tv')) ? 12000 : 6000;
+            const isTunnelOrWorker = domain.includes('workers.dev') ||
+                domain.includes('worker') ||
+                domain.includes('shuziroastral.lol') ||
+                domain.includes('trycloudflare.com') ||
+                domain.includes('127.0.0.1') ||
+                domain.includes('localhost') ||
+                domain.includes('loca.lt') ||
+                domain.includes('ngrok') ||
+                domain.includes('edusp-api.ip.tv');
+
+            const timeoutMs = isTunnelOrWorker ? 25000 : 8000;
             const options: any = { method, headers, signal: AbortSignal.timeout(timeoutMs) };
             if (body) options.body = typeof body === 'string' ? body : JSON.stringify(body);
 
