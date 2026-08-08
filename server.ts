@@ -15,6 +15,7 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
+    "https://api.davilucas99kk.workers.dev",
     "https://edusp-api.ip.tv",
     "https://corsproxy.io/?",
     "https://corsproxy.org/?",
@@ -33,14 +34,14 @@ async function startServer() {
 
     function getCustomTunnel(req?: express.Request): { tunnel?: string; userAgent?: string; cookies?: string } | undefined {
         if (!req) return undefined;
-        const headerVal = req.headers['x-tunnel-url'] || req.headers['x-backend-url'] || req.headers['x-proxy-url'] || req.headers['x-custom-tunnel'] || req.headers['x-target-url'];
+        const headerVal = req.headers['x-tunnel-url'] || req.headers['x-backend-url'] || req.headers['x-proxy-url'] || req.headers['x-custom-tunnel'] || req.headers['x-worker-url'] || req.headers['x-target-url'];
         const userAgent = (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string);
         const cookies = (req.headers['x-custom-cookie'] as string) || (req.headers['cookie'] as string);
         
         let tunnel: string | undefined = undefined;
         if (typeof headerVal === 'string' && headerVal.trim()) {
             const trimmed = headerVal.trim();
-            if (!trimmed.includes('shuziroastral.lol') && !trimmed.includes('ais-dev-') && !trimmed.includes('ais-pre-')) {
+            if (!trimmed.includes('ais-dev-') && !trimmed.includes('ais-pre-')) {
                 tunnel = trimmed;
             }
         }
@@ -126,11 +127,21 @@ async function startServer() {
         if (process.env.PROXY_URL && process.env.PROXY_URL.trim()) {
             tunnelsToTry.push(process.env.PROXY_URL.trim().replace(/\/+$/, ''));
         }
+        if (process.env.TUNNEL_URL && process.env.TUNNEL_URL.trim()) {
+            tunnelsToTry.push(process.env.TUNNEL_URL.trim().replace(/\/+$/, ''));
+        }
+        if (process.env.EDUSP_PROXY_URL && process.env.EDUSP_PROXY_URL.trim()) {
+            tunnelsToTry.push(process.env.EDUSP_PROXY_URL.trim().replace(/\/+$/, ''));
+        }
         if (customTunnel && customTunnel.trim()) {
             const clean = customTunnel.trim().replace(/\/+$/, '');
             if (!tunnelsToTry.includes(clean)) {
                 tunnelsToTry.push(clean);
             }
+        }
+        // Tenta também o túnel local (local-proxy.js na porta 4000) se estiver rodando
+        if (!tunnelsToTry.includes("http://127.0.0.1:4000")) {
+            tunnelsToTry.push("http://127.0.0.1:4000");
         }
         PROXY_TUNNELS.forEach(t => {
             if (!tunnelsToTry.includes(t)) {
