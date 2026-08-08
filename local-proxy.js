@@ -14,9 +14,9 @@
  *    pm2 save
  */
 
-const http = require('http');
-const https = require('https');
-const url = require('url');
+import http from 'node:http';
+import https from 'node:https';
+import url from 'node:url';
 
 const PORT = process.env.PORT || 4000;
 const TARGET_HOST = 'edusp-api.ip.tv';
