@@ -887,9 +887,7 @@ function extractUserNickFromToken(token: string): string {
             // 1. Tenta query combinada oficial (passando múltiplos publication_target ao mesmo tempo)
             const officialMultiQueries = [
                 `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
-                `/tms/task/todo?expired_only=true&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
-                `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`,
-                `/tms/task/todo?expired_only=true&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`
+                `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`
             ];
 
             for (const qUrl of officialMultiQueries) {
@@ -906,7 +904,6 @@ function extractUserNickFromToken(token: string): string {
                 const encTarget = encodeURIComponent(target);
                 const targetQueries = [
                     `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
-                    `/tms/task/todo?expired_only=true&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
                     `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
                     `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`
                 ];
