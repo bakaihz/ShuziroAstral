@@ -45,7 +45,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
           </div>
 
           <a
-            href="https://discord.gg/eKwvNFY8v"
+            href="https://discord.gg/DGB4xqNY9"
             target="_blank"
             rel="noreferrer"
             className="px-4 py-2.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer"
@@ -77,7 +77,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-white">Servidor Oficial do Discord</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700">
-                discord.gg/eKwvNFY8v
+                discord.gg/DGB4xqNY9
               </span>
             </div>
             <p className="text-xs text-zinc-400 mt-1 max-w-lg">
@@ -87,7 +87,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
         </div>
 
         <a
-          href="https://discord.gg/eKwvNFY8v"
+          href="https://discord.gg/DGB4xqNY9"
           target="_blank"
           rel="noreferrer"
           className="w-full md:w-auto px-5 py-3 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"

@@ -9,7 +9,7 @@ interface DiscordModalProps {
 export const DiscordModal: React.FC<DiscordModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
-  const discordUrl = 'https://discord.gg/eKwvNFY8v';
+  const discordUrl = 'https://discord.gg/DGB4xqNY9';
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">

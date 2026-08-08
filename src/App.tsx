@@ -270,7 +270,7 @@ export default function App() {
             });
 
             const uniqueTargets = [...new Set(validTargets)];
-            for (const t of uniqueTargets) {
+            await Promise.all(uniqueTargets.map(async (t) => {
               const encTarget = encodeURIComponent(t);
               const [tRes, eRes] = await Promise.all([
                 fetch(`/api/tms/task/todo?is_essay=false&publication_target=${encTarget}`, { headers: authHeaders }),
@@ -278,7 +278,7 @@ export default function App() {
               ]);
               if (tRes.ok) addTasks(await tRes.json());
               if (eRes.ok) addTasks(await eRes.json());
-            }
+            }));
           }
         } catch (e) {
           console.warn('Erro no fallback por salas:', e);

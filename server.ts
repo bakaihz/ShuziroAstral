@@ -102,6 +102,8 @@ async function startServer() {
         return cleanToken;
     }
 
+    let cachedWorkingTunnel: string | null = "https://proxy.shuziroastral.lol";
+
     async function callOfficialApi(
         url: string,
         method: string,
@@ -127,6 +129,12 @@ async function startServer() {
             const clean = customTunnel.trim().replace(/\/+$/, '');
             tunnelsToTry.push(clean);
         }
+
+        // Se já temos um túnel funcional recente no cache, tenta ele em seguida
+        if (cachedWorkingTunnel && !tunnelsToTry.includes(cachedWorkingTunnel)) {
+            tunnelsToTry.push(cachedWorkingTunnel);
+        }
+
         if (process.env.WORKER_URL && process.env.WORKER_URL.trim()) {
             const clean = process.env.WORKER_URL.trim().replace(/\/+$/, '');
             if (!tunnelsToTry.includes(clean)) tunnelsToTry.push(clean);
@@ -217,7 +225,7 @@ async function startServer() {
                 domain.includes('ngrok') ||
                 domain.includes('edusp-api.ip.tv');
 
-            const timeoutMs = isTunnelOrWorker ? 25000 : 8000;
+            const timeoutMs = isTunnelOrWorker ? 7000 : 3500;
             const options: any = { method, headers, signal: AbortSignal.timeout(timeoutMs) };
             if (body) options.body = typeof body === 'string' ? body : JSON.stringify(body);
 
@@ -334,10 +342,13 @@ async function startServer() {
                     }
 
                     try {
-                        return JSON.parse(text);
+                        const parsedJson = JSON.parse(text);
+                        cachedWorkingTunnel = domain;
+                        return parsedJson;
                     } catch {
                         const trimmedText = text.trim();
                         if (trimmedText.startsWith('eyJ')) {
+                            cachedWorkingTunnel = domain;
                             return trimmedText;
                         }
                         console.warn(`[API] ${finalUrl} retornou texto não-JSON que não é um token JWT: ${trimmedText.substring(0, 100)}`);
