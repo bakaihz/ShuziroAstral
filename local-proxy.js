@@ -1,13 +1,17 @@
 /**
  * SERVIDOR DE TÚNEL LOCAL (LOCAL PROXY TUNNEL - OTIMIZADO)
  * --------------------------------------------------------
- * Como usar:
- * 1. Execute localmente no PC ou Termux:
- *    node local-proxy.js
+ * 1. Rodar o proxy local via PM2:
+ *    pm2 start local-proxy.js --name "local-proxy"
  * 
- * 2. Em outro terminal, exponha a porta 4000 para a internet:
- *    npx localtunnel --port 4000
- *    (ou ngrok http 4000)
+ * 2. Rodar o Cloudflare Zero Trust Tunnel com URL FIXA:
+ *    pm2 start cloudflared --name "cf-tunnel" -- tunnel run --token SEU_TOKEN_CLOUDFLARE
+ * 
+ * 3. No painel Cloudflare Zero Trust (Networks -> Tunnels):
+ *    Configure o Public Hostname (ex: proxy.seu-dominio.com) -> HTTP://127.0.0.1:4000
+ * 
+ * 4. Salve no PM2 para manter ativo permanentemente:
+ *    pm2 save
  */
 
 const http = require('http');

@@ -15,6 +15,7 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
+    "https://proxy.shuziroastral.lol",
     "https://api.davilucas99kk.workers.dev",
     "https://edusp-api.ip.tv",
     "https://corsproxy.io/?",
@@ -121,23 +122,26 @@ async function startServer() {
         const clientCookies = typeof customTunnelInfo === 'object' ? customTunnelInfo?.cookies : undefined;
 
         const tunnelsToTry: string[] = [];
-        if (process.env.WORKER_URL && process.env.WORKER_URL.trim()) {
-            tunnelsToTry.push(process.env.WORKER_URL.trim().replace(/\/+$/, ''));
-        }
-        if (process.env.PROXY_URL && process.env.PROXY_URL.trim()) {
-            tunnelsToTry.push(process.env.PROXY_URL.trim().replace(/\/+$/, ''));
-        }
-        if (process.env.TUNNEL_URL && process.env.TUNNEL_URL.trim()) {
-            tunnelsToTry.push(process.env.TUNNEL_URL.trim().replace(/\/+$/, ''));
-        }
-        if (process.env.EDUSP_PROXY_URL && process.env.EDUSP_PROXY_URL.trim()) {
-            tunnelsToTry.push(process.env.EDUSP_PROXY_URL.trim().replace(/\/+$/, ''));
-        }
+        // O túnel customizado definido pelo usuário (Termux / Cloudflare Tunnel / Worker) SEMPRE tem prioridade máxima
         if (customTunnel && customTunnel.trim()) {
             const clean = customTunnel.trim().replace(/\/+$/, '');
-            if (!tunnelsToTry.includes(clean)) {
-                tunnelsToTry.push(clean);
-            }
+            tunnelsToTry.push(clean);
+        }
+        if (process.env.WORKER_URL && process.env.WORKER_URL.trim()) {
+            const clean = process.env.WORKER_URL.trim().replace(/\/+$/, '');
+            if (!tunnelsToTry.includes(clean)) tunnelsToTry.push(clean);
+        }
+        if (process.env.PROXY_URL && process.env.PROXY_URL.trim()) {
+            const clean = process.env.PROXY_URL.trim().replace(/\/+$/, '');
+            if (!tunnelsToTry.includes(clean)) tunnelsToTry.push(clean);
+        }
+        if (process.env.TUNNEL_URL && process.env.TUNNEL_URL.trim()) {
+            const clean = process.env.TUNNEL_URL.trim().replace(/\/+$/, '');
+            if (!tunnelsToTry.includes(clean)) tunnelsToTry.push(clean);
+        }
+        if (process.env.EDUSP_PROXY_URL && process.env.EDUSP_PROXY_URL.trim()) {
+            const clean = process.env.EDUSP_PROXY_URL.trim().replace(/\/+$/, '');
+            if (!tunnelsToTry.includes(clean)) tunnelsToTry.push(clean);
         }
         // Tenta também o túnel local (local-proxy.js na porta 4000) se estiver rodando
         if (!tunnelsToTry.includes("http://127.0.0.1:4000")) {
@@ -154,7 +158,7 @@ async function startServer() {
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
             let urlsToTry: string[] = [];
-            if (domain.includes('workers.dev') || domain.includes('worker') || domain.includes('127.0.0.1') || domain.includes('localhost')) {
+            if (domain.includes('workers.dev') || domain.includes('worker') || domain.includes('trycloudflare.com') || domain.includes('shuziroastral.lol') || domain.includes('127.0.0.1') || domain.includes('localhost') || domain.includes('loca.lt') || domain.includes('ngrok')) {
                 urlsToTry.push(`${domain}${cleanPath}`);
             } else if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
                 urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
