@@ -298,10 +298,32 @@ async function startServer() {
                         continue;
                     }
 
+                    // Verifica se a resposta (mesmo HTTP 200) é uma página HTML de bloqueio/proxy/hidemy.name/Cloudflare
+                    const textLower = text.toLowerCase();
+                    const isHtmlPage = textLower.includes('<!doctype') ||
+                        textLower.includes('<html') ||
+                        textLower.includes('<head') ||
+                        textLower.includes('<body') ||
+                        textLower.includes('hidemy.name') ||
+                        textLower.includes('hide.mn') ||
+                        textLower.includes('just a moment');
+
+                    if (isHtmlPage) {
+                        console.warn(`[API] ${finalUrl} retornou página HTML/bloqueio ao invés de dados da API EduSP. Tentando próxima URL...`);
+                        lastError = new Error(`Resposta HTML/Bloqueio recebida em ${finalUrl}`);
+                        continue;
+                    }
+
                     try {
                         return JSON.parse(text);
                     } catch {
-                        return text;
+                        const trimmedText = text.trim();
+                        if (trimmedText.startsWith('eyJ')) {
+                            return trimmedText;
+                        }
+                        console.warn(`[API] ${finalUrl} retornou texto não-JSON que não é um token JWT: ${trimmedText.substring(0, 100)}`);
+                        lastError = new Error(`Resposta não-JSON inválida em ${finalUrl}`);
+                        continue;
                     }
                 } catch (err: any) {
                     if (err.isCredentialError) {
