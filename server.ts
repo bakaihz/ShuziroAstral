@@ -15,12 +15,12 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
+    "https://edusp-api.ip.tv",
     "https://corsproxy.io/?",
     "https://corsproxy.org/?",
     "https://api.allorigins.win/raw?url=",
     "https://api.codetabs.com/v1/proxy?quest=",
-    "https://thingproxy.freeboard.io/fetch/",
-    "https://edusp-api.ip.tv"
+    "https://thingproxy.freeboard.io/fetch/"
 ];
 
 async function startServer() {
@@ -120,9 +120,17 @@ async function startServer() {
         const clientCookies = typeof customTunnelInfo === 'object' ? customTunnelInfo?.cookies : undefined;
 
         const tunnelsToTry: string[] = [];
+        if (process.env.WORKER_URL && process.env.WORKER_URL.trim()) {
+            tunnelsToTry.push(process.env.WORKER_URL.trim().replace(/\/+$/, ''));
+        }
+        if (process.env.PROXY_URL && process.env.PROXY_URL.trim()) {
+            tunnelsToTry.push(process.env.PROXY_URL.trim().replace(/\/+$/, ''));
+        }
         if (customTunnel && customTunnel.trim()) {
             const clean = customTunnel.trim().replace(/\/+$/, '');
-            tunnelsToTry.push(clean);
+            if (!tunnelsToTry.includes(clean)) {
+                tunnelsToTry.push(clean);
+            }
         }
         PROXY_TUNNELS.forEach(t => {
             if (!tunnelsToTry.includes(t)) {
