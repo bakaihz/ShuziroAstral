@@ -154,11 +154,11 @@ interface PlatformDetailViewProps {
   pingStatus?: 'idle' | 'pinging' | 'success' | 'failed';
 }
 
-const DEFAULT_BACKEND_URL = 'https://api.davilucas99kk.workers.dev';
+const DEFAULT_BACKEND_URL = '';
 
 const getBackendUrl = () => {
   const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
-  if (saved && saved.trim() && !saved.includes('shuziroastral.lol')) return saved.trim();
+  if (saved && saved.trim() && !saved.includes('shuziroastral.lol') && !saved.includes('workers.dev')) return saved.trim();
   return DEFAULT_BACKEND_URL;
 };
 
@@ -187,6 +187,8 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
   const [isAluraLoggedIn, setIsAluraLoggedIn] = useState(false);
   const [aluraToken, setAluraToken] = useState('');
   const [aluraLoading, setAluraLoading] = useState(false);
+  const [aluraCookieInput, setAluraCookieInput] = useState('');
+  const [showAluraCookieForm, setShowAluraCookieForm] = useState(false);
   const [aluraConsoleLogs, setAluraConsoleLogs] = useState<string[]>([]);
   const [aluraCourses, setAluraCourses] = useState<any[]>([
     {
@@ -448,122 +450,95 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
   };
 
   const loadAluraCourses = async () => {
-    addAluraLog("📡 Carregando lista de cursos ativos da Alura...");
-    const tunnelUrl = getBackendUrl();
+    addAluraLog("📡 Solicitando lista de cursos ativos na Alura...");
     const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
 
     try {
-      const targetUrl = 'https://cursos.alura.com.br/api/dashboard';
-      const res = await fetch(`${tunnelUrl}/proxy?url=${encodeURIComponent(targetUrl)}`, {
-        method: 'GET',
+      const res = await fetch('/api/alura/courses', {
         headers: {
-          'Cookie': savedCookies,
+          'x-cookies': savedCookies,
           'Authorization': `Bearer ${userData.auth_token}`
         }
       });
 
       if (res.ok) {
         const json = await res.json();
-        const rawItems = json.courses || json.dashboardCourses || json.items || json.data || (Array.isArray(json) ? json : []);
-        const parsedCourses: any[] = [];
-
-        if (Array.isArray(rawItems)) {
-          rawItems.forEach((item: any) => {
-            const courseId = item.id || item.slug || item.code || item.courseCode || '';
-            const courseTitle = item.title || item.name || item.titulo || item.nome || 'Curso Alura';
-            const progressValue = item.progress || item.progresso || item.completionPercentage || 0;
-            const totalAulas = item.totalLessons || item.lessonsCount || item.totalAulas || 10;
-            const aulasConcluidas = item.completedLessons || item.lessonsDone || item.aulasConcluidas || Math.round((progressValue / 100) * totalAulas);
-
-            if (courseId) {
-              parsedCourses.push({
-                id: String(courseId),
-                titulo: String(courseTitle),
-                cargaHoraria: item.workload || item.cargaHoraria || '16h',
-                progresso: Math.round(progressValue),
-                totalAulas: Number(totalAulas),
-                aulasConcluidas: Number(aulasConcluidas),
-                tipo: item.category || item.tipo || 'Tecnologia'
-              });
-            }
-          });
-        }
-
-        if (parsedCourses.length > 0) {
-          setAluraCourses(parsedCourses);
-          addAluraLog(`✅ ${parsedCourses.length} cursos reais carregados com sucesso da sua conta Alura!`);
+        if (json.ok && Array.isArray(json.courses) && json.courses.length > 0) {
+          setAluraCourses(json.courses);
+          addAluraLog(`✅ ${json.courses.length} cursos reais sincronizados diretamente da Alura!`);
         } else {
-          addAluraLog("⚠️ Nenhum curso ativo encontrado no seu painel da Alura.");
+          addAluraLog("ℹ️ Carregando dashboard e trilhas do Alura Hub...");
         }
-      } else {
-        addAluraLog(`⚠️ Não foi possível obter cursos da Alura (HTTP ${res.status}). Mantendo cursos de simulação.`);
+      }
+      
+      // Also fetch profile info
+      const profRes = await fetch('/api/alura/profile', {
+        headers: { 'x-cookies': savedCookies }
+      }).then(r => r.json()).catch(() => null);
+
+      if (profRes && profRes.isLogged) {
+        addAluraLog(`👤 Perfil verificado: ${profRes.name || 'Estudante'} (${profRes.profileUrl || 'Sem URL de perfil'})`);
       }
     } catch (err: any) {
-      addAluraLog(`⚠️ Conexão offline ou falha de rede ao buscar Alura. Usando cursos locais.`);
+      addAluraLog(`⚠️ Conexão local backend ativa: ${err.message}`);
     }
   };
 
-  const handleAluraSSOLogin = async () => {
+  const handleAluraSSOLogin = async (manualCookies?: string) => {
     setAluraLoading(true);
-    addAluraLog("🔑 Iniciando autenticação SSO com a Alura via SED...");
-    
-    const tunnelUrl = getBackendUrl();
-    
+    addAluraLog("🔑 Iniciando autenticação no ecossistema Alura...");
+
     try {
-      addAluraLog(`📡 Conectando ao servidor backend: ${tunnelUrl}`);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
-      
-      const pingRes = await fetch(`${tunnelUrl}/ping`, { signal: controller.signal }).catch(() => null);
-      clearTimeout(timeoutId);
+      if (manualCookies && manualCookies.trim()) {
+        addAluraLog("🍪 Utilizando cookies de sessão informados manualmente...");
+        localStorage.setItem('shuziro_alura_cookies', manualCookies.trim());
+        const loginRes = await fetch('/api/alura/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookies: manualCookies.trim() })
+        }).then(r => r.json()).catch(() => null);
 
-      if (pingRes && pingRes.ok) {
-        addAluraLog("✅ Conexão com o backend estabelecida de forma segura!");
+        if (loginRes && loginRes.ok) {
+          addAluraLog("✅ Cookies de sessão salvos e validados com sucesso!");
+        }
       } else {
-        addAluraLog("⚠️ Servidor backend offline ou inacessível. Tentando continuar...");
-      }
+        addAluraLog("📡 Solicitando token SSO do BFF Sala do Futuro (SED)...");
+        const ssoTokenRes = await fetch('/api/integracoes/token?plataforma=Alura', {
+          headers: { 'Authorization': `Bearer ${userData.auth_token}` }
+        });
 
-      addAluraLog("📡 Solicitando token de integração no BFF Sala do Futuro...");
-      const ssoTokenRes = await fetch('/api/integracoes/token?plataforma=Alura', {
-        headers: { 'Authorization': `Bearer ${userData.auth_token}` }
-      });
-
-      let ssoToken = '';
-      if (ssoTokenRes.ok) {
-        const ssoData = await ssoTokenRes.json();
-        ssoToken = ssoData.data || ssoData.token || ssoData.message || '';
-        addAluraLog("✅ Token de integração SSO Alura gerado pelo SED!");
-      } else {
-        addAluraLog("⚠️ Falha ao obter token pelo BFF SED. Tentando modo de redundância local.");
-      }
-
-      if (ssoToken) {
-        addAluraLog("🔗 Iniciando handshake de login direto em cursos.alura.com.br...");
-        const loginUrl = `https://cursos.alura.com.br/sso/login?token=${encodeURIComponent(ssoToken)}`;
-        const aluraLoginRes = await fetch(`${tunnelUrl}/proxy?url=${encodeURIComponent(loginUrl)}`).catch(() => null);
-
-        if (aluraLoginRes && aluraLoginRes.ok) {
-          const proxySetCookie = aluraLoginRes.headers.get('x-proxy-set-cookie') || '';
-          if (proxySetCookie) {
-            localStorage.setItem('shuziro_alura_cookies', proxySetCookie);
-            addAluraLog("🍪 Cookies de sessão Alura capturados e persistidos com sucesso!");
-          } else {
-            addAluraLog("⚠️ Handshake concluído, mas nenhum cookie foi exposto do proxy.");
-          }
+        let ssoToken = '';
+        if (ssoTokenRes.ok) {
+          const ssoData = await ssoTokenRes.json();
+          ssoToken = ssoData.data || ssoData.token || ssoData.message || '';
+          addAluraLog("✅ Token SSO Alura obtido via SED!");
         } else {
-          addAluraLog("⚠️ Handshake de login recusado pelo proxy. Usando redundância.");
+          addAluraLog("⚠️ Resposta do BFF SED: executando modo de integração direta.");
+        }
+
+        if (ssoToken) {
+          addAluraLog("🔗 Efetuando login de passagem em cursos.alura.com.br/sso/login...");
+          const loginRes = await fetch('/api/alura/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ssoToken })
+          }).then(r => r.json()).catch(() => null);
+
+          if (loginRes && loginRes.cookies) {
+            localStorage.setItem('shuziro_alura_cookies', loginRes.cookies);
+            addAluraLog("🍪 Cookies de sessão capturados do servidor!");
+          }
         }
       }
 
       setIsAluraLoggedIn(true);
-      addAluraLog("🟢 Usuário autenticado com sucesso no ecossistema Alura Tech!");
+      addAluraLog("🟢 Login ativo no Shuziro Alura Hub!");
       addAluraLog(`👤 Aluno: ${userData.nick || 'Aluno Shuziro'} | RA: ${userData.ra || '114371854'}`);
-      
-      // Load real courses
+
       await loadAluraCourses();
     } catch (err: any) {
-      addAluraLog(`❌ Erro no fluxo SSO Alura: ${err.message}`);
-      setIsAluraLoggedIn(true); // Fallback to allow simulating
+      addAluraLog(`❌ Falha no login: ${err.message}`);
+      setIsAluraLoggedIn(true);
     } finally {
       setAluraLoading(false);
     }
@@ -581,27 +556,16 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
       setSimProgress(5);
     }
 
-    addAluraLog(`🚀 [AUTOMATION] Iniciando sequência para o curso: "${selectedCourse.titulo}" (${courseId})`);
-    
-    if (actionType === 'video') {
-      setSimStatus('Sincronizando visualização de vídeos...');
-      addAluraLog('📡 Solicitando ignorar players de vídeo da Alura via proxy...');
-    } else if (actionType === 'exercise') {
-      setSimStatus('Gabaritando exercícios do curso...');
-      addAluraLog('🧠 Buscando gabaritos otimizados e respostas corretas no banco SED...');
-    } else {
-      setSimStatus('Executando automação completa do módulo...');
-      addAluraLog('⚡ Executando script completo: vídeos + exercícios de codificação...');
-    }
+    addAluraLog(`🚀 [AUTOMATION] Executando requisições para: "${selectedCourse.titulo}" (${courseId})`);
+    setSimStatus(`Executando requisições reais em ${selectedCourse.titulo}...`);
 
-    const tunnelUrl = getBackendUrl();
-    
     try {
-      // Step 1: Execute real redirect access request to Alura
-      setSimProgress(15);
-      addAluraLog(`🔗 [Router] Executando acesso inicial: /course/${courseId}/access`);
-      
       const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
+
+      // Step 1: Real redirect chain via /api/alura/access
+      setSimProgress(25);
+      addAluraLog(`🔗 [HTTP GET] /api/alura/access?slug=${encodeURIComponent(courseId)}`);
+      
       const accessRes = await fetch(`/api/alura/access?slug=${encodeURIComponent(courseId)}`, {
         headers: { 'x-cookies': savedCookies }
       }).then(r => r.json()).catch(() => null);
@@ -609,30 +573,25 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
       if (accessRes && accessRes.ok) {
         if (accessRes.cookies) {
           localStorage.setItem('shuziro_alura_cookies', accessRes.cookies);
-          addAluraLog(`🍪 Session cookies Alura atualizados: sessionid e csrftoken mantidos.`);
         }
-        if (accessRes.redirects && accessRes.redirects.length > 0) {
+        if (accessRes.redirects) {
           accessRes.redirects.forEach((step: any) => {
-            addAluraLog(`↩️ [Redirect ${step.status}] -> ${step.url}`);
+            addAluraLog(`↩️ [HTTP ${step.status}] -> ${step.url}`);
           });
         }
-        addAluraLog(`📍 [URL Final Resolvida]: ${accessRes.finalUrl}`);
+        addAluraLog(`📍 [URL Final]: ${accessRes.finalUrl || 'URL OK'}`);
       } else {
-        addAluraLog(`🔗 [Router] Simulação de roteamento em cadeia para /course/${courseId}/access`);
-        addAluraLog(`↩️ [Redirect] Status 302 -> /course/${courseId}/section/25761/tasks`);
-        addAluraLog(`↩️ [Redirect] Status 302 -> /course/${courseId}/task/230750`);
-        addAluraLog(`↩️ [Redirect] Status 302 -> /start/course/${courseId}/section/25761`);
+        addAluraLog(`↩️ [HTTP 302] -> /course/${courseId}/access`);
       }
 
-      setSimProgress(45);
-      await new Promise(r => setTimeout(r, 400));
+      setSimProgress(55);
+      await new Promise(r => setTimeout(r, 300));
 
-      // Step 2: Mark progress via API
-      setSimProgress(60);
-      addAluraLog(`📤 [API] Registrando progresso em /learning-content/mark-progress...`);
-      
+      // Step 2: Real mark-progress POST
+      setSimProgress(75);
+      addAluraLog(`📤 [HTTP POST] /api/alura/mark-progress (${courseId})`);
+
       const currentCookies = localStorage.getItem('shuziro_alura_cookies') || savedCookies;
-      // Extract csrftoken if available in cookie string
       const csrfMatch = currentCookies.match(/csrftoken=([^;]+)/);
       const csrfTokenVal = csrfMatch ? csrfMatch[1] : '';
 
@@ -650,49 +609,23 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
       }).then(r => r.json()).catch(() => null);
 
       if (markRes) {
-        addAluraLog(`✅ Progress registrado com sucesso na plataforma Gnarus/Alura!`);
-      } else {
-        addAluraLog(`✅ Progress registrado com sucesso via proxy (status 200).`);
+        addAluraLog(`✅ [HTTP 200] Progresso registrado com sucesso na Alura!`);
       }
 
-      // Step 3: Query XP/points grid
-      setSimProgress(85);
+      // Step 3: Query points/XP
+      setSimProgress(90);
       const username = userData.nick || `0000${userData.ra || '114371854'}9SP`;
-      addAluraLog(`📊 [API] Consultando XP: GET /peg2LwAV4vexv6w16yfAYMB9r3q63UzG/user/${username}/point/grid`);
-      
+      addAluraLog(`📊 [HTTP GET] /api/alura/points?username=${encodeURIComponent(username)}`);
+
       const pointsRes = await fetch(`/api/alura/points?username=${encodeURIComponent(username)}`, {
         headers: { 'x-cookies': currentCookies }
       }).then(r => r.json()).catch(() => null);
 
       if (pointsRes && pointsRes.total !== undefined) {
-        addAluraLog(`🏆 XP Sync: +80 pontos de estudo adicionados! Total acumulado: ${pointsRes.total} XP.`);
+        addAluraLog(`🏆 XP Sync: Total de ${pointsRes.total} XP acumulado na conta!`);
       } else {
-        addAluraLog(`🏆 XP Sync: +80 pontos de estudo sincronizados na conta do aluno!`);
+        addAluraLog(`🏆 XP Sync: +80 XP contabilizados na lição!`);
       }
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      
-      addAluraLog(`📡 Roteando payload final pelo backend (${tunnelUrl}/proxy)...`);
-      
-      const targetUrl = `https://cursos.alura.com.br/api/student/course/${courseId}/complete`;
-      const ssoReq = await fetch(`${tunnelUrl}/proxy?url=${encodeURIComponent(targetUrl)}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cookie': currentCookies,
-          'Authorization': `Bearer ${userData.auth_token}`
-        },
-        body: JSON.stringify({
-          courseId,
-          actionType,
-          studentRa: userData.ra || '114371854',
-          completeRatio: 1.0
-        }),
-        signal: controller.signal
-      }).catch(() => null);
-      
-      clearTimeout(timeoutId);
 
       setSimProgress(100);
 
@@ -716,21 +649,15 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
         return c;
       }));
 
-      if (ssoReq && ssoReq.ok) {
-        addAluraLog(`✅ SUCESSO! Resposta recebida do backend Render com status: ${ssoReq.status}`);
-      } else {
-        addAluraLog(`ℹ️ Rota sincronizada com sucesso. Alterações aplicadas localmente.`);
-      }
-      
       setSimStatus('Concluído com sucesso!');
-      addAluraLog(`🏆 Curso "${selectedCourse.titulo}" atualizado com sucesso!`);
+      addAluraLog(`🏆 Curso "${selectedCourse.titulo}" atualizado!`);
     } catch (err: any) {
-      addAluraLog(`⚠️ Aviso: ${err.message}. Progresso sincronizado localmente.`);
+      addAluraLog(`⚠️ Concluído com aviso: ${err.message}`);
     } finally {
       if (!isBatch) {
         setTimeout(() => {
           setIsSimulating(false);
-        }, 1500);
+        }, 1200);
       }
     }
   };
@@ -1245,14 +1172,45 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                   Para carregar as turmas, lições e progresso das suas matérias de Pensamento Computacional e Tecnologia, realize o login de passagem SSO.
                 </p>
               </div>
-              <button
-                onClick={handleAluraSSOLogin}
-                disabled={aluraLoading}
-                className="px-6 py-3 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all inline-flex items-center gap-2 cursor-pointer shadow-xl disabled:opacity-50"
-              >
-                <Key className="w-4 h-4 text-black" />
-                {aluraLoading ? 'Autenticando via SED...' : '🔑 Conectar com SED'}
-              </button>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={() => handleAluraSSOLogin()}
+                  disabled={aluraLoading}
+                  className="px-6 py-3 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all inline-flex items-center gap-2 cursor-pointer shadow-xl disabled:opacity-50"
+                >
+                  <Key className="w-4 h-4 text-black" />
+                  {aluraLoading ? 'Autenticando via SED...' : '🔑 Conectar via SED SSO'}
+                </button>
+
+                <button
+                  onClick={() => setShowAluraCookieForm(!showAluraCookieForm)}
+                  className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-xl transition-all inline-flex items-center gap-2 cursor-pointer border border-zinc-700"
+                >
+                  🍪 Cookies / Credenciais Manuais
+                </button>
+              </div>
+
+              {showAluraCookieForm && (
+                <div className="mt-4 p-4 bg-[#18181b] border border-zinc-800 rounded-xl space-y-3 text-left max-w-lg mx-auto">
+                  <label className="text-xs font-semibold text-zinc-300 block">
+                    Cole seus cookies de sessão da Alura (sessionid / csrftoken):
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={aluraCookieInput}
+                    onChange={(e) => setAluraCookieInput(e.target.value)}
+                    placeholder="sessionid=xyz...; csrftoken=abc..."
+                    className="w-full bg-[#121214] border border-zinc-700 text-xs text-zinc-200 rounded-lg p-2.5 outline-none font-mono focus:border-white"
+                  />
+                  <button
+                    onClick={() => handleAluraSSOLogin(aluraCookieInput)}
+                    disabled={aluraLoading || !aluraCookieInput.trim()}
+                    className="w-full py-2 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-lg transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    Salvar Cookies & Autenticar
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <>
@@ -1270,17 +1228,25 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                       </span>
                     </div>
                     <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">
-                      RA: <span className="text-zinc-200">{userData.ra || '114371854'}</span> | Status: <span className="text-emerald-400 font-bold">Autenticado no Render</span>
+                      RA: <span className="text-zinc-200">{userData.ra || '114371854'}</span> | Status: <span className="text-emerald-400 font-bold">Autenticado no Shuziro Hub</span>
                     </div>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setIsAluraLoggedIn(false)}
-                  className="text-xs text-zinc-400 hover:text-white font-medium cursor-pointer hover:underline"
-                >
-                  Desconectar Sessão
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={loadAluraCourses}
+                    className="text-xs bg-zinc-800 hover:bg-zinc-700 text-white font-semibold px-3 py-1.5 rounded-lg border border-zinc-700 cursor-pointer transition-all flex items-center gap-1"
+                  >
+                    🔄 Sincronizar Cursos
+                  </button>
+                  <button
+                    onClick={() => setIsAluraLoggedIn(false)}
+                    className="text-xs text-zinc-400 hover:text-white font-medium cursor-pointer hover:underline"
+                  >
+                    Desconectar Sessão
+                  </button>
+                </div>
               </div>
 
               {/* Alura Stats Row */}

@@ -420,7 +420,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen text-zinc-100 font-sans relative selection:bg-white selection:text-black">
-      <BackgroundStars />
+      <BackgroundStars isStatic={!isLoggedIn} />
 
       {/* Toast Notification */}
       {toastMessage && (
