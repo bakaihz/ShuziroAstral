@@ -1293,50 +1293,6 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                 </div>
               </div>
             )}
-            {/* Matific Live Terminal Console */}
-            <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-5 md:p-6 space-y-3">
-              <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
-                <div className="flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-emerald-400" />
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                    Terminal Matific API Direct (Live Output)
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setMatificConsoleLogs([])}
-                  className="text-[10px] text-zinc-400 hover:text-white font-mono cursor-pointer underline"
-                >
-                  Limpar Logs
-                </button>
-              </div>
-
-              <div className="bg-[#09090b] border border-zinc-800 rounded-xl p-3 h-48 overflow-y-auto font-mono text-[11px] text-zinc-300 space-y-1 scrollbar-thin">
-                {matificConsoleLogs.length === 0 ? (
-                  <div className="text-zinc-600 italic">
-                    Aguardando comandos Matific... Clique em "Login Matific" ou "Executar no Hub Shuziro" para ver o envio de requisições.
-                  </div>
-                ) : (
-                  matificConsoleLogs.map((log, idx) => (
-                    <div
-                      key={idx}
-                      className={
-                        log.includes('✅') || log.includes('🏆')
-                          ? 'text-emerald-400 font-semibold'
-                          : log.includes('❌')
-                          ? 'text-red-400 font-semibold'
-                          : log.includes('⚠️')
-                          ? 'text-amber-400'
-                          : log.includes('🔑') || log.includes('📡') || log.includes('🎮')
-                          ? 'text-sky-300 font-bold'
-                          : 'text-zinc-300'
-                      }
-                    >
-                      {log}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
           </div>
         </>
       )}

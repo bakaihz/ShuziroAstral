@@ -1,22 +1,35 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { PenTool, CheckSquare, Play, Sparkles, Search, Check, X } from 'lucide-react';
+import { PenTool, CheckSquare, Play, Sparkles, Search, Check, X, Clock, Zap, ShieldCheck } from 'lucide-react';
 import { TaskItem } from '../types';
+import { isTaskExpired } from './TarefasView';
 
 interface RedacoesViewProps {
   tasks: TaskItem[];
   authToken: string;
-  onStartAutomation: (selectedTaskIds: string[], timeSec: number, mode: 'draft' | 'submitted') => void;
+  onStartAutomation: (
+    selectedTaskIds: string[],
+    optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted' },
+    mode?: 'draft' | 'submitted'
+  ) => void;
 }
 
 export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, onStartAutomation }) => {
   const redacoes = tasks.filter(t => t.is_essay !== false);
-  const [currentTab, setCurrentTab] = useState<'pending' | 'draft' | 'all'>('pending');
+  const [currentTab, setCurrentTab] = useState<'pending' | 'draft' | 'expired' | 'all'>('pending');
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
-  const [timeSec, setTimeSec] = useState<number>(10);
+  
+  // Min and Max time configuration
+  const [minTimeSec, setMinTimeSec] = useState<number>(60);
+  const [maxTimeSec, setMaxTimeSec] = useState<number>(180);
+  const [preset, setPreset] = useState<'rapido' | 'normal' | 'seguro' | 'custom'>('rapido');
   const [mode, setMode] = useState<'draft' | 'submitted'>('draft');
+
+  const pendingCount = redacoes.filter(t => !isTaskExpired(t) && t.answer_status !== 'draft').length;
+  const draftCount = redacoes.filter(t => t.answer_status === 'draft').length;
+  const expiredCount = redacoes.filter(t => isTaskExpired(t)).length;
 
   const filtered = redacoes.filter(t => {
     const matchesSearch = search === '' ||
@@ -25,9 +38,9 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
 
     if (!matchesSearch) return false;
 
-    const status = t.answer_status || 'pending';
-    if (currentTab === 'pending') return status !== 'draft' && status !== 'expired';
-    if (currentTab === 'draft') return status === 'draft';
+    if (currentTab === 'pending') return !isTaskExpired(t) && t.answer_status !== 'draft';
+    if (currentTab === 'draft') return t.answer_status === 'draft';
+    if (currentTab === 'expired') return isTaskExpired(t);
     return true;
   });
 
@@ -46,6 +59,27 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
 
   const handleDeselectAll = () => {
     setSelectedIds(new Set());
+  };
+
+  const handlePresetChange = (p: 'rapido' | 'normal' | 'seguro' | 'custom') => {
+    setPreset(p);
+    if (p === 'rapido') {
+      setMinTimeSec(60);
+      setMaxTimeSec(180);
+    } else if (p === 'normal') {
+      setMinTimeSec(180);
+      setMaxTimeSec(360);
+    } else if (p === 'seguro') {
+      setMinTimeSec(480);
+      setMaxTimeSec(720);
+    }
+  };
+
+  const formatTimeLabel = (sec: number) => {
+    if (sec < 60) return `${sec}s`;
+    const mins = Math.floor(sec / 60);
+    const remSec = sec % 60;
+    return remSec > 0 ? `${mins}m ${remSec}s` : `${mins}m`;
   };
 
   return (
@@ -79,14 +113,14 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
           />
         </div>
 
-        <div className="flex bg-[#121214] border border-[#27272a] rounded-xl p-1 w-full sm:w-auto overflow-x-auto">
+        <div className="flex bg-[#121214] border border-[#27272a] rounded-xl p-1 w-full sm:w-auto overflow-x-auto gap-1">
           <button
             onClick={() => setCurrentTab('pending')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
               currentTab === 'pending' ? 'bg-white text-black shadow-md' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Pendentes ({redacoes.filter(t => t.answer_status !== 'draft' && t.answer_status !== 'expired').length})
+            Pendentes ({pendingCount})
           </button>
           <button
             onClick={() => setCurrentTab('draft')}
@@ -94,7 +128,15 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
               currentTab === 'draft' ? 'bg-white text-black shadow-md' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Rascunhos ({redacoes.filter(t => t.answer_status === 'draft').length})
+            Rascunhos ({draftCount})
+          </button>
+          <button
+            onClick={() => setCurrentTab('expired')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+              currentTab === 'expired' ? 'bg-amber-500 text-black shadow-md font-bold' : 'text-amber-400 hover:text-amber-300'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" /> Expiradas ({expiredCount})
           </button>
           <button
             onClick={() => setCurrentTab('all')}
@@ -136,7 +178,9 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
           {filtered.map((t, idx) => {
             const id = String(t.id || t.task_id);
             const isSelected = selectedIds.has(id);
-            const status = t.answer_status || 'pending';
+            const isDraft = t.answer_status === 'draft';
+            const isExpired = isTaskExpired(t);
+
             return (
               <motion.div
                 key={id || idx}
@@ -164,11 +208,11 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
                   </div>
                 </div>
                 <span className={`text-[10px] px-2.5 py-1 rounded-full border shrink-0 font-medium ${
-                  status === 'draft' ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' :
-                  status === 'expired' ? 'bg-red-500/10 border-red-500/20 text-red-400' :
+                  isExpired ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' :
+                  isDraft ? 'bg-[#18181b] border-zinc-700 text-zinc-300' :
                   'bg-purple-500/10 border-purple-500/30 text-purple-300'
                 }`}>
-                  {status === 'draft' ? 'Rascunho' : status === 'expired' ? 'Expirada' : 'Pendente'}
+                  {isExpired ? 'Expirada' : isDraft ? 'Rascunho' : 'Pendente'}
                 </span>
               </motion.div>
             );
@@ -209,69 +253,130 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
               initial={{ opacity: 0, scale: 0.92, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.92, y: 15 }}
-              className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 max-w-md w-full shadow-2xl relative overflow-hidden"
+              className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 max-w-md w-full shadow-2xl relative overflow-hidden space-y-4"
             >
               <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 via-indigo-500 to-emerald-400" />
-              <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-purple-400" /> Automação de Redações por IA
-              </h3>
-              <p className="text-xs text-zinc-400 mb-5">
-                Gerar e salvar <strong className="text-purple-300 font-bold">{selectedIds.size}</strong> redação(ões) automaticamente.
-              </p>
+              <div>
+                <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-purple-400" /> Automação de Redações por IA
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Gerar e enviar <strong className="text-purple-300 font-bold">{selectedIds.size}</strong> redação(ões) automaticamente.
+                </p>
+              </div>
 
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-                    Intervalo entre envios (anti-ban)
-                  </label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {[10, 20, 30, 60].map((sec) => (
-                      <button
-                        key={sec}
-                        onClick={() => setTimeSec(sec)}
-                        className={`py-2 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
-                          timeSec === sec
-                            ? 'border-purple-400 bg-purple-950/40 text-purple-300 font-bold'
-                            : 'border-[#27272a] bg-[#18181b] text-zinc-300 hover:border-zinc-700'
-                        }`}
-                      >
-                        {sec >= 60 ? '1 min' : `${sec}s`}
-                      </button>
-                    ))}
-                  </div>
+              {/* Presets */}
+              <div className="space-y-2">
+                <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  Presets de Velocidade (Anti-Ban)
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePresetChange('rapido')}
+                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                      preset === 'rapido'
+                        ? 'border-purple-400 bg-purple-950/40 text-purple-300 font-bold'
+                        : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-extrabold text-white">
+                      <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> Rápido
+                    </div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5">Mín 1 min • Máx 3 min</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handlePresetChange('normal')}
+                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                      preset === 'normal'
+                        ? 'border-purple-400 bg-purple-950/40 text-purple-300 font-bold'
+                        : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-extrabold text-white">
+                      <Clock className="w-3.5 h-3.5 text-emerald-400" /> Normal
+                    </div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5">Mín 3 min • Máx 6 min</div>
+                  </button>
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-                    Modo de Envio
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => setMode('draft')}
-                      className={`py-2.5 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
-                        mode === 'draft'
-                          ? 'border-purple-400 bg-purple-950/40 text-purple-300 font-bold'
-                          : 'border-[#27272a] bg-[#18181b] text-zinc-300 hover:border-zinc-700'
-                      }`}
-                    >
-                      Salvar Rascunho
-                    </button>
-                    <button
-                      onClick={() => setMode('submitted')}
-                      className={`py-2.5 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
-                        mode === 'submitted'
-                          ? 'border-purple-400 bg-purple-950/40 text-purple-300 font-bold'
-                          : 'border-[#27272a] bg-[#18181b] text-zinc-300 hover:border-zinc-700'
-                      }`}
-                    >
-                      Entregar Direto
-                    </button>
+              {/* Min/Max Manual Input */}
+              <div className="space-y-2 p-3 bg-[#18181b] border border-[#27272a] rounded-xl">
+                <div className="text-[11px] font-semibold text-zinc-300 flex items-center justify-between">
+                  <span>Tempo Mínimo e Máximo</span>
+                  <span className="text-[10px] text-zinc-400 font-mono">
+                    {formatTimeLabel(minTimeSec)} — {formatTimeLabel(maxTimeSec)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-medium text-zinc-400 mb-1">Mínimo (s)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={minTimeSec}
+                      onChange={(e) => {
+                        const val = Math.max(1, Number(e.target.value) || 1);
+                        setMinTimeSec(val);
+                        if (val > maxTimeSec) setMaxTimeSec(val);
+                        setPreset('custom');
+                      }}
+                      className="w-full bg-[#121214] border border-[#27272a] focus:border-purple-500 text-white font-mono text-xs rounded-xl px-3 py-1.5 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-zinc-400 mb-1">Máximo (s)</label>
+                    <input
+                      type="number"
+                      min={minTimeSec}
+                      value={maxTimeSec}
+                      onChange={(e) => {
+                        const val = Math.max(minTimeSec, Number(e.target.value) || minTimeSec);
+                        setMaxTimeSec(val);
+                        setPreset('custom');
+                      }}
+                      className="w-full bg-[#121214] border border-[#27272a] focus:border-purple-500 text-white font-mono text-xs rounded-xl px-3 py-1.5 outline-none"
+                    />
                   </div>
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="space-y-2">
+                <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  Modo de Envio
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMode('draft')}
+                    className={`py-2.5 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
+                      mode === 'draft'
+                        ? 'border-purple-400 bg-purple-950/40 text-purple-300 font-bold'
+                        : 'border-[#27272a] bg-[#18181b] text-zinc-300 hover:border-zinc-700'
+                    }`}
+                  >
+                    Salvar Rascunho
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('submitted')}
+                    className={`py-2.5 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
+                      mode === 'submitted'
+                        ? 'border-purple-400 bg-purple-950/40 text-purple-300 font-bold'
+                        : 'border-[#27272a] bg-[#18181b] text-zinc-300 hover:border-zinc-700'
+                    }`}
+                  >
+                    Entregar Direto
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
                 <button
+                  type="button"
                   onClick={() => setShowModal(false)}
                   className="flex-1 py-2.5 bg-[#18181b] hover:bg-[#222226] text-zinc-300 text-xs font-medium rounded-xl border border-[#27272a] transition-all cursor-pointer"
                 >
@@ -280,13 +385,16 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
+                  type="button"
                   onClick={() => {
                     setShowModal(false);
-                    onStartAutomation([...selectedIds], timeSec, mode);
+                    if (onStartAutomation) {
+                      onStartAutomation([...selectedIds], { minTimeSec, maxTimeSec, mode }, mode);
+                    }
                   }}
-                  className="flex-1 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-white font-extrabold text-xs rounded-xl transition-all shadow-md shadow-purple-500/10 cursor-pointer"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-white font-extrabold text-xs rounded-xl transition-all shadow-md cursor-pointer"
                 >
-                  Iniciar Automação 🚀
+                  Iniciar Resolutor 🚀
                 </motion.button>
               </div>
             </motion.div>

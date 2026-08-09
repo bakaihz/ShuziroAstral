@@ -236,7 +236,9 @@ async function startServer() {
                     const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
 
                     if (!response.ok) {
-                        console.warn(`[API] Erro HTTP ${response.status} em ${finalUrl}: ${cleanText.substring(0, 150)}`);
+                        const isHtmlPage = cleanText.startsWith('<!') || cleanText.startsWith('<html') || cleanText.toLowerCase().includes('just a moment') || cleanText.toLowerCase().includes('attention required') || cleanText.toLowerCase().includes('cloudflare');
+                        const logMsg = isHtmlPage ? '[Bloqueio Cloudflare/WAF]' : cleanText.replace(/\s+/g, ' ').substring(0, 100);
+                        console.warn(`[API] Erro HTTP ${response.status} em ${finalUrl.split('?')[0]}: ${logMsg}`);
 
                         if (response.status === 404) {
                             lastError = new Error(`HTTP 404 em ${finalUrl}`);

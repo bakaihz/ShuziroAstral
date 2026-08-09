@@ -298,7 +298,24 @@ export default function App() {
     }
   };
 
-  const handleStartAutomation = async (taskIds: string[], timeSec: number, mode: 'draft' | 'submitted') => {
+  const handleStartAutomation = async (
+    taskIds: string[],
+    optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted' },
+    defaultMode: 'draft' | 'submitted' = 'draft'
+  ) => {
+    let minTimeSec = 10;
+    let maxTimeSec = 30;
+    let mode: 'draft' | 'submitted' = defaultMode;
+
+    if (typeof optionsOrTimeSec === 'object' && optionsOrTimeSec !== null) {
+      minTimeSec = optionsOrTimeSec.minTimeSec || 10;
+      maxTimeSec = optionsOrTimeSec.maxTimeSec || minTimeSec;
+      if (optionsOrTimeSec.mode) mode = optionsOrTimeSec.mode;
+    } else if (typeof optionsOrTimeSec === 'number') {
+      minTimeSec = optionsOrTimeSec;
+      maxTimeSec = optionsOrTimeSec;
+    }
+
     setProgressOpen(true);
     const firstTask = tasks.find(t => String(t.id || t.task_id) === taskIds[0]);
     const isEssayAutomation = firstTask?.is_essay !== false;
@@ -318,6 +335,10 @@ export default function App() {
       const title = taskItem?.title || `Atividade #${tid}`;
       const isEssay = taskItem?.is_essay !== false;
 
+      // Calculate a random time delay within [minTimeSec, maxTimeSec]
+      const delayRange = Math.max(0, maxTimeSec - minTimeSec);
+      const actualDelaySec = Math.floor(Math.random() * (delayRange + 1)) + minTimeSec;
+
       try {
         let genTitle = title;
         let genTexto = '';
@@ -335,7 +356,7 @@ export default function App() {
           genTitle = genData.titulo || title;
           genTexto = genData.texto || 'Redação desenvolvida com sucesso.';
         } else {
-          logs.unshift({ text: `Resolvendo tarefa: "${title}"...`, type: 'info' });
+          logs.unshift({ text: `Resolvendo tarefa: "${title}"... (Tempo estipulado: ${actualDelaySec}s)`, type: 'info' });
           setProgressLogs([...logs]);
         }
 
@@ -386,7 +407,7 @@ export default function App() {
             questions: applyData.questions || [],
             answer_id: answerId,
             status: mode,
-            duration: timeSec || 30,
+            duration: actualDelaySec,
             token: applyData.token || applyData.task_token,
             apply_moment: applyData.apply_moment || taskItem?.apply_moment
           })
@@ -406,8 +427,10 @@ export default function App() {
       setProgressCurrent(i + 1);
       setProgressLogs([...logs]);
 
-      if (i < taskIds.length - 1 && timeSec > 0) {
-        await new Promise(r => setTimeout(r, timeSec * 1000));
+      if (i < taskIds.length - 1 && actualDelaySec > 0) {
+        logs.unshift({ text: `Aguardando intervalo anti-ban (${actualDelaySec}s)...`, type: 'info' });
+        setProgressLogs([...logs]);
+        await new Promise(r => setTimeout(r, actualDelaySec * 1000));
       }
     }
 
