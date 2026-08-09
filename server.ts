@@ -104,6 +104,297 @@ async function startServer() {
 
     let cachedWorkingTunnel: string | null = "https://proxy.shuziroastral.lol";
 
+    async function askAI(prompt: string): Promise<string> {
+        // 1. Gemini API (@google/genai)
+        if (process.env.GEMINI_API_KEY) {
+            try {
+                const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+                const response = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash',
+                    contents: prompt,
+                });
+                if (response && response.text) {
+                    return response.text.trim();
+                }
+            } catch (e: any) {
+                console.warn('[AI] Gemini API falhou, tentando fallback:', e.message);
+            }
+        }
+
+        // 2. Rochwxs AI Endpoint
+        try {
+            const response = await undiciFetch('https://api.rochwxs.lol/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: prompt }),
+                signal: AbortSignal.timeout(8000)
+            });
+            if (response.ok) {
+                const data: any = await response.json();
+                const text = data.response || data.reply || data.answer || data.content || data.text || data.message;
+                if (text) return String(text).trim();
+            }
+        } catch (e: any) {
+            console.warn('[AI] Rochwxs AI falhou, tentando OpenRouter:', e.message);
+        }
+
+        // 3. OpenRouter AI
+        try {
+            const openRouterRes = await undiciFetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY || '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'}`
+                },
+                body: JSON.stringify({
+                    model: 'openai/gpt-oss-20b:free',
+                    messages: [{ role: 'user', content: prompt }]
+                }),
+                signal: AbortSignal.timeout(10000)
+            });
+            if (openRouterRes.ok) {
+                const openRouterData: any = await openRouterRes.json();
+                const text = openRouterData.choices?.[0]?.message?.content;
+                if (text) return String(text).trim();
+            }
+        } catch (e: any) {
+            console.warn('[AI] OpenRouter AI falhou:', e.message);
+        }
+
+        return "";
+    }
+
+    async function solveTaskQuestionsWithAI(
+        questions: any[],
+        isEssay: boolean,
+        userTitle?: string,
+        userText?: string
+    ): Promise<Record<string, any>> {
+        const answersMap: Record<string, any> = {};
+        const questionsNeedingAI: any[] = [];
+
+        for (const q of questions) {
+            const qId = Number(q.id || q.question_id) || 0;
+            if (!qId) continue;
+
+            let qType = String(q.type || q.question_type || "").toLowerCase();
+            if (qType === 'info') continue;
+
+            if (!qType) qType = isEssay ? "essay" : "single_choice";
+            if (qType === "options" || qType === "single") qType = "single_choice";
+
+            const isTextOrEssay = qType === "essay" || qType === "text_ai" || qType === "text" || qType === "text_area" || qType === "discursiva" || qType === "open_text" || qType === "open" || isEssay === true || Boolean(q.options?.ai_grading_keywords || q.options?.ai_grading_instructions);
+
+            if (isTextOrEssay) {
+                if (userText && userText.trim()) {
+                    answersMap[String(qId)] = {
+                        question_id: qId,
+                        question_type: (qType === 'essay' || isEssay) ? 'essay' : qType,
+                        answer: (qType === 'essay' || isEssay) ? { title: userTitle || q.title || 'Redação', body: userText } : userText
+                    };
+                } else {
+                    questionsNeedingAI.push({ ...q, resolvedType: qType, isText: true });
+                }
+            } else if (qType === "fill-words" || qType === "fill_words") {
+                let items: string[] = [];
+                if (Array.isArray(q.options?.items)) items = q.options.items;
+                else if (Array.isArray(q.options?.words)) items = q.options.words;
+                else if (Array.isArray(q.items)) items = q.items;
+
+                let selectCount = 0;
+                if (Array.isArray(q.options?.phrase)) {
+                    selectCount = q.options.phrase.filter((p: any) => p.type === 'select').length;
+                }
+                if (selectCount <= 0) selectCount = items.length || 1;
+
+                let selectedWords = items.slice(0, selectCount);
+                if (selectedWords.length === 0) selectedWords = ["resposta"];
+
+                answersMap[String(qId)] = {
+                    question_id: qId,
+                    question_type: "fill-words",
+                    answer: selectedWords
+                };
+            } else if (qType === "order-sentences" || qType === "order_sentences") {
+                let sentences: string[] = [];
+                if (Array.isArray(q.options?.sentences)) sentences = q.options.sentences;
+                else if (Array.isArray(q.options?.incorrects)) sentences = q.options.incorrects.map((i: any) => i.value || i);
+
+                if (sentences.length === 0) sentences = ["Etapa 1", "Etapa 2"];
+
+                answersMap[String(qId)] = {
+                    question_id: qId,
+                    question_type: "order-sentences",
+                    answer: sentences
+                };
+            } else if (qType === "true-false" || qType === "true_false") {
+                let tfOpts: any[] = [];
+                if (Array.isArray(q.options)) tfOpts = q.options;
+                else if (q.options && typeof q.options === 'object') tfOpts = Object.values(q.options);
+
+                const tfAnswers = tfOpts.map((o: any, idx: number) => {
+                    if (o && o.id) return { id: o.id, value: idx % 2 === 1 };
+                    return idx % 2 === 1;
+                });
+
+                answersMap[String(qId)] = {
+                    question_id: qId,
+                    question_type: "true-false",
+                    answer: tfAnswers.length > 0 ? tfAnswers : [true, false]
+                };
+            } else {
+                let opts: any[] = [];
+                if (Array.isArray(q.options)) opts = q.options;
+                else if (q.options && typeof q.options === 'object') opts = Object.values(q.options);
+                else if (Array.isArray(q.choices)) opts = q.choices;
+                else if (q.choices && typeof q.choices === 'object') opts = Object.values(q.choices);
+                else if (Array.isArray(q.alternatives)) opts = q.alternatives;
+                else if (q.alternatives && typeof q.alternatives === 'object') opts = Object.values(q.alternatives);
+                else if (Array.isArray(q.items)) opts = q.items;
+                else if (q.items && typeof q.items === 'object') opts = Object.values(q.items);
+
+                const explicitCorrect = opts.find((o: any) => o.is_correct === true || o.correct === true || o.is_right === true);
+
+                if (explicitCorrect) {
+                    const cand = explicitCorrect.id ?? explicitCorrect.option_id ?? explicitCorrect.value ?? explicitCorrect.key ?? explicitCorrect.code;
+                    const optVal = isNaN(Number(cand)) ? cand : Number(cand);
+                    answersMap[String(qId)] = {
+                        question_id: qId,
+                        question_type: qType,
+                        answer: Array.isArray(optVal) ? optVal : [optVal]
+                    };
+                } else {
+                    questionsNeedingAI.push({ ...q, resolvedType: qType, isText: false, parsedOpts: opts });
+                }
+            }
+        }
+
+        if (questionsNeedingAI.length > 0) {
+            const formattedQList = questionsNeedingAI.map((q, idx) => {
+                const statement = String(q.statement || q.title || q.description || '').replace(/<[^>]*>/g, '').trim();
+                const support = String(q.options?.support_text || q.support_text || '').replace(/<[^>]*>/g, '').trim();
+
+                if (q.isText) {
+                    return `[QUESTÃO ${idx + 1}] (TIPO: DISCURSIVA/ESSAY) (ID: ${q.id})
+Enunciado: "${statement}"
+${support ? `Texto Apoio: "${support.substring(0, 300)}"` : ''}`;
+                } else {
+                    const optStr = (q.parsedOpts || []).map((o: any) => {
+                        const oId = o.id ?? o.option_id ?? o.value ?? o.key;
+                        const oText = String(o.statement || o.text || o.label || o.value || o.title || '').replace(/<[^>]*>/g, '').trim();
+                        return `  - ID ${oId}: ${oText}`;
+                    }).join('\n');
+
+                    return `[QUESTÃO ${idx + 1}] (TIPO: MÚLTIPLA ESCOLHA) (ID: ${q.id})
+Enunciado: "${statement}"
+${support ? `Texto Apoio: "${support.substring(0, 300)}"` : ''}
+Opções:
+${optStr}`;
+                }
+            }).join('\n\n');
+
+            const prompt = `Você é um tutor e professor acadêmico especialista que resolve com 100% de precisão atividades e provas escolares da plataforma SEDUC-SP (Sala do Futuro).
+
+Examine as questões a seguir e responda todas com máxima exatidão:
+
+${formattedQList}
+
+REGRAS:
+1. Para QUESTÃO DE MÚLTIPLA ESCOLHA, selecione o ID numérico da alternativa correta.
+2. Para QUESTÃO DISCURSIVA/ESSAY, crie um texto de excelente qualidade, coeso e articulado em português do Brasil.
+3. Responda estritamente em formato JSON com o objeto "answers" onde a chave de cada objeto é o ID da questão:
+{
+  "answers": {
+    "<question_id>": {
+      "selected_id": <ID_NUMÉRICO_DA_OPÇÃO_CORRETA_OU_NULL>,
+      "title": "<TÍTULO_SE_FOR_DISCURSIVA_OU_NULL>",
+      "text": "<TEXTO_SE_FOR_DISCURSIVA_OU_NULL>"
+    }
+  }
+}`;
+
+            try {
+                console.log(`[AI Solver] Resolvendo ${questionsNeedingAI.length} questão(ões) via IA (Gemini/Rochwxs)...`);
+                const aiRawResponse = await askAI(prompt);
+                let aiJson: any = null;
+                if (aiRawResponse) {
+                    try {
+                        const cleanJson = aiRawResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
+                        aiJson = JSON.parse(cleanJson);
+                    } catch (pe) {
+                        const jsonMatch = aiRawResponse.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            try { aiJson = JSON.parse(jsonMatch[0]); } catch {}
+                        }
+                    }
+                }
+
+                const aiMap = aiJson?.answers || aiJson || {};
+
+                for (const q of questionsNeedingAI) {
+                    const qId = String(q.id || q.question_id);
+                    const aiAns = aiMap[qId] || aiMap[Number(qId)];
+                    const qType = q.resolvedType;
+
+                    if (q.isText) {
+                        const title = aiAns?.title || userTitle || q.title || 'Resposta da Atividade';
+                        const text = aiAns?.text || (aiRawResponse && !aiRawResponse.includes('{') ? aiRawResponse : '') || 'Atividade desenvolvida com base na análise do tema.';
+                        if (qType === 'essay' || isEssay) {
+                            answersMap[qId] = {
+                                question_id: Number(qId),
+                                question_type: 'essay',
+                                answer: { title, body: text }
+                            };
+                        } else {
+                            answersMap[qId] = {
+                                question_id: Number(qId),
+                                question_type: qType,
+                                answer: text
+                            };
+                        }
+                    } else {
+                        let selId = aiAns?.selected_id ?? aiAns?.selected_option_id ?? aiAns?.id ?? aiAns?.answer;
+                        if (selId === null || selId === undefined || isNaN(Number(selId))) {
+                            const firstOpt = q.parsedOpts?.[0];
+                            selId = firstOpt?.id ?? firstOpt?.option_id ?? Number(qId);
+                        } else {
+                            selId = Number(selId);
+                        }
+
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: qType,
+                            answer: [selId]
+                        };
+                    }
+                }
+            } catch (aiErr: any) {
+                console.warn('[AI Solver] Erro na resolução por IA:', aiErr.message);
+                for (const q of questionsNeedingAI) {
+                    const qId = String(q.id || q.question_id);
+                    const qType = q.resolvedType;
+                    if (q.isText) {
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: (qType === 'essay' || isEssay) ? 'essay' : qType,
+                            answer: (qType === 'essay' || isEssay) ? { title: userTitle || 'Redação', body: userText || 'Atividade desenvolvida com sucesso.' } : (userText || 'Atividade respondida.')
+                        };
+                    } else {
+                        const firstOpt = q.parsedOpts?.[0];
+                        const selId = firstOpt?.id ?? firstOpt?.option_id ?? Number(qId);
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: qType,
+                            answer: [selId]
+                        };
+                    }
+                }
+            }
+        }
+
+        return answersMap;
+    }
+
     async function callOfficialApi(
         url: string,
         method: string,
@@ -1073,157 +1364,10 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         if (Array.isArray(questionsList) && questionsList.length > 0) {
             answersMap = await solveTaskQuestionsWithAI(questionsList, Boolean(is_essay), titulo, texto);
         }
-                const isTextOrEssay = qType === "essay" || qType === "text_ai" || qType === "text" || qType === "text_area" || qType === "discursiva" || qType === "open_text" || qType === "open" || is_essay === true || Boolean(q.options?.ai_grading_keywords || q.options?.ai_grading_instructions);
-
-                if (isTextOrEssay) {
-                    const sendTitle = titulo || q.title || 'Resposta da Atividade';
-                    let sendBody = texto || '';
-
-                    if (!sendBody) {
-                        if (q.statement) {
-                            const cleanStatement = String(q.statement).replace(/<[^>]*>/g, '').trim();
-                            if (cleanStatement) {
-                                sendBody = `Com base na questão ("${cleanStatement.substring(0, 120)}..."), observa-se que a análise lógica dos conceitos envolvidos e da relação de dependência entre as variáveis permite responder perfeitamente à proposta do exercício.`;
-                            }
-                        }
-                        if (!sendBody && Array.isArray(q.options?.ai_grading_keywords) && q.options.ai_grading_keywords.length > 0) {
-                            sendBody = `A resposta contempla os aspectos solicitados: ${q.options.ai_grading_keywords.map((k: string) => k.trim()).filter(Boolean).join(', ')}. Dessa forma, os conceitos demonstrados explicam adequadamente o tema proposto.`;
-                        }
-                        if (!sendBody) {
-                            sendBody = 'Atividade analisada, desenvolvida e respondida com fundamentação completa.';
-                        }
-                    }
-
-                    if (qType === "essay" || is_essay === true) {
-                        answersMap[String(qId)] = {
-                            question_id: qId,
-                            question_type: "essay",
-                            answer: {
-                                title: sendTitle,
-                                body: sendBody
-                            }
-                        };
-                    } else if (qType === "text_ai") {
-                        answersMap[String(qId)] = {
-                            question_id: qId,
-                            question_type: "text_ai",
-                            answer: sendBody
-                        };
-                    } else {
-                        answersMap[String(qId)] = {
-                            question_id: qId,
-                            question_type: qType,
-                            answer: sendBody
-                        };
-                    }
-                } else if (qType === "fill-words" || qType === "fill_words") {
-                    let items: string[] = [];
-                    if (Array.isArray(q.options?.items)) items = q.options.items;
-                    else if (Array.isArray(q.options?.words)) items = q.options.words;
-                    else if (Array.isArray(q.items)) items = q.items;
-
-                    let selectCount = 0;
-                    if (Array.isArray(q.options?.phrase)) {
-                        selectCount = q.options.phrase.filter((p: any) => p.type === 'select').length;
-                    }
-                    if (selectCount <= 0) selectCount = items.length || 1;
-
-                    let selectedWords = items.slice(0, selectCount);
-                    if (selectedWords.length === 0) selectedWords = ["resposta"];
-
-                    answersMap[String(qId)] = {
-                        question_id: qId,
-                        question_type: "fill-words",
-                        answer: selectedWords
-                    };
-                } else if (qType === "order-sentences" || qType === "order_sentences") {
-                    let sentences: string[] = [];
-                    if (Array.isArray(q.options?.sentences)) sentences = q.options.sentences;
-                    else if (Array.isArray(q.options?.incorrects)) sentences = q.options.incorrects.map((i: any) => i.value || i);
-
-                    if (sentences.length === 0) sentences = ["Etapa 1", "Etapa 2"];
-
-                    answersMap[String(qId)] = {
-                        question_id: qId,
-                        question_type: "order-sentences",
-                        answer: sentences
-                    };
-                } else if (qType === "true-false" || qType === "true_false") {
-                    let tfOpts: any[] = [];
-                    if (Array.isArray(q.options)) tfOpts = q.options;
-                    else if (q.options && typeof q.options === 'object') tfOpts = Object.values(q.options);
-
-                    const tfAnswers = tfOpts.map((o: any, idx: number) => {
-                        if (o && o.id) return { id: o.id, value: idx % 2 === 1 };
-                        return idx % 2 === 1;
-                    });
-
-                    answersMap[String(qId)] = {
-                        question_id: qId,
-                        question_type: "true-false",
-                        answer: tfAnswers.length > 0 ? tfAnswers : [true, false]
-                    };
-                } else {
-                    let opts: any[] = [];
-                    if (Array.isArray(q.options)) {
-                        opts = q.options;
-                    } else if (q.options && typeof q.options === 'object') {
-                        opts = Object.values(q.options);
-                    } else if (Array.isArray(q.choices)) {
-                        opts = q.choices;
-                    } else if (q.choices && typeof q.choices === 'object') {
-                        opts = Object.values(q.choices);
-                    } else if (Array.isArray(q.alternatives)) {
-                        opts = q.alternatives;
-                    } else if (q.alternatives && typeof q.alternatives === 'object') {
-                        opts = Object.values(q.alternatives);
-                    } else if (Array.isArray(q.items)) {
-                        opts = q.items;
-                    } else if (q.items && typeof q.items === 'object') {
-                        opts = Object.values(q.items);
-                    }
-
-                    const correctOpt = opts.find((o: any) => o.is_correct === true || o.correct === true || o.is_right === true) || opts[0];
-                    let optVal: any = null;
-
-                    if (correctOpt) {
-                        const candidate = correctOpt.id ?? correctOpt.option_id ?? correctOpt.value ?? correctOpt.key ?? correctOpt.code;
-                        if (candidate !== undefined && candidate !== null) {
-                            optVal = isNaN(Number(candidate)) ? candidate : Number(candidate);
-                        }
-                    }
-
-                    if (optVal === null || optVal === undefined) {
-                        optVal = Number(qId) || 1;
-                    }
-
-                    answersMap[String(qId)] = {
-                        question_id: qId,
-                        question_type: qType,
-                        answer: Array.isArray(optVal) ? optVal : [optVal]
-                    };
-                }
-            });
-        }
 
         if (Object.keys(answersMap).length === 0) {
             const fallbackQId = Number(question_id) || 1;
-            if (is_essay === true || (titulo && texto)) {
-                answersMap[String(fallbackQId)] = {
-                    question_id: fallbackQId,
-                    question_type: "essay",
-                    answer: {
-                        title: titulo || 'Redação',
-                        body: texto || 'Redação desenvolvida.'
-                    }
-                };
-            } else {
-                answersMap[String(fallbackQId)] = {
-                    question_id: fallbackQId,
-                    question_type: "single_choice",
-                    answer: [fallbackQId]
-                };
-            }
+            answersMap = await solveTaskQuestionsWithAI([{ id: fallbackQId }], Boolean(is_essay), titulo, texto);
         }
 
         const payload: any = {
