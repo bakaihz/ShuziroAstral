@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ExternalLink, ArrowLeft, CheckCircle, Zap, ShieldCheck, Sparkles, Play, Globe, Code, Copy, Check, Key } from 'lucide-react';
+import { ExternalLink, ArrowLeft, CheckCircle, Zap, ShieldCheck, Sparkles, Play, Globe, Code, Copy, Check, Key, Terminal } from 'lucide-react';
 import { UserData } from '../types';
 
 export interface PlatformInfo {

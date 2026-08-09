@@ -2302,63 +2302,203 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         }
     });
 
-    // Endpoint de Cursos/Trilhas Alura (HTML Server-side Rendered)
+    // Endpoint de Cursos/Trilhas Alura (OpenFuture + HTML Server-side Rendered)
+    app.post("/api/alura/units", async (req, res) => {
+        const href = req.body?.href || "/corp/tecnologia-e-inovacao-8-ano-178993-p1035747";
+        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+
+        try {
+            const ofRes = await undiciFetch("https://openfuture.lol/api/platform/alura/units", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'User-Agent': USER_AGENT,
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({ href })
+            });
+
+            if (ofRes.ok) {
+                const data = await ofRes.json();
+                return res.json(data);
+            }
+            throw new Error(`OpenFuture units status ${ofRes.status}`);
+        } catch (err: any) {
+            console.warn('[Alura Units Proxy] Fallback:', err.message);
+            return res.json({
+                data: {
+                    trilhaTitle: "Tecnologia e Inovação | 8º Ano",
+                    units: [
+                        {
+                            name: "Introdução à computação: explorando recursos de edição de texto",
+                            kind: "Unidade",
+                            icon: "https://www.alura.com.br/assets/api/cursos/exploracao-edicao-texto-sp.svg",
+                            pct: 100,
+                            href: "/course/exploracao-edicao-texto-sp"
+                        },
+                        {
+                            name: "Lógica de programação: jogos, arte e criatividade parte 1",
+                            kind: "Unidade",
+                            icon: "https://www.alura.com.br/assets/api/cursos/logica-jogos-arte-1-sp.svg",
+                            pct: 100,
+                            href: "/course/logica-jogos-arte-1-sp"
+                        },
+                        {
+                            name: "Lógica de programação: jogos, arte e criatividade parte 2",
+                            kind: "Unidade",
+                            icon: "https://www.alura.com.br/assets/api/cursos/logica-jogos-arte-2-sp.svg",
+                            pct: 100,
+                            href: "/course/logica-jogos-arte-2-sp"
+                        },
+                        {
+                            name: "Recursão: desenhando padrões que se repetem",
+                            kind: "Unidade",
+                            icon: "https://www.alura.com.br/assets/api/cursos/recursao-padroes-repeticao-sp.svg",
+                            pct: 100,
+                            href: "/course/recursao-padroes-repeticao-sp"
+                        },
+                        {
+                            name: "Lógica de programação: fundamentos e desafios em Python",
+                            kind: "Unidade",
+                            icon: "https://www.alura.com.br/assets/api/cursos/python-fundamentos-desafios-sp.svg",
+                            pct: 0,
+                            href: "/course/python-fundamentos-desafios-sp"
+                        }
+                    ],
+                    continueHref: "/course/python-fundamentos-desafios-sp"
+                }
+            });
+        }
+    });
+
     app.get("/api/alura/courses", async (req, res) => {
         const userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || '') as string;
+        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+
         const DEFAULT_ALURA_COURSES = [
             {
                 id: "exploracao-edicao-texto-sp",
                 slug: "exploracao-edicao-texto-sp",
-                titulo: "Exploração e Edição de Texto - SP",
-                progresso: 30,
+                titulo: "Introdução à computação: explorando recursos de edição de texto",
+                progresso: 100,
                 cargaHoraria: "16h",
                 totalAulas: 10,
-                aulasConcluidas: 3,
-                tipo: "Tecnologia e Inovação"
+                aulasConcluidas: 10,
+                tipo: "Tecnologia e Inovação",
+                icon: "https://www.alura.com.br/assets/api/cursos/exploracao-edicao-texto-sp.svg",
+                href: "/course/exploracao-edicao-texto-sp"
             },
             {
                 id: "logica-jogos-arte-1-sp",
                 slug: "logica-jogos-arte-1-sp",
-                titulo: "Lógica de Jogos e Arte 1 - SP",
-                progresso: 50,
+                titulo: "Lógica de programação: jogos, arte e criatividade parte 1",
+                progresso: 100,
                 cargaHoraria: "20h",
                 totalAulas: 12,
-                aulasConcluidas: 6,
-                tipo: "Pensamento Computacional"
+                aulasConcluidas: 12,
+                tipo: "Tecnologia e Inovação",
+                icon: "https://www.alura.com.br/assets/api/cursos/logica-jogos-arte-1-sp.svg",
+                href: "/course/logica-jogos-arte-1-sp"
             },
             {
-                id: "python-fundamentos-sp",
-                slug: "python-fundamentos-sp",
-                titulo: "Python: Fundamentos de Programação - SP",
-                progresso: 20,
+                id: "logica-jogos-arte-2-sp",
+                slug: "logica-jogos-arte-2-sp",
+                titulo: "Lógica de programação: jogos, arte e criatividade parte 2",
+                progresso: 100,
+                cargaHoraria: "20h",
+                totalAulas: 12,
+                aulasConcluidas: 12,
+                tipo: "Tecnologia e Inovação",
+                icon: "https://www.alura.com.br/assets/api/cursos/logica-jogos-arte-2-sp.svg",
+                href: "/course/logica-jogos-arte-2-sp"
+            },
+            {
+                id: "recursao-padroes-repeticao-sp",
+                slug: "recursao-padroes-repeticao-sp",
+                titulo: "Recursão: desenhando padrões que se repetem",
+                progresso: 100,
+                cargaHoraria: "16h",
+                totalAulas: 10,
+                aulasConcluidas: 10,
+                tipo: "Tecnologia e Inovação",
+                icon: "https://www.alura.com.br/assets/api/cursos/recursao-padroes-repeticao-sp.svg",
+                href: "/course/recursao-padroes-repeticao-sp"
+            },
+            {
+                id: "python-fundamentos-desafios-sp",
+                slug: "python-fundamentos-desafios-sp",
+                titulo: "Lógica de programação: fundamentos e desafios em Python",
+                progresso: 0,
                 cargaHoraria: "24h",
                 totalAulas: 15,
-                aulasConcluidas: 3,
-                tipo: "Programação Alura Tech"
-            },
-            {
-                id: "desenvolvimento-web-html-css-sp",
-                slug: "desenvolvimento-web-html-css-sp",
-                titulo: "Desenvolvimento Web: HTML5 e CSS3 - SP",
-                progresso: 40,
-                cargaHoraria: "18h",
-                totalAulas: 10,
-                aulasConcluidas: 4,
-                tipo: "Front-End"
-            },
-            {
-                id: "pensamento-computacional-sp",
-                slug: "pensamento-computacional-sp",
-                titulo: "Pensamento Computacional no Cotidiano - SP",
-                progresso: 10,
-                cargaHoraria: "12h",
-                totalAulas: 8,
-                aulasConcluidas: 1,
-                tipo: "Tecnologia"
+                aulasConcluidas: 0,
+                tipo: "Tecnologia e Inovação",
+                icon: "https://www.alura.com.br/assets/api/cursos/python-fundamentos-desafios-sp.svg",
+                href: "/course/python-fundamentos-desafios-sp"
             }
         ];
 
         try {
+            // Attempt OpenFuture API first if available
+            const ofListRes = await undiciFetch("https://openfuture.lol/api/platform/alura/list", {
+                method: 'GET',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                }
+            }).catch(() => null);
+
+            if (ofListRes && ofListRes.ok) {
+                const listData: any = await ofListRes.json();
+                const trilhas = listData?.raw?.trilhas || [];
+                const parsedCourses: any[] = [];
+
+                for (const trilha of trilhas) {
+                    if (trilha.href) {
+                        const unitsRes = await undiciFetch("https://openfuture.lol/api/platform/alura/units", {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'User-Agent': USER_AGENT,
+                                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                            },
+                            body: JSON.stringify({ href: trilha.href })
+                        }).catch(() => null);
+
+                        if (unitsRes && unitsRes.ok) {
+                            const unitsData: any = await unitsRes.json();
+                            const units = unitsData?.data?.units || [];
+                            for (const u of units) {
+                                const slug = u.href ? u.href.replace('/course/', '').replace('/', '') : u.name;
+                                parsedCourses.push({
+                                    id: slug,
+                                    slug,
+                                    titulo: u.name,
+                                    progresso: u.pct !== undefined ? u.pct : 0,
+                                    cargaHoraria: "16h",
+                                    totalAulas: 10,
+                                    aulasConcluidas: Math.round(((u.pct || 0) / 100) * 10),
+                                    tipo: trilha.name || "Tecnologia e Inovação",
+                                    icon: u.icon,
+                                    href: u.href
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if (parsedCourses.length > 0) {
+                    return res.json({
+                        ok: true,
+                        status: 200,
+                        count: parsedCourses.length,
+                        courses: parsedCourses,
+                        source: 'openfuture'
+                    });
+                }
+            }
+
+            // Fallback to direct Alura scrapping
             const response = await undiciFetch('https://cursos.alura.com.br/learning-guide/company', {
                 method: 'GET',
                 headers: {
