@@ -105,7 +105,24 @@ async function startServer() {
     let cachedWorkingTunnel: string | null = "https://proxy.shuziroastral.lol";
 
     async function askAI(prompt: string): Promise<string> {
-        // 1. Gemini API (@google/genai)
+        // 1. Rochwxs AI Endpoint (Primary AI requested)
+        try {
+            const response = await undiciFetch('https://api.rochwxs.lol/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: prompt }),
+                signal: AbortSignal.timeout(10000)
+            });
+            if (response.ok) {
+                const data: any = await response.json();
+                const text = data.response || data.reply || data.answer || data.content || data.text || data.message;
+                if (text) return String(text).trim();
+            }
+        } catch (e: any) {
+            console.warn('[AI] Rochwxs AI falhou, tentando fallback Gemini:', e.message);
+        }
+
+        // 2. Gemini API (@google/genai)
         if (process.env.GEMINI_API_KEY) {
             try {
                 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -117,25 +134,8 @@ async function startServer() {
                     return response.text.trim();
                 }
             } catch (e: any) {
-                console.warn('[AI] Gemini API falhou, tentando fallback:', e.message);
+                console.warn('[AI] Gemini API falhou, tentando fallback OpenRouter:', e.message);
             }
-        }
-
-        // 2. Rochwxs AI Endpoint
-        try {
-            const response = await undiciFetch('https://api.rochwxs.lol/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: prompt }),
-                signal: AbortSignal.timeout(8000)
-            });
-            if (response.ok) {
-                const data: any = await response.json();
-                const text = data.response || data.reply || data.answer || data.content || data.text || data.message;
-                if (text) return String(text).trim();
-            }
-        } catch (e: any) {
-            console.warn('[AI] Rochwxs AI falhou, tentando OpenRouter:', e.message);
         }
 
         // 3. OpenRouter AI
