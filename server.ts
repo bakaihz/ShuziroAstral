@@ -990,45 +990,14 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         res.status(lastErr?.status || 500).json({ error: lastErr?.message || "Erro ao aplicar tarefa" });
     });
 
-    // Gerar redação via IA (usa api.rochwxs.lol/chat conforme solicitado)
+    // Gerar redação via IA (usa Gemini, Rochwxs e OpenRouter em cascata)
     app.post("/api/generate", async (req, res) => {
         const { genero, contexto } = req.body;
         if (!contexto) return res.status(400).json({ error: "Contexto ausente" });
         try {
-            const prompt = `Você é um especialista em redação escolar. Escreva uma redação de alta qualidade no gênero ${genero || "dissertativo-argumentativo"}. Tema: ${contexto}. Responda exclusivamente em JSON com as chaves "titulo" e "texto".`;
+            const prompt = `Você é um especialista em redação escolar da plataforma SEDUC-SP. Escreva uma redação de alta qualidade no gênero ${genero || "dissertativo-argumentativo"}. Tema: ${contexto}. Responda exclusivamente em JSON com as chaves "titulo" e "texto".`;
             
-            let content = "";
-            try {
-                const response = await undiciFetch('https://api.rochwxs.lol/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: prompt })
-                });
-                if (response.ok) {
-                    const data: any = await response.json();
-                    content = data.response || data.reply || data.answer || data.content || data.text || data.message || JSON.stringify(data);
-                }
-            } catch (err: any) {
-                console.warn("[Generate] api.rochwxs.lol falhou:", err.message);
-            }
-
-            if (!content) {
-                const openRouterRes = await undiciFetch('https://openrouter.ai/api/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY || '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'}`
-                    },
-                    body: JSON.stringify({
-                        model: 'openai/gpt-oss-20b:free',
-                        messages: [{ role: 'user', content: prompt }]
-                    })
-                });
-                if (openRouterRes.ok) {
-                    const openRouterData: any = await openRouterRes.json();
-                    content = openRouterData.choices?.[0]?.message?.content || "";
-                }
-            }
+            let content = await askAI(prompt);
 
             if (!content) {
                 throw new Error("Nenhum provedor de IA respondeu com sucesso.");
@@ -1102,21 +1071,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         let answersMap: Record<string, any> = {};
 
         if (Array.isArray(questionsList) && questionsList.length > 0) {
-            questionsList.forEach((q: any) => {
-                const qId = Number(q.id || q.question_id || question_id) || 0;
-                if (!qId) return;
-
-                let qType = String(q.type || q.question_type || "").toLowerCase();
-                
-                // Ignora cartões puramente informativos (vídeos, avisos, títulos) sem nota/perguntas
-                if (qType === 'info') return;
-
-                if (!qType) {
-                    qType = is_essay ? "essay" : "single_choice";
-                }
-                if (qType === "options" || qType === "single") qType = "single_choice";
-
-                // TRATAMENTO PARA QUESTÕES DISCURSIVAS / TEXT_AI / ESSAY / TEXT
+            answersMap = await solveTaskQuestionsWithAI(questionsList, Boolean(is_essay), titulo, texto);
+        }
                 const isTextOrEssay = qType === "essay" || qType === "text_ai" || qType === "text" || qType === "text_area" || qType === "discursiva" || qType === "open_text" || qType === "open" || is_essay === true || Boolean(q.options?.ai_grading_keywords || q.options?.ai_grading_instructions);
 
                 if (isTextOrEssay) {
