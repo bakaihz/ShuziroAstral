@@ -1,5 +1,6 @@
 import React from 'react';
-import { Home, Smartphone, BookOpen, CheckSquare, PenTool, BarChart3, Settings, LogOut, RefreshCw, FolderOpen, Heart, MessageSquare, Coffee } from 'lucide-react';
+import { motion } from 'motion/react';
+import { Home, Smartphone, BookOpen, CheckSquare, PenTool, BarChart3, Settings, LogOut, RefreshCw, FolderOpen, Heart, MessageSquare, Coffee, Sparkles } from 'lucide-react';
 import { UserData } from '../types';
 import { PLATFORMS_DATA } from './PlatformDetailView';
 
@@ -41,30 +42,36 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   ];
 
   return (
-    <div className="min-h-screen flex flex-col max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 bg-black/80 backdrop-blur-md text-white relative z-10">
+    <div className="min-h-screen flex flex-col max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 text-white relative z-10">
       {/* Header */}
-      <header className="bg-[#121214] border border-[#27272a] rounded-2xl p-4 sm:p-5 mb-6 flex flex-wrap items-center justify-between gap-4 shadow-xl">
+      <motion.header 
+        initial={{ opacity: 0, y: -15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="bg-[#121214]/90 backdrop-blur-2xl border border-[#27272a] hover:border-zinc-700 rounded-2xl p-4 sm:p-5 mb-6 flex flex-wrap items-center justify-between gap-4 shadow-2xl relative overflow-hidden"
+      >
+        <div className="absolute top-0 right-1/4 w-64 h-1 bg-gradient-to-r from-transparent via-white/40 to-transparent" />
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-lg font-bold text-white">
-              👋 Olá, <span className="text-white font-semibold underline decoration-zinc-600 underline-offset-4">{userData.nick || 'Usuário'}</span>
+            <h2 className="text-lg font-bold text-white flex items-center gap-1.5">
+              👋 Olá, <span className="text-white font-extrabold underline decoration-zinc-500 underline-offset-4">{userData.nick || 'Usuário'}</span>
             </h2>
-            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-zinc-900 border border-[#27272a] text-zinc-300 font-medium">
-              📍 SP
+            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-200 font-mono font-bold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> SP
             </span>
             {pingStatus && (
-              <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border flex items-center gap-1 font-bold ${
-                pingStatus === 'success' ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-400' :
+              <span className={`text-[9px] font-mono px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 font-bold transition-all ${
+                pingStatus === 'success' ? 'bg-zinc-800 border-zinc-500 text-white shadow-sm' :
                 pingStatus === 'pinging' ? 'bg-zinc-900 border-zinc-700 text-zinc-400 animate-pulse' :
-                'bg-red-950/20 border-red-500/30 text-red-400 animate-pulse'
+                'bg-red-950/30 border-red-500/40 text-red-400 animate-pulse'
               }`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${
-                  pingStatus === 'success' ? 'bg-emerald-400 animate-pulse' :
-                  pingStatus === 'pinging' ? 'bg-zinc-400 animate-pulse' :
+                  pingStatus === 'success' ? 'bg-white animate-ping' :
+                  pingStatus === 'pinging' ? 'bg-amber-400 animate-ping' :
                   'bg-red-400 animate-pulse'
                 }`} />
-                {pingStatus === 'success' ? `RENDER: ATIVO ${latency ? `(${latency}ms)` : ''}` :
-                 pingStatus === 'pinging' ? 'TESTANDO BACKEND...' : 'RENDER: OFFLINE'}
+                {pingStatus === 'success' ? `SERVIDOR: ONLINE ${latency ? `(${latency}ms)` : ''}` :
+                 pingStatus === 'pinging' ? 'CONECTANDO...' : 'SERVIDOR: OFFLINE'}
               </span>
             )}
           </div>
@@ -74,45 +81,60 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={onOpenDoacao}
-            className="px-3.5 py-2 bg-gradient-to-r from-amber-500/20 via-amber-400/20 to-emerald-400/20 hover:from-amber-500/30 hover:to-emerald-400/30 text-amber-300 text-xs font-bold rounded-xl border border-amber-500/40 flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-amber-500/5 animate-pulse"
+            className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold rounded-xl border border-zinc-600 flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
           >
-            <Heart className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Apoiar via PIX
-          </button>
-          <button
+            <Heart className="w-3.5 h-3.5 text-white animate-pulse" /> Apoiar via PIX
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={onOpenDiscord}
-            className="px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold rounded-xl border border-indigo-500/40 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+            className="px-3 py-2 bg-[#5865F2]/20 hover:bg-[#5865F2]/30 text-white text-xs font-semibold rounded-xl border border-[#5865F2]/40 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
           >
-            <MessageSquare className="w-3.5 h-3.5 fill-indigo-300/30 text-indigo-300" /> Discord
-          </button>
-          <button
+            <MessageSquare className="w-3.5 h-3.5 text-[#5865F2]" /> Discord
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={onOpenAccounts}
-            className="px-3.5 py-2 bg-[#18181b] hover:bg-[#222226] text-zinc-300 text-xs font-medium rounded-xl border border-[#27272a] flex items-center gap-1.5 transition-all cursor-pointer"
+            className="px-3.5 py-2 bg-white hover:bg-zinc-200 text-black text-xs font-bold rounded-xl border border-white flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
           >
-            <FolderOpen className="w-3.5 h-3.5 text-white" /> Contas
-          </button>
-          <button
+            <FolderOpen className="w-3.5 h-3.5 text-black" /> Contas Salvas
+          </motion.button>
+          <motion.button
+            whileHover={{ rotate: 180 }}
+            transition={{ duration: 0.3 }}
             onClick={onRefresh}
             title="Atualizar dados"
             className="p-2 bg-[#18181b] hover:bg-[#222226] text-zinc-300 rounded-xl border border-[#27272a] transition-all cursor-pointer"
           >
             <RefreshCw className="w-4 h-4" />
-          </button>
-          <button
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={onLogout}
-            className="px-3.5 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-medium rounded-xl border border-red-500/30 flex items-center gap-1.5 transition-all cursor-pointer"
+            className="px-3.5 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-bold rounded-xl border border-red-500/30 flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" /> Sair
-          </button>
+          </motion.button>
         </div>
-      </header>
+      </motion.header>
 
       {/* Main Grid Layout */}
       <div className="flex flex-col lg:flex-row gap-6 flex-1">
         {/* Sidebar */}
         <aside className="w-full lg:w-64 shrink-0 space-y-4">
-          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-2.5 space-y-1 sticky top-6">
+          <motion.div 
+            initial={{ opacity: 0, x: -15 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
+            className="bg-[#121214]/90 backdrop-blur-2xl border border-[#27272a] rounded-2xl p-2.5 space-y-1 sticky top-6 shadow-xl"
+          >
             {menuItems.map((item) => {
               const Icon = item.icon;
               const isPlatformRoute = currentPage in PLATFORMS_DATA || currentPage === 'plataformas';
@@ -121,35 +143,48 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                 <button
                   key={item.id}
                   onClick={() => onNavigate(item.id)}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                  className={`relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-zinc-900 border border-zinc-700 text-white font-semibold'
+                      ? 'text-black font-black'
                       : 'text-zinc-400 hover:text-white hover:bg-[#18181b]'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-zinc-500'}`} />
-                  {item.label}
+                  {isActive && (
+                    <motion.div
+                      layoutId="activeTabIndicator"
+                      className="absolute inset-0 bg-white rounded-xl shadow-lg shadow-white/10"
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-3">
+                    <Icon className={`w-4 h-4 ${isActive ? 'text-black' : 'text-zinc-500'}`} />
+                    {item.label}
+                  </span>
                 </button>
               );
             })}
 
-            <div className="pt-2 space-y-1 border-t border-[#27272a]">
-              <button
+            <div className="pt-2.5 space-y-1.5 border-t border-[#27272a]">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={onOpenDoacao}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 bg-gradient-to-r from-amber-500/10 to-emerald-500/10 hover:from-amber-500/20 hover:to-emerald-500/20 border border-amber-500/30 text-amber-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md"
               >
-                <Coffee className="w-4 h-4 text-amber-400" />
+                <Coffee className="w-4 h-4 text-white" />
                 Apoiar com PIX
-              </button>
-              <button
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={onOpenDiscord}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 bg-indigo-600/10 hover:bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 bg-[#5865F2]/10 hover:bg-[#5865F2]/20 border border-[#5865F2]/30 text-[#5865F2] rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md"
               >
-                <MessageSquare className="w-4 h-4 text-indigo-400 fill-indigo-400/20" />
+                <MessageSquare className="w-4 h-4 text-[#5865F2]" />
                 Comunidade Discord
-              </button>
+              </motion.button>
             </div>
-          </div>
+          </motion.div>
         </aside>
 
         {/* Content Area */}
@@ -159,9 +194,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       </div>
 
       {/* Footer */}
-      <footer className="text-center mt-12 pt-6 border-t border-[#27272a] text-xs text-zinc-500">
-        ShuziroAstral Hub · Feito com <Heart className="w-3 h-3 inline text-amber-400 mx-0.5 fill-amber-400/20" /> por <strong className="text-zinc-300">bakai Shuziro</strong> · 2026
+      <footer className="text-center mt-12 pt-6 border-t border-[#27272a] text-xs text-zinc-500 flex items-center justify-center gap-1">
+        ShuziroAstral Hub · Feito com <Heart className="w-3.5 h-3.5 inline text-white animate-pulse" /> por <strong className="text-zinc-300 font-bold">bakai Shuziro</strong> · 2026
       </footer>
     </div>
   );
 };
+
+

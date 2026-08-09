@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { BackgroundStars } from './components/BackgroundStars';
 import { LoginView } from './components/LoginView';
 import { DashboardLayout } from './components/DashboardLayout';
@@ -465,57 +466,67 @@ export default function App() {
           onOpenDiscord={() => setShowDiscordModal(true)}
           onOpenDoacao={() => setShowDoacaoModal(true)}
         >
-          {currentPage === 'home' && (
-            <HomeView
-              userData={userData}
-              onNavigate={handleNavigate}
-              taskCount={tasks.filter(t => !t.is_essay).length}
-              essayCount={tasks.filter(t => t.is_essay).length}
-            />
-          )}
-          {currentPage === 'plataformas' && (
-            <PlataformasView
-              userData={userData}
-              onNavigate={handleNavigate}
-            />
-          )}
-          {isPlatformSlug && (
-            <PlatformDetailView
-              slug={currentPage}
-              userData={userData}
-              onBack={() => handleNavigate('plataformas')}
-              pingStatus={pingStatus}
-            />
-          )}
-          {currentPage === 'apostilas' && <ApostilasView />}
-          {currentPage === 'tarefas' && (
-            <TarefasView 
-              tasks={tasks} 
-              authToken={authToken}
-              onRefresh={() => fetchTasks(authToken, userData)} 
-              onStartAutomation={handleStartAutomation}
-            />
-          )}
-          {currentPage === 'redacoes' && (
-            <RedacoesView
-              tasks={tasks}
-              authToken={authToken}
-              onStartAutomation={handleStartAutomation}
-            />
-          )}
-          {currentPage === 'boletim' && <BoletimView userData={userData} authToken={authToken} />}
-          {currentPage === 'config' && (
-            <ConfigView
-              accounts={accounts}
-              onClearAccounts={handleClearAccounts}
-              tunnelUrl={tunnelUrl}
-              setTunnelUrl={setTunnelUrl}
-              pingStatus={pingStatus}
-              runPing={(silent) => runPing(tunnelUrl, silent)}
-              pingResponse={pingResponse}
-              latency={latency}
-            />
-          )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={currentPage}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            >
+              {currentPage === 'home' && (
+                <HomeView
+                  userData={userData}
+                  onNavigate={handleNavigate}
+                  taskCount={tasks.filter(t => !t.is_essay).length}
+                  essayCount={tasks.filter(t => t.is_essay).length}
+                />
+              )}
+              {currentPage === 'plataformas' && (
+                <PlataformasView
+                  userData={userData}
+                  onNavigate={handleNavigate}
+                />
+              )}
+              {isPlatformSlug && (
+                <PlatformDetailView
+                  slug={currentPage}
+                  userData={userData}
+                  onBack={() => handleNavigate('plataformas')}
+                  pingStatus={pingStatus}
+                />
+              )}
+              {currentPage === 'apostilas' && <ApostilasView />}
+              {currentPage === 'tarefas' && (
+                <TarefasView 
+                  tasks={tasks} 
+                  authToken={authToken}
+                  onRefresh={() => fetchTasks(authToken, userData)} 
+                  onStartAutomation={handleStartAutomation}
+                />
+              )}
+              {currentPage === 'redacoes' && (
+                <RedacoesView
+                  tasks={tasks}
+                  authToken={authToken}
+                  onStartAutomation={handleStartAutomation}
+                />
+              )}
+              {currentPage === 'boletim' && <BoletimView userData={userData} authToken={authToken} />}
+              {currentPage === 'config' && (
+                <ConfigView
+                  accounts={accounts}
+                  onClearAccounts={handleClearAccounts}
+                  tunnelUrl={tunnelUrl}
+                  setTunnelUrl={setTunnelUrl}
+                  pingStatus={pingStatus}
+                  runPing={(silent) => runPing(tunnelUrl, silent)}
+                  pingResponse={pingResponse}
+                  latency={latency}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </DashboardLayout>
       )}
 

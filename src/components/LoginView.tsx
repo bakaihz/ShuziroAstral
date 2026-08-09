@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, ShieldCheck, Sparkles, FolderOpen, ArrowRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Eye, EyeOff, Sparkles, FolderOpen, ArrowRight, UserCheck, KeyRound, ShieldCheck, Heart, Code2 } from 'lucide-react';
 import { SavedAccount } from '../types';
 
 interface LoginViewProps {
@@ -24,6 +25,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [ra, setRa] = useState('');
   const [senha, setSenha] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowWelcome(false);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (selectedAccount) {
@@ -39,26 +48,105 @@ export const LoginView: React.FC<LoginViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-transparent relative z-10">
-      <div className="bg-[#09090b]/90 backdrop-blur-xl border border-[#27272a] rounded-3xl p-8 max-w-md w-full shadow-[0_20px_60px_rgba(0,0,0,0.9)] relative overflow-hidden">
-        {/* Subtle monochromatic glow */}
-        <div className="absolute -top-24 -right-24 w-48 h-48 bg-white/5 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-black relative z-10 overflow-hidden select-none">
+      {/* Welcome Entrance Toast Banner (Fades out after 3 seconds) */}
+      <AnimatePresence>
+        {showWelcome && (
+          <motion.div
+            initial={{ opacity: 0, y: -40, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -30, scale: 0.95 }}
+            transition={{ type: 'spring', damping: 22, stiffness: 300 }}
+            className="fixed top-6 z-50 bg-[#121214]/95 border border-zinc-600 backdrop-blur-2xl px-6 py-3.5 rounded-2xl shadow-[0_15px_50px_rgba(0,0,0,0.9)] flex items-center gap-3 text-white max-w-sm sm:max-w-md"
+          >
+            <div className="w-9 h-9 rounded-xl bg-white text-black flex items-center justify-center font-extrabold shrink-0 shadow-md">
+              <Sparkles className="w-5 h-5 text-black" />
+            </div>
+            <div>
+              <div className="text-xs font-black tracking-wide text-white">
+                Bem-vindo ao Shuziro Astral Hub!
+              </div>
+              <div className="text-[11px] font-medium text-zinc-300 mt-0.5">
+                O melhor Hub da Sala do Futuro 🚀
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-zinc-900 border border-[#27272a] text-white mb-3">
-            <Sparkles className="w-6 h-6" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            Shuziro<span className="text-zinc-400">Astral</span> Hub
+      {/* Atmospheric ambient lighting */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-zinc-800/15 rounded-full blur-[150px] pointer-events-none" />
+
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.94, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.5, type: 'spring', stiffness: 260, damping: 25 }}
+        className="bg-[#09090b]/95 backdrop-blur-2xl border border-[#27272a] hover:border-zinc-600 rounded-3xl p-8 max-w-md w-full shadow-[0_25px_80px_rgba(0,0,0,0.95)] relative overflow-hidden my-auto"
+      >
+        {/* Top white-metallic highlight border */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-zinc-700 via-white to-zinc-700" />
+
+        {/* Header Branding */}
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.4 }}
+          className="text-center mb-6"
+        >
+          <motion.div 
+            whileHover={{ scale: 1.08, rotate: 6 }}
+            className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white text-black mb-3 shadow-xl shadow-white/10"
+          >
+            <Sparkles className="w-7 h-7" />
+          </motion.div>
+          <h1 className="text-2xl font-black tracking-tight text-white">
+            Shuziro<span className="text-zinc-400 font-extrabold">Astral</span> Hub
           </h1>
           <p className="text-xs text-zinc-400 mt-1">
-            Sistema Integrado da <strong className="text-zinc-200">Sala do Futuro</strong>
+            Sistema Integrado da <strong className="text-white">Sala do Futuro</strong>
           </p>
-        </div>
+        </motion.div>
 
+        {/* Improved & Prominent Quick Access Button for Saved Accounts */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.4 }}
+          className="mb-6"
+        >
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            type="button"
+            onClick={onOpenAccounts}
+            className="w-full p-4 bg-[#121214] hover:bg-[#18181b] border border-zinc-700 hover:border-white rounded-2xl flex items-center justify-between text-left transition-all shadow-lg group cursor-pointer relative overflow-hidden"
+          >
+            <div className="flex items-center gap-3.5 z-10">
+              <div className="w-10 h-10 rounded-xl bg-white text-black font-extrabold flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                <UserCheck className="w-5 h-5 text-black" />
+              </div>
+              <div>
+                <div className="text-xs font-black text-white flex items-center gap-2">
+                  Contas Salvas
+                  <span className="text-[9px] uppercase px-2 py-0.5 rounded-md bg-zinc-800 text-white border border-zinc-600 font-mono font-bold tracking-wider">
+                    Atalho Rápido
+                  </span>
+                </div>
+                <div className="text-[11px] text-zinc-400 mt-0.5">Selecione e entre com 1 clique</div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-transform group-hover:translate-x-1.5 shrink-0 z-10" />
+          </motion.button>
+        </motion.div>
+
+        {/* Form Fields */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2, duration: 0.4 }}
+          >
+            <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
               RA / Usuário
             </label>
             <input
@@ -67,12 +155,16 @@ export const LoginView: React.FC<LoginViewProps> = ({
               onChange={(e) => setRa(e.target.value)}
               placeholder="Ex.: 000123456789sp"
               required
-              className="w-full px-4 py-3 bg-[#121214] border border-[#27272a] rounded-xl text-zinc-100 text-sm focus:outline-none focus:border-zinc-400 transition-colors"
+              className="w-full px-4 py-3 bg-[#121214] border border-[#27272a] focus:border-zinc-400 rounded-xl text-white text-sm focus:outline-none transition-colors shadow-inner"
             />
-          </div>
+          </motion.div>
 
-          <div>
-            <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.25, duration: 0.4 }}
+          >
+            <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
               Senha
             </label>
             <div className="relative">
@@ -82,88 +174,113 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 onChange={(e) => setSenha(e.target.value)}
                 placeholder="Digite sua senha"
                 required
-                className="w-full px-4 py-3 pr-12 bg-[#121214] border border-[#27272a] rounded-xl text-zinc-100 text-sm focus:outline-none focus:border-zinc-400 transition-colors"
+                className="w-full px-4 py-3 pr-12 bg-[#121214] border border-[#27272a] focus:border-zinc-400 rounded-xl text-white text-sm focus:outline-none transition-colors shadow-inner"
               />
               <button
                 type="button"
                 onClick={() => setShowPass(!showPass)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 transition-colors p-1"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors p-1 cursor-pointer"
               >
                 {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-          </div>
+          </motion.div>
 
           {/* Captcha button */}
-          <button
-            type="button"
-            onClick={onOpenEmojiChallenge}
-            className={`w-full py-3 px-4 rounded-xl border flex items-center justify-center gap-3 transition-all text-sm font-medium ${
-              isVerified
-                ? 'bg-zinc-900 border-zinc-600 text-white'
-                : 'bg-[#121214] border-[#27272a] text-zinc-300 hover:border-zinc-700'
-            }`}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.4 }}
           >
-            <div className={`w-5 h-5 rounded flex items-center justify-center border ${
-              isVerified ? 'bg-white border-white text-black font-bold' : 'border-zinc-600 bg-[#18181b]'
-            }`}>
-              {isVerified ? '✓' : ''}
-            </div>
-            <span>{isVerified ? 'Verificado (Não sou um robô)' : 'Clique para verificar (Anti-Bot)'}</span>
-          </button>
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              type="button"
+              onClick={onOpenEmojiChallenge}
+              className={`w-full py-3 px-4 rounded-xl border flex items-center justify-center gap-3 transition-all text-xs font-bold cursor-pointer ${
+                isVerified
+                  ? 'bg-zinc-800 border-zinc-500 text-white shadow-md'
+                  : 'bg-[#121214] border-[#27272a] text-zinc-300 hover:border-zinc-600'
+              }`}
+            >
+              <div className={`w-5 h-5 rounded flex items-center justify-center border transition-all ${
+                isVerified ? 'bg-white border-white text-black font-extrabold' : 'border-zinc-600 bg-[#18181b]'
+              }`}>
+                {isVerified ? '✓' : ''}
+              </div>
+              <span>{isVerified ? 'Verificado (Não sou um robô)' : 'Clique para verificar (Anti-Bot)'}</span>
+            </motion.button>
+          </motion.div>
 
           {errorMessage && (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs text-center">
+            <motion.div 
+              initial={{ opacity: 0, y: -5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs text-center font-bold"
+            >
               {errorMessage}
-            </div>
+            </motion.div>
           )}
 
-          <button
-            type="submit"
-            disabled={isLoading || !isVerified}
-            className="w-full py-3 px-4 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:hover:bg-white text-black font-semibold rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-white/5 cursor-pointer"
+          {/* Main Login Submit Button */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35, duration: 0.4 }}
           >
-            {isLoading ? (
-              <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <>
-                Entrar no Sistema <ArrowRight className="w-4 h-4" />
-              </>
-            )}
-          </button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              type="submit"
+              disabled={isLoading || !isVerified}
+              className="w-full py-3.5 px-4 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:hover:bg-white text-black font-black rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-xl shadow-white/10 cursor-pointer"
+            >
+              {isLoading ? (
+                <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  Entrar no Sistema <ArrowRight className="w-4 h-4 stroke-[3]" />
+                </>
+              )}
+            </motion.button>
+          </motion.div>
         </form>
 
         {/* Discord community button */}
-        <div className="mt-4">
-          <a
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.4 }}
+          className="mt-4"
+        >
+          <motion.a
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             href="https://discord.gg/DGB4xqNY9"
             target="_blank"
             rel="noreferrer"
-            className="w-full py-2.5 px-4 bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-[#5865F2]/20 cursor-pointer"
+            className="w-full py-2.5 px-4 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-[#5865F2]/20 cursor-pointer"
           >
-            {/* Official Discord SVG icon */}
             <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
               <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
             </svg>
-            Entrar no Discord
-          </a>
-        </div>
+            Entrar na Comunidade Discord
+          </motion.a>
+        </motion.div>
 
-        <div className="flex items-center justify-between mt-5 pt-4 border-t border-[#27272a] text-xs">
-          <button
-            type="button"
-            onClick={onOpenAccounts}
-            className="text-zinc-400 hover:text-zinc-200 transition-colors flex items-center gap-1.5"
-          >
-            <FolderOpen className="w-3.5 h-3.5" /> Contas Salvas
-          </button>
-          <span className="text-zinc-600">v2.5 Pro</span>
+        {/* Improved & Stylized Footer */}
+        <div className="mt-6 pt-5 border-t border-[#27272a] flex items-center justify-center">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#121214] border border-[#27272a] text-xs shadow-inner">
+            <Code2 className="w-3.5 h-3.5 text-white" />
+            <span className="text-zinc-400 font-medium">Feito com carinho por</span>
+            <strong className="text-white font-black tracking-tight underline decoration-zinc-500 underline-offset-2">
+              bakai Shuziro
+            </strong>
+          </div>
         </div>
-
-        <div className="text-center mt-5 text-[11px] text-zinc-600">
-          Feito por <span className="text-zinc-400 font-medium">bakai Shuziro</span> · 2026
-        </div>
-      </div>
+      </motion.div>
     </div>
   );
 };
+
+
