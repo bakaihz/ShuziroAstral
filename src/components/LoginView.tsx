@@ -256,7 +256,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
           <motion.a
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            href="https://discord.gg/DGB4xqNY9"
+            href="https://discord.gg/k8eakt9Rd"
             target="_blank"
             rel="noreferrer"
             className="w-full py-2.5 px-4 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-[#5865F2]/20 cursor-pointer"

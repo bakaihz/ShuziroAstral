@@ -113,7 +113,7 @@ async function startServer() {
         return cleanToken;
     }
 
-    let cachedWorkingTunnel: string | null = "https://proxy.shuziroastral.lol";
+    let cachedWorkingTunnel: string | null = null;
 
     async function askAI(prompt: string): Promise<string> {
         // 1. Rochwxs AI Endpoint (Primary AI requested)
@@ -470,7 +470,7 @@ REGRAS:
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
             let urlsToTry: string[] = [];
-            if (domain.includes('workers.dev') || domain.includes('worker') || domain.includes('trycloudflare.com') || domain.includes('shuziroastral.lol') || domain.includes('127.0.0.1') || domain.includes('localhost') || domain.includes('loca.lt') || domain.includes('ngrok')) {
+            if (domain.includes('workers.dev') || domain.includes('worker') || domain.includes('shuziroastral.lol') || domain.includes('trycloudflare.com') || domain.includes('127.0.0.1') || domain.includes('localhost') || domain.includes('loca.lt') || domain.includes('ngrok')) {
                 urlsToTry.push(`${domain}${cleanPath}`);
             } else if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
                 urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
@@ -542,6 +542,10 @@ REGRAS:
                         const logMsg = isHtmlPage ? '[Bloqueio Cloudflare/WAF]' : cleanText.replace(/\s+/g, ' ').substring(0, 100);
                         console.warn(`[API] Erro HTTP ${response.status} em ${finalUrl.split('?')[0]}: ${logMsg}`);
 
+                        if (cachedWorkingTunnel === domain) {
+                            cachedWorkingTunnel = null;
+                        }
+
                         if (response.status === 404) {
                             lastError = new Error(`HTTP 404 em ${finalUrl}`);
                             continue;
@@ -559,7 +563,8 @@ REGRAS:
                             cleanText.toLowerCase().includes('attention required') ||
                             cleanText.toLowerCase().includes('error 1033') ||
                             cleanText.startsWith('<!doctype') ||
-                            cleanText.startsWith('<html')
+                            cleanText.startsWith('<html') ||
+                            isHtmlPage
                         );
 
                         const isCredentialError = !cleanPath.includes('/registration/edusp/token') && !isCloudflareBlock && (response.status === 401 || (response.status === 403 && (
@@ -570,7 +575,11 @@ REGRAS:
                             cleanText.toLowerCase().includes('token expirado')
                         )));
 
-                        const errObj: any = new Error(isCredentialError ? "Token de acesso inválido ou recusado pela EduSP." : `HTTP ${response.status}: ${cleanText.substring(0, 150) || 'Erro no servidor'}`);
+                        const displayErrorText = isCloudflareBlock
+                            ? "Bloqueio de proteção de rede (Cloudflare/Proxy)"
+                            : (cleanText.substring(0, 150) || 'Erro no servidor');
+
+                        const errObj: any = new Error(isCredentialError ? "Token de acesso inválido ou recusado pela EduSP." : `HTTP ${response.status}: ${displayErrorText}`);
                         errObj.status = response.status;
                         errObj.isCredentialError = isCredentialError;
 
@@ -625,6 +634,7 @@ REGRAS:
 
                     if (isHealthCheckObj) {
                         console.warn(`[API] ${finalUrl} retornou status ping do Worker/Túnel ao invés dos dados da API EduSP. Tentando próxima URL...`);
+                        if (cachedWorkingTunnel === domain) cachedWorkingTunnel = null;
                         lastError = new Error(`Healthcheck do Worker/Túnel interceptado em ${finalUrl}`);
                         continue;
                     }
@@ -641,7 +651,8 @@ REGRAS:
 
                     if (isHtmlPage) {
                         console.warn(`[API] ${finalUrl} retornou página HTML/bloqueio ao invés de dados da API EduSP. Tentando próxima URL...`);
-                        lastError = new Error(`Bloqueio de segurança (Cloudflare/Proxy) retornado em ${finalUrl}`);
+                        if (cachedWorkingTunnel === domain) cachedWorkingTunnel = null;
+                        lastError = new Error(`HTTP 403: Bloqueio de proteção de rede (Cloudflare/Proxy) em ${finalUrl}`);
                         continue;
                     }
 
@@ -656,10 +667,14 @@ REGRAS:
                             return trimmedText;
                         }
                         console.warn(`[API] ${finalUrl} retornou texto não-JSON que não é um token JWT: ${trimmedText.substring(0, 100)}`);
+                        if (cachedWorkingTunnel === domain) cachedWorkingTunnel = null;
                         lastError = new Error(`Resposta não-JSON inválida em ${finalUrl}`);
                         continue;
                     }
                 } catch (err: any) {
+                    if (cachedWorkingTunnel === domain) {
+                        cachedWorkingTunnel = null;
+                    }
                     if (err.isCredentialError) {
                         throw err;
                     }
@@ -970,14 +985,14 @@ REGRAS:
             let serie = loginResult.DadosUsuario?.DescricaoTurma || loginResult.DadosUsuario?.NM_SERIE || loginResult.DadosUsuario?.Serie || "Ensino Fundamental / Médio";
             let codigoTurma = loginResult.DadosUsuario?.CD_TURMA || loginResult.DadosUsuario?.CodigoTurma || null;
 
-            if (codigoAluno && (escola === "Escola Pública SP" || !escola)) {
+            if (codigoAluno) {
                 try {
                     const turmasUrl = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apihubintegracoes/api/v2/Turma/ListarTurmasPorAluno?codigoAluno=${codigoAluno}`;
                     const response = await undiciFetch(turmasUrl, {
                         method: 'GET',
                         headers: {
                             'Accept': 'application/json, text/plain, */*',
-                            'Authorization': `Bearer ${eduspData.auth_token}`,
+                            'Authorization': `Bearer ${loginResult.token}`,
                             'X-Product-Name': 'SalaDoFuturo',
                             'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
                             'User-Agent': USER_AGENT
@@ -1236,57 +1251,76 @@ function extractUserNickFromToken(token: string): string {
         res.json(allTasks);
     });
 
-async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunnel?: string; userAgent?: string; cookies?: string }): Promise<string> {
+async function getAllUserRoomSlugs(token: string, customTunnel?: string | { tunnel?: string; userAgent?: string; cookies?: string }): Promise<string[]> {
+    const slugs = new Set<string>();
     try {
         const data = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
         const rooms = data?.rooms || data?.items || (Array.isArray(data) ? data : []);
         for (const room of rooms) {
             const inner = (typeof room.room === 'object' && room.room) ? room.room : {};
-            const candidates = [room.name, room.room_name, room.publication_target, inner.name, inner.room_name];
+            const candidates = [
+                room.name, room.room_name, room.publication_target, room.slug,
+                inner.name, inner.room_name, inner.publication_target, inner.slug
+            ];
             for (const c of candidates) {
-                if (typeof c === 'string' && (/^r[0-9a-f]+-l$/i.test(c.trim()) || (c.trim().startsWith('r') && c.trim().length >= 10))) {
-                    return c.trim();
+                if (typeof c === 'string') {
+                    const str = c.trim();
+                    if (/^r[0-9a-f]+-l$/i.test(str) || (str.startsWith('r') && str.length >= 10)) {
+                        slugs.add(str);
+                    }
                 }
             }
         }
     } catch (e: any) {
-        console.warn('[FallbackRoomSlug] Erro ao buscar rooms:', e.message);
+        console.warn('[getAllUserRoomSlugs] Erro ao buscar rooms:', e.message);
     }
-    return '';
+    return Array.from(slugs);
+}
+
+async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunnel?: string; userAgent?: string; cookies?: string }): Promise<string> {
+    const slugs = await getAllUserRoomSlugs(token, customTunnel);
+    return slugs[0] || '';
 }
 
     app.get("/api/tms/task/:taskId/apply", async (req, res) => {
         const token = req.headers['x-api-key'] as string;
         const { taskId } = req.params;
-        const room_name = String(req.query.room_name || '').trim();
+        const rawRoom = String(req.query.room_name || req.query.publication_target || '').trim();
         const customTunnel = getCustomTunnel(req);
         if (!token) return res.status(401).json({ error: "Token ausente" });
-        console.log(`[Apply] taskId=${taskId}, room_name=${room_name || 'não fornecido'}`);
+        console.log(`[Apply] taskId=${taskId}, room_name=${rawRoom || 'não fornecido'}`);
 
-        const isValidSlug = room_name && (/^r[0-9a-f]+-l$/i.test(room_name) || (room_name.startsWith('r') && room_name.length >= 10));
         const tokenCodeParam = (req.query.token_code && req.query.token_code !== 'null') ? `&token_code=${encodeURIComponent(String(req.query.token_code))}` : '';
 
+        const slugsToTry = new Set<string>();
+        if (rawRoom && (/^r[0-9a-f]+-l$/i.test(rawRoom) || (rawRoom.startsWith('r') && rawRoom.length >= 10))) {
+            slugsToTry.add(rawRoom);
+        }
+
+        const userSlugs = await getAllUserRoomSlugs(token, customTunnel);
+        userSlugs.forEach(s => slugsToTry.add(s));
+
         const applyUrls: string[] = [];
-        if (isValidSlug) {
-            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(room_name)}${tokenCodeParam}`);
-        } else {
-            const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
-            if (fallbackSlug) {
-                applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(fallbackSlug)}${tokenCodeParam}`);
-            }
+        for (const slug of slugsToTry) {
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}`);
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}`);
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=true&room_name=${encodeURIComponent(slug)}${tokenCodeParam}`);
         }
 
         applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}`);
+        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=true${tokenCodeParam}`);
         applyUrls.push(`/tms/task/${taskId}/apply`);
+        applyUrls.push(`/tms/task/${taskId}`);
 
         let lastErr: any = null;
         for (const url of applyUrls) {
             try {
                 const data = await callOfficialApi(url, 'GET', token, undefined, customTunnel);
-                if (data) return res.json(data);
+                if (data && typeof data === 'object') return res.json(data);
             } catch (err: any) {
                 console.warn(`[Apply] Tentativa na URL ${url} resultou em: ${err.message}`);
                 lastErr = err;
+                if (err.isCredentialError) break;
             }
         }
         res.status(lastErr?.status || 500).json({ error: lastErr?.message || "Erro ao aplicar tarefa" });
@@ -1336,22 +1370,29 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
 
         const rawRoom = typeof room_for_apply === 'string' ? room_for_apply.trim() : '';
         const isValidSlug = /^r[0-9a-f]+-l$/i.test(rawRoom) || (rawRoom.startsWith('r') && rawRoom.length >= 10);
-        let execOn = isValidSlug ? rawRoom : '';
+        const initialExec = isValidSlug ? rawRoom : '';
 
-        if (!execOn) {
-            execOn = await getFallbackRoomSlug(auth_token, customTunnel);
-            console.log(`[Complete] Room slug resolvida automaticamente: '${execOn}'`);
-        }
+        const userSlugs = await getAllUserRoomSlugs(auth_token, customTunnel);
+        const roomCandidates = new Set<string>();
+        if (initialExec) roomCandidates.add(initialExec);
+        userSlugs.forEach(s => roomCandidates.add(s));
+        roomCandidates.add(''); // Candidato sem room_name / executed_on
 
         let questionsList = reqQuestions;
         let applyToken = req.body.token;
 
+        // Se a lista de questões ou token de aplicação estiver ausente, tenta fazer apply para obter questões reais
         if (!Array.isArray(questionsList) || questionsList.length === 0 || !question_id || Number(question_id) === 0) {
-            const tryApplyUrls = [
-                execOn ? `/tms/task/${task_id}/apply?preview_mode=false&room_name=${encodeURIComponent(execOn)}` : null,
-                `/tms/task/${task_id}/apply?preview_mode=false`,
-                `/tms/task/${task_id}/apply`
-            ].filter(Boolean) as string[];
+            const tryApplyUrls: string[] = [];
+            for (const slug of roomCandidates) {
+                if (slug) {
+                    tryApplyUrls.push(`/tms/task/${task_id}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}`);
+                    tryApplyUrls.push(`/tms/task/${task_id}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}`);
+                }
+            }
+            tryApplyUrls.push(`/tms/task/${task_id}/apply?preview_mode=false`);
+            tryApplyUrls.push(`/tms/task/${task_id}/apply`);
+            tryApplyUrls.push(`/tms/task/${task_id}`);
 
             for (const url of tryApplyUrls) {
                 try {
@@ -1359,13 +1400,14 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                     if (applyRes && (Array.isArray(applyRes.questions) || Array.isArray(applyRes.items))) {
                         questionsList = applyRes.questions || applyRes.items || [];
                         if (applyRes.token) applyToken = applyRes.token;
-                        if (!execOn && (applyRes.executed_on || applyRes.room_name || applyRes.publication_target)) {
-                            execOn = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
+                        const foundSlug = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
+                        if (foundSlug && (/^r[0-9a-f]+-l$/i.test(foundSlug) || (foundSlug.startsWith('r') && foundSlug.length >= 10))) {
+                            roomCandidates.add(foundSlug);
                         }
                         if (questionsList.length > 0) break;
                     }
                 } catch (e: any) {
-                    console.warn(`[Complete] Aviso ao aplicar task ${task_id} em ${url}:`, e.message);
+                    // Silencia aviso de tentativa de apply
                 }
             }
         }
@@ -1381,16 +1423,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             answersMap = await solveTaskQuestionsWithAI([{ id: fallbackQId }], Boolean(is_essay), titulo, texto);
         }
 
-        const payload: any = {
-            status: status === 'submitted' ? 'submitted' : 'draft',
-            accessed_on: 'room',
-            executed_on: execOn,
-            duration: Number(req.body.duration) || 30,
-            answers: answersMap
-        };
-        if (applyToken) payload.token = applyToken;
-
-        const sendAnswer = async (p: any) => {
+        const sendAnswerRequest = async (p: any) => {
             if (answer_id) {
                 try {
                     return await callOfficialApi(`/tms/task/${task_id}/answer/${answer_id}`, 'PUT', auth_token, p, customTunnel);
@@ -1402,104 +1435,79 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             return await callOfficialApi(`/tms/task/${task_id}/answer`, 'POST', auth_token, p, customTunnel);
         };
 
-        const tryWithFallbackTypes = async (p: any) => {
-            try {
-                return await sendAnswer(p);
-            } catch (err: any) {
-                const errStr = String(err.message || err).toLowerCase();
-                if (
-                    errStr.includes("question_type") ||
-                    errStr.includes("invalid answer") ||
-                    errStr.includes("not allowed") ||
-                    errStr.includes("badrequesterror") ||
-                    errStr.includes("400")
-                ) {
-                    console.warn(`[Complete] Resposta rejeitada pelo EDUSP (${err.message}). Tentando retentativa com variações...`);
-                    
-                    // Variação 1: Mudar respostas array [val] para valor escalar val (ou vice-versa)
-                    const pScalar = JSON.parse(JSON.stringify(p));
-                    for (const k of Object.keys(pScalar.answers)) {
-                        const item = pScalar.answers[k];
-                        if (Array.isArray(item.answer) && item.answer.length > 0) {
-                            item.answer = item.answer[0];
-                        }
-                    }
-                    try {
-                        return await sendAnswer(pScalar);
-                    } catch (e1: any) {
-                        console.warn(`[Complete] Variação escalar falhou: ${e1.message}`);
-                    }
+        const candidateSlugs = Array.from(roomCandidates);
+        let lastErr: any = null;
 
-                    // Variação 2: Alternar question_type entre single_choice e options
-                    const pTypeSwap = JSON.parse(JSON.stringify(p));
-                    for (const k of Object.keys(pTypeSwap.answers)) {
-                        const item = pTypeSwap.answers[k];
-                        if (item.question_type === 'options') {
-                            item.question_type = 'single_choice';
-                        } else if (item.question_type === 'single_choice') {
-                            item.question_type = 'options';
-                        }
-                    }
-                    try {
-                        return await sendAnswer(pTypeSwap);
-                    } catch (e2: any) {
-                        console.warn(`[Complete] Variação question_type falhou: ${e2.message}`);
-                    }
+        for (const slug of candidateSlugs) {
+            const payloadVariants = [
+                {
+                    status: status === 'submitted' ? 'submitted' : 'draft',
+                    accessed_on: slug ? 'room' : 'center',
+                    executed_on: slug || undefined,
+                    duration: Number(req.body.duration) || 30,
+                    answers: answersMap,
+                    ...(applyToken ? { token: applyToken } : {})
+                },
+                {
+                    status: status === 'submitted' ? 'submitted' : 'draft',
+                    accessed_on: 'center',
+                    executed_on: slug || undefined,
+                    duration: Number(req.body.duration) || 30,
+                    answers: answersMap,
+                    ...(applyToken ? { token: applyToken } : {})
+                }
+            ];
 
-                    // Variação 3: Se ainda falhou, converte para tipo essay (redação / texto)
-                    const pEssay = JSON.parse(JSON.stringify(p));
-                    for (const k of Object.keys(pEssay.answers)) {
-                        pEssay.answers[k].question_type = 'essay';
-                        pEssay.answers[k].answer = {
-                            title: titulo || 'Resposta da Atividade',
-                            body: texto || 'Atividade desenvolvida e enviada com sucesso.'
+            // Se for redação / essay, testa variações na estrutura das respostas
+            if (is_essay || Object.values(answersMap).some((a: any) => a.question_type === 'essay')) {
+                const answersMapVar2: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+                for (const k of Object.keys(answersMapVar2)) {
+                    if (answersMapVar2[k].question_type === 'essay') {
+                        answersMapVar2[k].answer = {
+                            title: titulo || 'Redação',
+                            text: texto || 'Atividade desenvolvida com sucesso.'
                         };
                     }
-                    return await sendAnswer(pEssay);
                 }
-                throw err;
-            }
-        };
+                payloadVariants.push({
+                    status: status === 'submitted' ? 'submitted' : 'draft',
+                    accessed_on: slug ? 'room' : 'center',
+                    executed_on: slug || undefined,
+                    duration: Number(req.body.duration) || 30,
+                    answers: answersMapVar2,
+                    ...(applyToken ? { token: applyToken } : {})
+                });
 
-        try {
-            let data: any;
-            try {
-                data = await tryWithFallbackTypes(payload);
-            } catch (err: any) {
-                const isConnectionError = !err.status || err.status >= 500 || String(err.message).includes("Conexão") || String(err.message).includes("Túnel") || String(err.message).includes("Bloqueio") || String(err.message).includes("fetch failed");
-                if (isConnectionError) {
-                    throw err;
-                }
-                const freshSlug = await getFallbackRoomSlug(auth_token, customTunnel);
-                if (freshSlug && freshSlug !== payload.executed_on) {
-                    console.warn(`[Complete] Re-tentando com room slug fresca: '${freshSlug}'`);
-                    payload.executed_on = freshSlug;
-                    try {
-                        data = await tryWithFallbackTypes(payload);
-                    } catch (retryErr: any) {
-                        if (payload.executed_on) {
-                            console.warn(`[Complete] Re-tentando sem executed_on...`);
-                            const payloadCopy = { ...payload };
-                            delete payloadCopy.executed_on;
-                            data = await tryWithFallbackTypes(payloadCopy);
-                        } else {
-                            throw retryErr;
-                        }
+                const answersMapVar3: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+                for (const k of Object.keys(answersMapVar3)) {
+                    if (answersMapVar3[k].question_type === 'essay') {
+                        answersMapVar3[k].answer = texto || 'Atividade desenvolvida com sucesso.';
                     }
-                } else if (payload.executed_on) {
-                    console.warn(`[Complete] Re-tentando sem executed_on...`);
-                    const payloadCopy = { ...payload };
-                    delete payloadCopy.executed_on;
-                    data = await tryWithFallbackTypes(payloadCopy);
-                } else {
-                    throw err;
+                }
+                payloadVariants.push({
+                    status: status === 'submitted' ? 'submitted' : 'draft',
+                    accessed_on: slug ? 'room' : 'center',
+                    executed_on: slug || undefined,
+                    duration: Number(req.body.duration) || 30,
+                    answers: answersMapVar3,
+                    ...(applyToken ? { token: applyToken } : {})
+                });
+            }
+
+            for (const variant of payloadVariants) {
+                try {
+                    const data = await sendAnswerRequest(variant);
+                    if (data) return res.json({ success: true, data });
+                } catch (err: any) {
+                    console.warn(`[Complete] Tentativa com slug '${slug}' (${variant.accessed_on}) falhou: ${err.message}`);
+                    lastErr = err;
+                    if (err.isCredentialError) break;
                 }
             }
-            res.json({ success: true, data });
-        } catch (err: any) {
-            console.error(`[Complete] Erro ao enviar task ${task_id}:`, err.message);
-            res.status(err.status || 500).json({ error: err.message });
+            if (lastErr?.isCredentialError) break;
         }
+
+        res.status(lastErr?.status || 500).json({ error: lastErr?.message || "Erro ao responder tarefa" });
     });
 
     app.get("/api/frequencia", async (req, res) => {

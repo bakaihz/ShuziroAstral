@@ -71,7 +71,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
           <motion.a
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            href="https://discord.gg/DGB4xqNY9"
+            href="https://discord.gg/k8eakt9Rd"
             target="_blank"
             rel="noreferrer"
             className="px-4 py-2.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer"
@@ -106,7 +106,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-white">Servidor Oficial do Discord</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/40 text-indigo-300 font-semibold border border-indigo-500/30">
-                discord.gg/DGB4xqNY9
+                discord.gg/k8eakt9Rd
               </span>
             </div>
             <p className="text-xs text-zinc-400 mt-1 max-w-lg">
@@ -118,7 +118,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
         <motion.a
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          href="https://discord.gg/DGB4xqNY9"
+          href="https://discord.gg/k8eakt9Rd"
           target="_blank"
           rel="noreferrer"
           className="w-full md:w-auto px-5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-lg shadow-indigo-600/20"
