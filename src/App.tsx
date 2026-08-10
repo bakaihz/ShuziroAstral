@@ -42,6 +42,31 @@ export default function App() {
   const [showDiscordModal, setShowDiscordModal] = useState(false);
   const [showDoacaoModal, setShowDoacaoModal] = useState(false);
 
+  // CAPTCHA Modal state
+  const [captchaModalOpen, setCaptchaModalOpen] = useState(false);
+  const [captchaImg, setCaptchaImg] = useState('');
+  const [captchaChallengeId, setCaptchaChallengeId] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+  const [captchaError, setCaptchaError] = useState('');
+  const [captchaVerifying, setCaptchaVerifying] = useState(false);
+
+  const captchaResolverRef = React.useRef<((token: string) => void) | null>(null);
+  const captchaRejecterRef = React.useRef<((err: Error) => void) | null>(null);
+
+  const requestCaptchaSolving = (challengeId: string, imageBase64: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      setCaptchaChallengeId(challengeId);
+      setCaptchaImg(imageBase64);
+      setCaptchaAnswer('');
+      setCaptchaError('');
+      setCaptchaVerifying(false);
+      setCaptchaModalOpen(true);
+      
+      captchaResolverRef.current = resolve;
+      captchaRejecterRef.current = reject;
+    });
+  };
+
   // Progress widget state
   const [progressOpen, setProgressOpen] = useState(false);
   const [progressTitle, setProgressTitle] = useState('');
@@ -298,6 +323,88 @@ export default function App() {
     }
   };
 
+  const handleVerifyCaptcha = async () => {
+    if (!captchaAnswer.trim()) {
+      setCaptchaError('Por favor, digite o texto da imagem.');
+      return;
+    }
+
+    setCaptchaVerifying(true);
+    setCaptchaError('');
+
+    try {
+      const verifyRes = await fetch('/api/captcha/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': authToken
+        },
+        body: JSON.stringify({
+          type: 'image',
+          realm: 'edusp',
+          payload: {
+            challengeId: captchaChallengeId,
+            answer: captchaAnswer.trim().toUpperCase()
+          }
+        })
+      });
+
+      if (!verifyRes.ok) {
+        throw new Error('Erro na comunicação de verificação do CAPTCHA.');
+      }
+
+      const verifyData = await verifyRes.json();
+      if (verifyData.valid && verifyData.token) {
+        setCaptchaModalOpen(false);
+        if (captchaResolverRef.current) {
+          captchaResolverRef.current(verifyData.token);
+        }
+      } else {
+        setCaptchaError('Código incorreto. Tente novamente.');
+      }
+    } catch (e: any) {
+      setCaptchaError(e.message || 'Erro ao verificar o CAPTCHA.');
+    } finally {
+      setCaptchaVerifying(false);
+    }
+  };
+
+  const handleRefreshCaptcha = async () => {
+    setCaptchaVerifying(true);
+    setCaptchaError('');
+    setCaptchaAnswer('');
+
+    try {
+      const challengeRes = await fetch('/api/captcha/challenge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': authToken
+        },
+        body: JSON.stringify({ realm: 'edusp' })
+      });
+
+      if (!challengeRes.ok) {
+        throw new Error('Não foi possível obter novo desafio.');
+      }
+
+      const challengeData = await challengeRes.json();
+      const challengeId = challengeData.challengeId || challengeData.challenge_id;
+      const imageBase64 = challengeData.challenge?.image || challengeData.image;
+
+      if (!challengeId || !imageBase64) {
+        throw new Error('Resposta de desafio inválida.');
+      }
+
+      setCaptchaChallengeId(challengeId);
+      setCaptchaImg(imageBase64);
+    } catch (e: any) {
+      setCaptchaError(e.message || 'Erro ao carregar novo CAPTCHA.');
+    } finally {
+      setCaptchaVerifying(false);
+    }
+  };
+
   const handleStartAutomation = async (
     taskIds: string[],
     optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted' },
@@ -371,15 +478,73 @@ export default function App() {
         const applyHeaders: Record<string, string> = { 'x-api-key': authToken };
         if (tunnelUrl) applyHeaders['x-tunnel-url'] = tunnelUrl;
 
-        try {
-          const applyRes = await fetch(`/api/tms/task/${tid}/apply?room_name=${encodeURIComponent(roomTarget)}`, {
-            headers: applyHeaders
-          });
-          if (applyRes.ok) {
-            applyData = await applyRes.json();
+        const savedTokenCode = localStorage.getItem('shuziro_token_code') || '';
+        const tokenCodeQuery = savedTokenCode ? `&token_code=${encodeURIComponent(savedTokenCode)}` : '';
+
+        let solvedCaptchaToken = '';
+        let applySuccess = false;
+        let applyAttempts = 0;
+
+        while (!applySuccess && applyAttempts < 3) {
+          applyAttempts++;
+          try {
+            const captchaQuery = solvedCaptchaToken ? `&captcha_token=${encodeURIComponent(solvedCaptchaToken)}` : '';
+            const applyRes = await fetch(`/api/tms/task/${tid}/apply?room_name=${encodeURIComponent(roomTarget)}${tokenCodeQuery}${captchaQuery}`, {
+              headers: applyHeaders
+            });
+            if (applyRes.ok) {
+              applyData = await applyRes.json();
+              applySuccess = true;
+            } else {
+              const errData = await applyRes.json().catch(() => ({}));
+              const errMsg = (errData.error || JSON.stringify(errData) || '').toLowerCase();
+              if (errMsg.includes('captcha') || errMsg.includes('missing captcha token')) {
+                // Fetch a captcha challenge from the proxied API
+                logs.unshift({ text: `⚠️ CAPTCHA detectado ao iniciar tarefa. Buscando desafio de imagem...`, type: 'info' });
+                setProgressLogs([...logs]);
+
+                const challengeRes = await fetch('/api/captcha/challenge', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': authToken
+                  },
+                  body: JSON.stringify({ realm: 'edusp' })
+                });
+
+                if (!challengeRes.ok) {
+                  throw new Error('Falha ao obter desafio de CAPTCHA do servidor.');
+                }
+
+                const challengeData = await challengeRes.json();
+                const challengeId = challengeData.challengeId || challengeData.challenge_id;
+                const imageBase64 = challengeData.challenge?.image || challengeData.image;
+
+                if (!challengeId || !imageBase64) {
+                  throw new Error('O servidor não retornou um desafio de CAPTCHA válido.');
+                }
+
+                logs.unshift({ text: `🔑 Por favor, resolva o CAPTCHA exibido na tela...`, type: 'info' });
+                setProgressLogs([...logs]);
+
+                // Prompt user to solve CAPTCHA in the UI
+                const token = await requestCaptchaSolving(challengeId, imageBase64);
+                solvedCaptchaToken = token;
+                logs.unshift({ text: `✅ CAPTCHA resolvido! Retomando tarefa...`, type: 'info' });
+                setProgressLogs([...logs]);
+
+                // Decrement attempts so this captcha try doesn't count as a failed apply attempt
+                applyAttempts--;
+              } else {
+                throw new Error(errMsg || `HTTP ${applyRes.status} ao aplicar tarefa`);
+              }
+            }
+          } catch (e: any) {
+            console.warn(`[Apply] Tentativa ${applyAttempts} ao aplicar task ${tid}:`, e.message);
+            if (applyAttempts >= 3) {
+              throw e;
+            }
           }
-        } catch (e: any) {
-          console.warn(`[Apply] Aviso ao aplicar task ${tid}:`, e.message);
         }
 
         const questionId = applyData.questions?.[0]?.id || applyData.question_id || 1;
@@ -409,6 +574,7 @@ export default function App() {
             status: mode,
             duration: actualDelaySec,
             token: applyData.token || applyData.task_token,
+            token_code: savedTokenCode,
             apply_moment: applyData.apply_moment || taskItem?.apply_moment
           })
         });
@@ -596,6 +762,88 @@ export default function App() {
         logs={progressLogs}
         isCompleted={isCompleted}
       />
+
+      {/* CAPTCHA Modal */}
+      <AnimatePresence>
+        {captchaModalOpen && (
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#121214] border border-zinc-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl relative overflow-hidden"
+            >
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-white tracking-wide">
+                  Verificação CAPTCHA
+                </h3>
+                <p className="text-zinc-400 text-xs mt-1">
+                  O CMSP exige que você resolva este CAPTCHA para iniciar a tarefa.
+                </p>
+              </div>
+
+              {captchaImg && (
+                <div className="bg-white border border-zinc-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-3 shadow-inner">
+                  <img
+                    src={`data:image/png;base64,${captchaImg}`}
+                    alt="Desafio CAPTCHA"
+                    referrerPolicy="no-referrer"
+                    className="h-12 object-contain"
+                  />
+                  <button
+                    onClick={handleRefreshCaptcha}
+                    disabled={captchaVerifying}
+                    className="text-xs text-zinc-500 hover:text-zinc-800 transition-colors flex items-center gap-1.5 px-3 py-1 bg-zinc-100 rounded-full border border-zinc-200"
+                  >
+                    {captchaVerifying ? 'Carregando...' : 'Carregar outra imagem'}
+                  </button>
+                </div>
+              )}
+
+              <div className="mt-4 space-y-3">
+                <input
+                  type="text"
+                  placeholder="Digite as letras"
+                  value={captchaAnswer}
+                  onChange={(e) => setCaptchaAnswer(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleVerifyCaptcha();
+                  }}
+                  className="w-full bg-zinc-900 border border-zinc-800 focus:border-zinc-500 rounded-xl px-4 py-3 text-sm text-center text-white tracking-widest uppercase focus:outline-none transition-colors"
+                  autoFocus
+                />
+
+                {captchaError && (
+                  <p className="text-red-500 text-xs text-center font-medium bg-red-500/10 border border-red-500/20 py-2 rounded-xl">
+                    {captchaError}
+                  </p>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      setCaptchaModalOpen(false);
+                      if (captchaRejecterRef.current) {
+                        captchaRejecterRef.current(new Error('Resolução de CAPTCHA cancelada pelo usuário.'));
+                      }
+                    }}
+                    className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800 text-sm font-medium py-3 rounded-xl transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleVerifyCaptcha}
+                    disabled={captchaVerifying || !captchaAnswer.trim()}
+                    className="flex-1 bg-white hover:bg-zinc-200 disabled:opacity-50 text-black text-sm font-semibold py-3 rounded-xl transition-all shadow-md shadow-white/5"
+                  >
+                    {captchaVerifying ? 'Verificando...' : 'Confirmar'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

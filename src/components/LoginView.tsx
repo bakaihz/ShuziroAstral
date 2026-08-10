@@ -24,6 +24,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
 }) => {
   const [ra, setRa] = useState('');
   const [senha, setSenha] = useState('');
+  const [tokenCode, setTokenCode] = useState(() => localStorage.getItem('shuziro_token_code') || '');
   const [showPass, setShowPass] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
 
@@ -44,6 +45,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isVerified) return;
+    localStorage.setItem('shuziro_token_code', tokenCode.trim().toUpperCase());
     onLogin(ra, senha);
   };
 
@@ -74,8 +76,109 @@ export const LoginView: React.FC<LoginViewProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Atmospheric ambient lighting */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-zinc-800/15 rounded-full blur-[150px] pointer-events-none" />
+      {/* Animated Black/Gray/White Background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        {/* Soft white/silver drifting orb - much more vibrant */}
+        <motion.div
+          animate={{
+            x: [0, 100, -80, 0],
+            y: [0, -120, 90, 0],
+            scale: [1, 1.3, 0.85, 1],
+          }}
+          transition={{
+            duration: 14,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="absolute top-[8%] left-[10%] w-[400px] h-[400px] rounded-full bg-gradient-to-br from-white/25 via-zinc-300/15 to-transparent blur-[70px]"
+        />
+
+        {/* Medium gray drifting orb - much more vibrant */}
+        <motion.div
+          animate={{
+            x: [0, -110, 90, 0],
+            y: [0, 100, -110, 0],
+            scale: [1, 0.85, 1.25, 1],
+          }}
+          transition={{
+            duration: 16,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="absolute bottom-[10%] right-[8%] w-[480px] h-[480px] rounded-full bg-gradient-to-tr from-zinc-500/25 via-zinc-400/15 to-transparent blur-[80px]"
+        />
+
+        {/* Another distinct white/silver neon-like orb for extra contrast */}
+        <motion.div
+          animate={{
+            x: [0, -60, 60, 0],
+            y: [0, -60, -60, 0],
+            scale: [0.9, 1.15, 0.95, 0.9],
+          }}
+          transition={{
+            duration: 12,
+            repeat: Infinity,
+            ease: "easeInOut",
+            delay: 2
+          }}
+          className="absolute top-1/3 right-[15%] w-[320px] h-[320px] rounded-full bg-gradient-to-bl from-white/20 via-zinc-200/10 to-transparent blur-[60px]"
+        />
+
+        {/* Deep dark charcoal/black accent orb providing depth */}
+        <motion.div
+          animate={{
+            x: [0, 60, -60, 0],
+            y: [0, 60, -60, 0],
+            scale: [1, 1.1, 0.9, 1]
+          }}
+          transition={{
+            duration: 15,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="absolute top-1/2 left-1/4 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[550px] rounded-full bg-gradient-to-r from-zinc-800/40 to-black/90 blur-[50px]"
+        />
+
+        {/* Subtle diagonal line pattern or moving grid */}
+        <div 
+          className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:32px_32px] opacity-50 [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)]" 
+        />
+
+        {/* Tiny floating silver particles - increased quantity and brightness */}
+        {[...Array(30)].map((_, i) => {
+          const size = Math.random() * 5 + 2; // 2px to 7px
+          const delay = Math.random() * 6;
+          const duration = Math.random() * 8 + 8; // 8s to 16s
+          const startLeft = `${Math.random() * 100}%`;
+          const startTop = `${Math.random() * 100}%`;
+
+          return (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0.1, y: 0 }}
+              animate={{
+                opacity: [0.1, 0.9, 0.1],
+                y: [-40, -180],
+                x: [0, Math.random() * 40 - 20],
+              }}
+              transition={{
+                duration: duration,
+                delay: delay,
+                repeat: Infinity,
+                ease: "linear",
+              }}
+              className="absolute bg-gradient-to-r from-white via-zinc-100 to-zinc-300 rounded-full"
+              style={{
+                width: size,
+                height: size,
+                left: startLeft,
+                top: startTop,
+                filter: 'blur(0.3px)',
+              }}
+            />
+          );
+        })}
+      </div>
 
       <motion.div 
         initial={{ opacity: 0, scale: 0.94, y: 20 }}
@@ -184,6 +287,28 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.28, duration: 0.4 }}
+          >
+            <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5 flex justify-between items-center">
+              <span>Código de Acesso Web (Opcional)</span>
+              <span className="text-[10px] text-zinc-500 font-normal lowercase italic">Evita erro 403 / Captcha</span>
+            </label>
+            <input
+              type="text"
+              value={tokenCode}
+              onChange={(e) => {
+                const val = e.target.value.trim().toUpperCase();
+                setTokenCode(val);
+                localStorage.setItem('shuziro_token_code', val);
+              }}
+              placeholder="F8J3D2 (Acesse App CMSP > Perfil)"
+              className="w-full px-4 py-3 bg-[#121214] border border-[#27272a] focus:border-zinc-400 rounded-xl text-white text-sm focus:outline-none transition-colors shadow-inner uppercase"
+            />
           </motion.div>
 
           {/* Captcha button */}

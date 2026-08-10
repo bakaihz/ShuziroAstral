@@ -511,6 +511,20 @@ REGRAS:
                 headers['x-api-key'] = cleanJwt;
                 headers['authorization'] = `Bearer ${cleanJwt}`;
                 headers['x-access-token'] = cleanJwt;
+                headers['x-session-key'] = cleanJwt;
+            }
+
+            // Extract captcha token from URL if present and inject headers
+            let captchaToken = '';
+            try {
+                const urlObj = new URL(url, 'https://edusp-api.ip.tv');
+                captchaToken = urlObj.searchParams.get('captcha_token') || urlObj.searchParams.get('captcha') || '';
+            } catch (e) {}
+
+            if (captchaToken) {
+                headers['x-captcha-token'] = captchaToken;
+                headers['x-captcha'] = captchaToken;
+                headers['captcha-token'] = captchaToken;
             }
 
             if (clientCookies) {
@@ -583,6 +597,12 @@ REGRAS:
                         errObj.status = response.status;
                         errObj.isCredentialError = isCredentialError;
 
+                        const isCaptchaError = response.status === 403 && (
+                            cleanText.toLowerCase().includes('captcha') ||
+                            cleanText.toLowerCase().includes('missing captcha token')
+                        );
+                        errObj.isCaptchaError = isCaptchaError;
+
                         if (isCredentialError) {
                             if (token) {
                                 const clean = token.replace(/^Bearer\s+/i, '').trim();
@@ -592,6 +612,11 @@ REGRAS:
                                 }
                             }
                             console.warn(`[API] Credenciais rejeitadas pela EduSP (${response.status}): ${cleanText.substring(0, 150)}`);
+                            throw errObj;
+                        }
+
+                        if (isCaptchaError) {
+                            console.warn(`[API] CAPTCHA exigido pela EduSP (${response.status}): ${cleanText.substring(0, 150)}`);
                             throw errObj;
                         }
 
@@ -675,7 +700,7 @@ REGRAS:
                     if (cachedWorkingTunnel === domain) {
                         cachedWorkingTunnel = null;
                     }
-                    if (err.isCredentialError) {
+                    if (err.isCredentialError || err.isCaptchaError) {
                         throw err;
                     }
                     const errMsg = err.name === 'AbortError' ? 'Timeout de conexão' : (err.message || String(err));
@@ -1291,6 +1316,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         console.log(`[Apply] taskId=${taskId}, room_name=${rawRoom || 'não fornecido'}`);
 
         const tokenCodeParam = (req.query.token_code && req.query.token_code !== 'null') ? `&token_code=${encodeURIComponent(String(req.query.token_code))}` : '';
+        const captchaToken = req.query.captcha_token ? String(req.query.captcha_token).trim() : '';
+        const captchaParam = captchaToken ? `&captcha_token=${encodeURIComponent(captchaToken)}` : '';
 
         const slugsToTry = new Set<string>();
         if (rawRoom && (/^r[0-9a-f]+-l$/i.test(rawRoom) || (rawRoom.startsWith('r') && rawRoom.length >= 10))) {
@@ -1302,14 +1329,14 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
 
         const applyUrls: string[] = [];
         for (const slug of slugsToTry) {
-            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}`);
-            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}`);
-            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=true&room_name=${encodeURIComponent(slug)}${tokenCodeParam}`);
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=true&room_name=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
         }
 
-        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}`);
-        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=true${tokenCodeParam}`);
-        applyUrls.push(`/tms/task/${taskId}/apply`);
+        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}${captchaParam}`);
+        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=true${tokenCodeParam}${captchaParam}`);
+        applyUrls.push(`/tms/task/${taskId}/apply${captchaParam ? '?' + captchaParam.substring(1) : ''}`);
         applyUrls.push(`/tms/task/${taskId}`);
 
         let lastErr: any = null;
@@ -1320,7 +1347,13 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             } catch (err: any) {
                 console.warn(`[Apply] Tentativa na URL ${url} resultou em: ${err.message}`);
                 lastErr = err;
-                if (err.isCredentialError) break;
+                if (err.isCredentialError || err.isCaptchaError) break;
+
+                // Se for um erro de CAPTCHA, aborta imediatamente para propaga-lo ao frontend
+                const errMsg = String(err.message || '').toLowerCase();
+                if (errMsg.includes('captcha') || errMsg.includes('missing captcha token')) {
+                    break;
+                }
             }
         }
         res.status(lastErr?.status || 500).json({ error: lastErr?.message || "Erro ao aplicar tarefa" });
@@ -1380,18 +1413,20 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
 
         let questionsList = reqQuestions;
         let applyToken = req.body.token;
+        const savedTokenCode = req.body.token_code || req.query.token_code || '';
+        const tokenCodeParam = (savedTokenCode && savedTokenCode !== 'null') ? `&token_code=${encodeURIComponent(String(savedTokenCode))}` : '';
 
         // Se a lista de questões ou token de aplicação estiver ausente, tenta fazer apply para obter questões reais
         if (!Array.isArray(questionsList) || questionsList.length === 0 || !question_id || Number(question_id) === 0) {
             const tryApplyUrls: string[] = [];
             for (const slug of roomCandidates) {
                 if (slug) {
-                    tryApplyUrls.push(`/tms/task/${task_id}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}`);
-                    tryApplyUrls.push(`/tms/task/${task_id}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}`);
+                    tryApplyUrls.push(`/tms/task/${task_id}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}`);
+                    tryApplyUrls.push(`/tms/task/${task_id}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}`);
                 }
             }
-            tryApplyUrls.push(`/tms/task/${task_id}/apply?preview_mode=false`);
-            tryApplyUrls.push(`/tms/task/${task_id}/apply`);
+            tryApplyUrls.push(`/tms/task/${task_id}/apply?preview_mode=false${tokenCodeParam}`);
+            tryApplyUrls.push(`/tms/task/${task_id}/apply${tokenCodeParam ? '?' + tokenCodeParam.substring(1) : ''}`);
             tryApplyUrls.push(`/tms/task/${task_id}`);
 
             for (const url of tryApplyUrls) {
@@ -2947,8 +2982,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
 
     app.all(["/api/proxy", "/proxy", "/api/proxy/*", "/proxy/*", "/api/proxy-edusp/*", "/proxy-edusp/*"], handleUniversalProxy);
     app.all([
-        "/api/room/*", "/api/tms/*", "/api/user/*", "/api/auth/*", "/api/school/*", "/api/notification/*",
-        "/room/*", "/tms/*", "/user/*", "/auth/*", "/school/*", "/notification/*"
+        "/api/room/*", "/api/tms/*", "/api/user/*", "/api/auth/*", "/api/school/*", "/api/notification/*", "/api/captcha/*",
+        "/room/*", "/tms/*", "/user/*", "/auth/*", "/school/*", "/notification/*", "/captcha/*"
     ], handleUniversalProxy);
 
     app.get(["/api/ping", "/ping"], (req, res) => {
