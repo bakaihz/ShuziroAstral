@@ -29,7 +29,18 @@ async function startServer() {
     const app = express();
     const PORT = Number(process.env.PORT) || 3000;
 
-    app.use(express.json());
+    app.use((req, res, next) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+        res.setHeader('Access-Control-Allow-Headers', '*');
+        if (req.method === 'OPTIONS') {
+            return res.sendStatus(200);
+        }
+        next();
+    });
+
+    app.use(express.json({ limit: '50mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
     const agent = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
 
@@ -2855,11 +2866,64 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         }
     });
 
-    const handleEduspProxy = async (req: express.Request, res: express.Response) => {
-        let targetPath = req.params[0] || req.path.replace(/^\//, '');
+    const handleUniversalProxy = async (req: express.Request, res: express.Response) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+        res.setHeader('Access-Control-Allow-Headers', '*');
+
+        if (req.method === 'OPTIONS') {
+            return res.sendStatus(200);
+        }
+
+        // Se uma URL de destino explícita for fornecida em query, body ou headers
+        const targetUrlParam = (req.query.url || req.query.target || req.body?.url || req.headers['x-target-url'] || req.headers['x-proxy-url']) as string;
+        
+        if (targetUrlParam && typeof targetUrlParam === 'string' && targetUrlParam.startsWith('http')) {
+            try {
+                const headers: Record<string, string> = {
+                    'User-Agent': USER_AGENT,
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                };
+
+                if (req.headers['authorization']) headers['Authorization'] = req.headers['authorization'] as string;
+                if (req.headers['x-api-key']) headers['X-API-Key'] = req.headers['x-api-key'] as string;
+                if (req.headers['cookie']) headers['Cookie'] = req.headers['cookie'] as string;
+                if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'] as string;
+
+                const fetchOptions: any = {
+                    method: req.method,
+                    headers,
+                    signal: AbortSignal.timeout(15000)
+                };
+
+                if (['POST', 'PUT', 'PATCH'].includes(req.method.toUpperCase()) && req.body) {
+                    fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+                }
+
+                const response = await undiciFetch(targetUrlParam, fetchOptions);
+                const responseText = await response.text();
+
+                res.status(response.status);
+                try {
+                    return res.json(JSON.parse(responseText));
+                } catch {
+                    return res.send(responseText);
+                }
+            } catch (err: any) {
+                console.error('[UniversalProxy] Erro ao retransmitir para URL externa:', err.message);
+                return res.status(500).json({ error: `Proxy Error: ${err.message}` });
+            }
+        }
+
+        // Proxy padrão de rotas da EduSP / Sala do Futuro
+        let targetPath = req.params[0] || req.path.replace(/^\/api\//, '').replace(/^\//, '');
         if (targetPath.startsWith('proxy-edusp/')) {
             targetPath = targetPath.replace(/^proxy-edusp\//, '');
+        } else if (targetPath.startsWith('proxy/')) {
+            targetPath = targetPath.replace(/^proxy\//, '');
         }
+
         const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
         const fullPath = `/${targetPath}${queryString}`;
         const token = (req.headers['x-api-key'] || req.headers['authorization']) as string || '';
@@ -2873,11 +2937,11 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         }
     };
 
-    app.all(["/api/proxy-edusp/*", "/proxy-edusp/*"], handleEduspProxy);
+    app.all(["/api/proxy", "/proxy", "/api/proxy/*", "/proxy/*", "/api/proxy-edusp/*", "/proxy-edusp/*"], handleUniversalProxy);
     app.all([
         "/api/room/*", "/api/tms/*", "/api/user/*", "/api/auth/*", "/api/school/*", "/api/notification/*",
         "/room/*", "/tms/*", "/user/*", "/auth/*", "/school/*", "/notification/*"
-    ], handleEduspProxy);
+    ], handleUniversalProxy);
 
     app.get(["/api/ping", "/ping"], (req, res) => {
         res.json({ status: 'ok', online: true, timestamp: new Date().toISOString() });
