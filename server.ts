@@ -2967,7 +2967,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         }
 
         // Proxy padrão de rotas da EduSP / Sala do Futuro
-        let targetPath = req.params[0] || req.path.replace(/^\/api\//, '').replace(/^\//, '');
+        let targetPath = req.path.replace(/^\/api\//, '').replace(/^\//, '');
         if (targetPath.startsWith('proxy-edusp/')) {
             targetPath = targetPath.replace(/^proxy-edusp\//, '');
         } else if (targetPath.startsWith('proxy/')) {
