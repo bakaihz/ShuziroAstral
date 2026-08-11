@@ -589,8 +589,16 @@ REGRAS:
                 domain.includes('edusp-api.ip.tv');
 
             const timeoutMs = isTunnelOrWorker ? 7000 : 3500;
-            const options: any = { method, headers, signal: AbortSignal.timeout(timeoutMs) };
-            if (body) options.body = typeof body === 'string' ? body : JSON.stringify(body);
+            const httpMethod = String(method || 'GET').toUpperCase();
+            const isGetOrHead = httpMethod === 'GET' || httpMethod === 'HEAD';
+            const options: any = { method: httpMethod, headers, signal: AbortSignal.timeout(timeoutMs) };
+
+            if (!isGetOrHead && body !== undefined && body !== null) {
+                const hasBody = typeof body === 'string' ? body.trim().length > 0 : Object.keys(body).length > 0;
+                if (hasBody) {
+                    options.body = typeof body === 'string' ? body : JSON.stringify(body);
+                }
+            }
 
             for (const finalUrl of urlsToTry) {
                 try {
@@ -623,6 +631,9 @@ REGRAS:
                             cleanText.toLowerCase().includes('cloudflare') ||
                             cleanText.toLowerCase().includes('attention required') ||
                             cleanText.toLowerCase().includes('error 1033') ||
+                            cleanText.toLowerCase().includes('bloqueio') ||
+                            cleanText.toLowerCase().includes('forbidden') ||
+                            cleanText.toLowerCase().includes('denied') ||
                             cleanText.startsWith('<!doctype') ||
                             cleanText.startsWith('<html') ||
                             isHtmlPage

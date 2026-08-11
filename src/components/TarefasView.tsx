@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckSquare, Search, Filter, AlertCircle, RefreshCw, Play, Sparkles, Check, X, Clock, ShieldCheck, Zap } from 'lucide-react';
+import { CheckSquare, Search, Filter, AlertCircle, RefreshCw, Play, Sparkles, Check, X, Clock, ShieldCheck, Zap, ChevronDown } from 'lucide-react';
 import { TaskItem } from '../types';
 import { CaptchaWidget } from './CaptchaWidget';
 
@@ -42,6 +42,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'draft' | 'expired'>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(30);
   
   // Time configuration state (Min and Max)
   const [minTimeSec, setMinTimeSec] = useState<number>(60); // Default 1 min
@@ -49,24 +50,41 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
   const [preset, setPreset] = useState<'rapido' | 'normal' | 'seguro' | 'custom'>('rapido');
   const [mode, setMode] = useState<'draft' | 'submitted'>('submitted');
 
-  const tarefas = tasks.filter(t => !t.is_essay);
+  const tarefas = useMemo(() => tasks.filter(t => !t.is_essay), [tasks]);
 
-  const pendingCount = tarefas.filter(t => !isTaskExpired(t) && t.answer_status !== 'draft').length;
-  const draftCount = tarefas.filter(t => t.answer_status === 'draft').length;
-  const expiredCount = tarefas.filter(t => isTaskExpired(t)).length;
+  const { pendingCount, draftCount, expiredCount } = useMemo(() => {
+    let pending = 0;
+    let draft = 0;
+    let expired = 0;
 
-  const filteredTarefas = tarefas.filter(t => {
-    const matchesSearch = search === '' || 
-      (t.title && t.title.toLowerCase().includes(search.toLowerCase())) ||
-      (t.publication_target && t.publication_target.toLowerCase().includes(search.toLowerCase()));
+    for (const t of tarefas) {
+      if (isTaskExpired(t)) expired++;
+      else if (t.answer_status === 'draft') draft++;
+      else pending++;
+    }
 
-    if (!matchesSearch) return false;
+    return { pendingCount: pending, draftCount: draft, expiredCount: expired };
+  }, [tarefas]);
 
-    if (statusFilter === 'draft') return t.answer_status === 'draft';
-    if (statusFilter === 'pending') return !isTaskExpired(t) && t.answer_status !== 'draft';
-    if (statusFilter === 'expired') return isTaskExpired(t);
-    return true;
-  });
+  const filteredTarefas = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return tarefas.filter(t => {
+      const matchesSearch = !q || 
+        (t.title && t.title.toLowerCase().includes(q)) ||
+        (t.publication_target && t.publication_target.toLowerCase().includes(q));
+
+      if (!matchesSearch) return false;
+
+      if (statusFilter === 'draft') return t.answer_status === 'draft';
+      if (statusFilter === 'pending') return !isTaskExpired(t) && t.answer_status !== 'draft';
+      if (statusFilter === 'expired') return isTaskExpired(t);
+      return true;
+    });
+  }, [tarefas, search, statusFilter]);
+
+  const visibleTarefas = useMemo(() => {
+    return filteredTarefas.slice(0, visibleLimit);
+  }, [filteredTarefas, visibleLimit]);
 
   const toggleSelect = (id: string) => {
     const next = new Set(selectedIds);
@@ -239,34 +257,29 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
           )}
         </div>
       ) : (
-        <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-          {filteredTarefas.map((t, idx) => {
+        <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1">
+          {visibleTarefas.map((t, idx) => {
             const id = String(t.id || t.task_id || idx);
             const isSelected = selectedIds.has(id);
             const isDraft = t.answer_status === 'draft';
             const isExpired = isTaskExpired(t);
 
             return (
-              <motion.div
+              <div
                 key={id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: Math.min(idx * 0.03, 0.3) }}
-                whileHover={{ scale: 1.005, translateX: 2 }}
-                className={`bg-[#121214] border rounded-2xl p-4 flex items-center justify-between transition-all shadow-md ${
+                className={`bg-[#121214] border rounded-2xl p-3.5 sm:p-4 flex items-center justify-between transition-all shadow-md ${
                   isSelected ? 'border-white bg-zinc-900/60 shadow-white/5' : 'border-[#27272a] hover:border-zinc-700'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <motion.div
-                    whileTap={{ scale: 0.85 }}
+                  <div
                     onClick={() => toggleSelect(id)}
                     className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
                       isSelected ? 'bg-white border-white text-black font-extrabold' : 'border-[#27272a] bg-[#18181b]'
                     }`}
                   >
                     {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                  </motion.div>
+                  </div>
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-zinc-100 truncate">{t.title || 'Tarefa sem título'}</div>
                     <div className="text-xs text-zinc-400 mt-0.5 font-mono truncate">
@@ -291,19 +304,27 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                   )}
 
                   {onStartAutomation && (
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
+                    <button
                       onClick={() => handleDoSingleTask(id)}
                       className="px-3.5 py-1.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                     >
                       <Play className="w-3.5 h-3.5 fill-black" /> Fazer Agora
-                    </motion.button>
+                    </button>
                   )}
                 </div>
-              </motion.div>
+              </div>
             );
           })}
+
+          {filteredTarefas.length > visibleLimit && (
+            <button
+              onClick={() => setVisibleLimit(prev => prev + 30)}
+              className="w-full py-3 bg-[#18181b] hover:bg-[#222226] border border-[#27272a] text-zinc-300 text-xs font-bold rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer mt-2"
+            >
+              <ChevronDown className="w-4 h-4" />
+              Mostrar mais ({filteredTarefas.length - visibleLimit} restantes)
+            </button>
+          )}
         </div>
       )}
 
