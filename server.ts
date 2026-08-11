@@ -15,14 +15,9 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
+    "https://bakaiwaf.shuziroastral.lol",
     "https://proxy.shuziroastral.lol",
-    "https://api.davilucas99kk.workers.dev",
-    "https://edusp-api.ip.tv",
-    "https://corsproxy.io/?",
-    "https://corsproxy.org/?",
-    "https://api.allorigins.win/raw?url=",
-    "https://api.codetabs.com/v1/proxy?quest=",
-    "https://thingproxy.freeboard.io/fetch/"
+    "https://edusp-api.ip.tv"
 ];
 
 async function startServer() {
@@ -246,9 +241,31 @@ async function startServer() {
             if (rawQType === 'info') continue;
 
             let qType = rawQType;
-            if (!qType) qType = isEssay ? "essay" : "single";
 
-            const isTextOrEssay = qType === "essay" || qType === "text_ai" || qType === "text" || qType === "text_area" || qType === "discursiva" || qType === "open_text" || qType === "open" || isEssay === true || Boolean(q.options?.ai_grading_keywords || q.options?.ai_grading_instructions);
+            let opts: any[] = [];
+            if (Array.isArray(q.options)) opts = q.options;
+            else if (q.options && typeof q.options === 'object') opts = Object.values(q.options);
+            else if (Array.isArray(q.choices)) opts = q.choices;
+            else if (q.choices && typeof q.choices === 'object') opts = Object.values(q.choices);
+            else if (Array.isArray(q.alternatives)) opts = q.alternatives;
+            else if (q.alternatives && typeof q.alternatives === 'object') opts = Object.values(q.alternatives);
+            else if (Array.isArray(q.items)) opts = q.items;
+            else if (q.items && typeof q.items === 'object') opts = Object.values(q.items);
+
+            const hasOptions = opts.length > 0;
+            const isExplicitChoice = qType === "single" || qType === "multiple" || qType === "choice" || qType === "options";
+            const isChoice = isExplicitChoice || hasOptions;
+
+            if (!qType) {
+                qType = isChoice ? "single" : (isEssay ? "essay" : "single");
+            }
+
+            const isTextOrEssay = !isChoice && (
+                qType === "essay" || qType === "text_ai" || qType === "text" || 
+                qType === "text_area" || qType === "discursiva" || qType === "open_text" || 
+                qType === "open" || isEssay === true || 
+                Boolean(q.options?.ai_grading_keywords || q.options?.ai_grading_instructions)
+            );
 
             if (isTextOrEssay) {
                 if (userText && userText.trim()) {
@@ -446,6 +463,118 @@ REGRAS:
         return answersMap;
     }
 
+    function createPayloadVariants(
+        answersMap: Record<string, any>,
+        statusMode: string,
+        slug: string | undefined,
+        duration: number,
+        applyToken?: string,
+        isEssay?: boolean,
+        titulo?: string,
+        texto?: string
+    ) {
+        const isTextType = (qt: string) => {
+            const t = String(qt || '').toLowerCase();
+            return t === 'essay' || t === 'text_ai' || t === 'text' || t === 'discursiva' || t === 'text_area' || t === 'open_text' || t === 'open';
+        };
+
+        const basePayload = (answersObj: any) => ({
+            status: statusMode === 'submitted' ? 'submitted' : 'draft',
+            accessed_on: 'room',
+            executed_on: slug || undefined,
+            duration: duration || 30,
+            answers: answersObj,
+            ...(applyToken ? { token: applyToken } : {})
+        });
+
+        const variants: any[] = [];
+
+        // 1. Standard answersMap object
+        variants.push(basePayload(answersMap));
+
+        // 2. Unwrapped simple map { "qId": answer }
+        const simpleMap: Record<string, any> = {};
+        for (const [k, v] of Object.entries(answersMap)) {
+            simpleMap[k] = (v && typeof v === 'object' && 'answer' in v) ? (v as any).answer : v;
+        }
+        variants.push(basePayload(simpleMap));
+
+        // 3. Array of question objects [ { question_id, question_type, answer }, ... ]
+        variants.push(basePayload(Object.values(answersMap)));
+
+        // 4. Text / Essay specific transformations if text questions exist
+        const hasTextQuestion = Boolean(isEssay) || Object.values(answersMap).some((a: any) => 
+            isTextType(a.question_type) || 
+            (a.answer && typeof a.answer === 'object' && (a.answer.body || a.answer.text || a.answer.title))
+        );
+
+        if (hasTextQuestion) {
+            // Text Variant A: { title, text }
+            const mapA: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+            for (const k of Object.keys(mapA)) {
+                const item = mapA[k];
+                if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                    const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                    const titleVal = typeof item.answer === 'object' ? (item.answer.title || titulo || 'Resposta') : (titulo || 'Resposta');
+                    item.answer = {
+                        title: titleVal,
+                        text: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
+                    };
+                }
+            }
+            variants.push(basePayload(mapA));
+
+            // Text Variant B: { body }
+            const mapB: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+            for (const k of Object.keys(mapB)) {
+                const item = mapB[k];
+                if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                    const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                    item.answer = {
+                        body: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
+                    };
+                }
+            }
+            variants.push(basePayload(mapB));
+
+            // Text Variant C: { text }
+            const mapC: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+            for (const k of Object.keys(mapC)) {
+                const item = mapC[k];
+                if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                    const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                    item.answer = {
+                        text: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
+                    };
+                }
+            }
+            variants.push(basePayload(mapC));
+
+            // Text Variant D: string
+            const mapD: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+            for (const k of Object.keys(mapD)) {
+                const item = mapD[k];
+                if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                    const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                    item.answer = bodyVal || texto || 'Atividade desenvolvida com sucesso.';
+                }
+            }
+            variants.push(basePayload(mapD));
+
+            // Text Variant E: Unwrapped simple map with text string
+            const simpleMapD: Record<string, any> = {};
+            for (const [k, v] of Object.entries(mapD)) {
+                simpleMapD[k] = (v && typeof v === 'object' && 'answer' in v) ? (v as any).answer : v;
+            }
+            variants.push(basePayload(simpleMapD));
+
+            // Text Variant F: Array with text string
+            variants.push(basePayload(Object.values(mapD)));
+        }
+
+        return variants;
+    }
+
     async function callOfficialApi(
         url: string,
         method: string,
@@ -510,23 +639,10 @@ REGRAS:
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
             let urlsToTry: string[] = [];
-            if (domain.includes('workers.dev') || domain.includes('worker') || domain.includes('shuziroastral.lol') || domain.includes('trycloudflare.com') || domain.includes('127.0.0.1') || domain.includes('localhost') || domain.includes('loca.lt') || domain.includes('ngrok')) {
-                urlsToTry.push(`${domain}${cleanPath}`);
-            } else if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
-                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
-            } else if (domain.includes('allorigins')) {
-                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
-            } else if (domain.includes('codetabs')) {
-                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
-            } else if (domain.includes('thingproxy')) {
-                urlsToTry.push(`${domain}${'https://edusp-api.ip.tv' + cleanPath}`);
-            } else if (domain.includes('edusp-api.ip.tv')) {
+            if (domain.includes('edusp-api.ip.tv')) {
                 urlsToTry.push(`https://edusp-api.ip.tv${cleanPath}`);
             } else {
                 urlsToTry.push(`${domain}${cleanPath}`);
-                const targetFull = `https://edusp-api.ip.tv${cleanPath}`;
-                urlsToTry.push(`${domain}?url=${encodeURIComponent(targetFull)}`);
-                urlsToTry.push(`${domain}/proxy?url=${encodeURIComponent(targetFull)}`);
             }
 
             let headers: Record<string, string> = {
@@ -1552,88 +1668,16 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         let lastErr: any = null;
 
         for (const slug of candidateSlugs) {
-            const payloadVariants = [
-                {
-                    status: status === 'submitted' ? 'submitted' : 'draft',
-                    accessed_on: 'room',
-                    executed_on: slug || undefined,
-                    duration: Number(req.body.duration) || 30,
-                    answers: answersMap,
-                    ...(applyToken ? { token: applyToken } : {})
-                }
-            ];
-
-            const isTextType = (qt: string) => {
-                const t = String(qt || '').toLowerCase();
-                return t === 'essay' || t === 'text_ai' || t === 'text' || t === 'discursiva' || t === 'text_area' || t === 'open_text' || t === 'open';
-            };
-
-            const hasTextQuestion = is_essay || Object.values(answersMap).some((a: any) => 
-                isTextType(a.question_type) || 
-                (a.answer && typeof a.answer === 'object' && (a.answer.body || a.answer.text || a.answer.title))
+            const payloadVariants = createPayloadVariants(
+                answersMap,
+                status === 'submitted' ? 'submitted' : 'draft',
+                slug || undefined,
+                Number(req.body.duration) || 30,
+                applyToken,
+                Boolean(is_essay),
+                titulo,
+                texto
             );
-
-            if (hasTextQuestion) {
-                // Variant 2: answer = { title, text }
-                const answersMapVar2: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-                for (const k of Object.keys(answersMapVar2)) {
-                    const item = answersMapVar2[k];
-                    if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                        const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                        const titleVal = typeof item.answer === 'object' ? (item.answer.title || titulo || 'Resposta') : (titulo || 'Resposta');
-                        item.answer = {
-                            title: titleVal,
-                            text: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
-                        };
-                    }
-                }
-                payloadVariants.push({
-                    status: status === 'submitted' ? 'submitted' : 'draft',
-                    accessed_on: 'room',
-                    executed_on: slug || undefined,
-                    duration: Number(req.body.duration) || 30,
-                    answers: answersMapVar2,
-                    ...(applyToken ? { token: applyToken } : {})
-                });
-
-                // Variant 3: answer = { body }
-                const answersMapVar3: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-                for (const k of Object.keys(answersMapVar3)) {
-                    const item = answersMapVar3[k];
-                    if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                        const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                        item.answer = {
-                            body: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
-                        };
-                    }
-                }
-                payloadVariants.push({
-                    status: status === 'submitted' ? 'submitted' : 'draft',
-                    accessed_on: 'room',
-                    executed_on: slug || undefined,
-                    duration: Number(req.body.duration) || 30,
-                    answers: answersMapVar3,
-                    ...(applyToken ? { token: applyToken } : {})
-                });
-
-                // Variant 4: answer = string
-                const answersMapVar4: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-                for (const k of Object.keys(answersMapVar4)) {
-                    const item = answersMapVar4[k];
-                    if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                        const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                        item.answer = bodyVal || texto || 'Atividade desenvolvida com sucesso.';
-                    }
-                }
-                payloadVariants.push({
-                    status: status === 'submitted' ? 'submitted' : 'draft',
-                    accessed_on: 'room',
-                    executed_on: slug || undefined,
-                    duration: Number(req.body.duration) || 30,
-                    answers: answersMapVar4,
-                    ...(applyToken ? { token: applyToken } : {})
-                });
-            }
 
             for (const variant of payloadVariants) {
                 try {
@@ -1783,88 +1827,16 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                     return await callOfficialApi(`/tms/task/${taskId}/answer`, 'POST', authToken, payload, customTunnel);
                 };
 
-                const payloadVariants: any[] = [
-                    {
-                        status: statusMode === 'submitted' ? 'submitted' : 'draft',
-                        accessed_on: 'room',
-                        executed_on: slug || undefined,
-                        duration: Number(params.duration) || 30,
-                        answers: answersMap,
-                        ...(applyToken ? { token: applyToken } : {})
-                    }
-                ];
-
-                const isTextType = (qt: string) => {
-                    const t = String(qt || '').toLowerCase();
-                    return t === 'essay' || t === 'text_ai' || t === 'text' || t === 'discursiva' || t === 'text_area' || t === 'open_text' || t === 'open';
-                };
-
-                const hasTextQuestion = isEssay || Object.values(answersMap).some((a: any) => 
-                    isTextType(a.question_type) || 
-                    (a.answer && typeof a.answer === 'object' && (a.answer.body || a.answer.text || a.answer.title))
+                const payloadVariants = createPayloadVariants(
+                    answersMap,
+                    statusMode === 'submitted' ? 'submitted' : 'draft',
+                    slug || undefined,
+                    Number(params.duration) || 30,
+                    applyToken,
+                    isEssay,
+                    titulo,
+                    texto
                 );
-
-                if (hasTextQuestion) {
-                    // Variant 2: answer = { title, text }
-                    const answersMapVar2: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-                    for (const k of Object.keys(answersMapVar2)) {
-                        const item = answersMapVar2[k];
-                        if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                            const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                            const titleVal = typeof item.answer === 'object' ? (item.answer.title || titulo || 'Resposta') : (titulo || 'Resposta');
-                            item.answer = {
-                                title: titleVal,
-                                text: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
-                            };
-                        }
-                    }
-                    payloadVariants.push({
-                        status: statusMode === 'submitted' ? 'submitted' : 'draft',
-                        accessed_on: 'room',
-                        executed_on: slug || undefined,
-                        duration: Number(params.duration) || 30,
-                        answers: answersMapVar2,
-                        ...(applyToken ? { token: applyToken } : {})
-                    });
-
-                    // Variant 3: answer = { body }
-                    const answersMapVar3: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-                    for (const k of Object.keys(answersMapVar3)) {
-                        const item = answersMapVar3[k];
-                        if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                            const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                            item.answer = {
-                                body: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
-                            };
-                        }
-                    }
-                    payloadVariants.push({
-                        status: statusMode === 'submitted' ? 'submitted' : 'draft',
-                        accessed_on: 'room',
-                        executed_on: slug || undefined,
-                        duration: Number(params.duration) || 30,
-                        answers: answersMapVar3,
-                        ...(applyToken ? { token: applyToken } : {})
-                    });
-
-                    // Variant 4: answer = string
-                    const answersMapVar4: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-                    for (const k of Object.keys(answersMapVar4)) {
-                        const item = answersMapVar4[k];
-                        if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                            const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                            item.answer = bodyVal || texto || 'Atividade desenvolvida com sucesso.';
-                        }
-                    }
-                    payloadVariants.push({
-                        status: statusMode === 'submitted' ? 'submitted' : 'draft',
-                        accessed_on: 'room',
-                        executed_on: slug || undefined,
-                        duration: Number(params.duration) || 30,
-                        answers: answersMapVar4,
-                        ...(applyToken ? { token: applyToken } : {})
-                    });
-                }
 
                 for (const variant of payloadVariants) {
                     try {

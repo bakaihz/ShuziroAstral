@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Server, Key } from 'lucide-react';
+import { Shield, Server } from 'lucide-react';
 import { SavedAccount } from '../types';
 
 interface ConfigViewProps {
@@ -23,28 +23,10 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   latency
 }) => {
   const [inputUrl, setInputUrl] = React.useState(tunnelUrl || '');
-  const [inputTokenCode, setInputTokenCode] = React.useState(() => localStorage.getItem('shuziro_token_code') || '');
 
   React.useEffect(() => {
     if (tunnelUrl) setInputUrl(tunnelUrl);
   }, [tunnelUrl]);
-
-  const handleSaveUrl = () => {
-    if (setTunnelUrl && inputUrl) {
-      const formatted = inputUrl.trim().replace(/\/$/, '');
-      setTunnelUrl(formatted);
-      localStorage.setItem('shuziro_backend_url', formatted);
-      localStorage.setItem('shuziro_termux_tunnel', formatted);
-      if (runPing) runPing(false);
-    }
-  };
-
-  const handleSaveTokenCode = () => {
-    const formatted = inputTokenCode.trim().toUpperCase();
-    setInputTokenCode(formatted);
-    localStorage.setItem('shuziro_token_code', formatted);
-    alert('Código de Acesso salvo com sucesso!');
-  };
 
   return (
     <div className="space-y-6 max-w-4xl pb-10">
@@ -54,7 +36,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           <Shield className="w-5 h-5 text-white" /> Configurações Gerais
         </h2>
         <p className="text-xs text-zinc-400 mt-1">
-          Gerencie suas credenciais salvas e configure a URL do servidor backend ou do túnel Termux/Cloudflare.
+          Gerencie suas credenciais salvas e verifique o status de conexão com o servidor.
         </p>
       </div>
 
@@ -128,35 +110,6 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         </div>
 
       </div>
-
-      {/* Bypass de Captcha */}
-      <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-4 shadow-md">
-        <div>
-          <div className="text-sm font-bold text-white flex items-center gap-2">
-            <Key className="w-4 h-4 text-zinc-400" /> Token de Acesso da Web (Bypass de Captcha)
-          </div>
-          <p className="text-xs text-zinc-400 leading-relaxed mt-1">
-            Se você estiver enfrentando erros <strong className="text-red-400">403 (Missing CAPTCHA token / CAPTCHA token)</strong> ao realizar ou iniciar tarefas, configure abaixo o seu Código de Acesso da Web. Para obtê-lo, acesse o aplicativo oficial do CMSP no celular, vá em <strong className="text-zinc-200">Perfil</strong> e copie o <strong className="text-zinc-200">Código de acesso web</strong>.
-          </p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 max-w-xl">
-          <input
-            type="text"
-            value={inputTokenCode}
-            onChange={(e) => setInputTokenCode(e.target.value.trim())}
-            placeholder="Ex.: F8J3D2"
-            className="flex-1 px-4 py-3 bg-[#18181b] border border-[#27272a] focus:border-zinc-500 rounded-xl text-white text-sm focus:outline-none uppercase"
-          />
-          <button
-            onClick={handleSaveTokenCode}
-            className="px-5 py-3 bg-white hover:bg-zinc-200 text-black font-extrabold rounded-xl text-xs transition-all cursor-pointer whitespace-nowrap"
-          >
-            Salvar Código
-          </button>
-        </div>
-      </div>
-
     </div>
   );
 };
