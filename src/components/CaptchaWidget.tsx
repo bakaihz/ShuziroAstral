@@ -108,6 +108,7 @@ export const CaptchaWidget: React.FC<CaptchaWidgetProps> = ({
           'x-api-key': authToken || ''
         },
         body: JSON.stringify({
+          type: 'image',
           realm: 'edusp',
           payload: {
             challengeId,
