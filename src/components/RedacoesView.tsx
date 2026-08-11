@@ -3,10 +3,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import { PenTool, CheckSquare, Play, Sparkles, Search, Check, X, Clock, Zap, ShieldCheck } from 'lucide-react';
 import { TaskItem } from '../types';
 import { isTaskExpired } from './TarefasView';
+import { CaptchaWidget } from './CaptchaWidget';
 
 interface RedacoesViewProps {
   tasks: TaskItem[];
   authToken: string;
+  captchaToken?: string;
+  onCaptchaVerified?: (token: string) => void;
   onStartAutomation: (
     selectedTaskIds: string[],
     optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted' },
@@ -14,7 +17,13 @@ interface RedacoesViewProps {
   ) => void;
 }
 
-export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, onStartAutomation }) => {
+export const RedacoesView: React.FC<RedacoesViewProps> = ({ 
+  tasks, 
+  authToken, 
+  captchaToken,
+  onCaptchaVerified,
+  onStartAutomation 
+}) => {
   const redacoes = tasks.filter(t => t.is_essay !== false);
   const [currentTab, setCurrentTab] = useState<'pending' | 'draft' | 'expired' | 'all'>('pending');
   const [search, setSearch] = useState('');
@@ -99,6 +108,13 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({ tasks, authToken, on
           </p>
         </div>
       </div>
+
+      {/* CAPTCHA Widget Panel */}
+      <CaptchaWidget
+        authToken={authToken}
+        activeToken={captchaToken}
+        onTokenVerified={onCaptchaVerified}
+      />
 
       {/* Search and Tab Controls */}
       <div className="flex flex-col sm:flex-row items-center gap-3">

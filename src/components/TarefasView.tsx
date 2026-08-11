@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckSquare, Search, Filter, AlertCircle, RefreshCw, Play, Sparkles, Check, X, Clock, ShieldCheck, Zap } from 'lucide-react';
 import { TaskItem } from '../types';
+import { CaptchaWidget } from './CaptchaWidget';
 
 export const isTaskExpired = (t: TaskItem): boolean => {
   if ((t as any).expired || (t as any).expirada || (t as any).expired_only) return true;
@@ -19,6 +20,8 @@ export const isTaskExpired = (t: TaskItem): boolean => {
 interface TarefasViewProps {
   tasks: TaskItem[];
   authToken?: string;
+  captchaToken?: string;
+  onCaptchaVerified?: (token: string) => void;
   onRefresh?: () => void;
   onStartAutomation?: (
     selectedTaskIds: string[],
@@ -27,7 +30,14 @@ interface TarefasViewProps {
   ) => void;
 }
 
-export const TarefasView: React.FC<TarefasViewProps> = ({ tasks, authToken, onRefresh, onStartAutomation }) => {
+export const TarefasView: React.FC<TarefasViewProps> = ({ 
+  tasks, 
+  authToken, 
+  captchaToken,
+  onCaptchaVerified,
+  onRefresh, 
+  onStartAutomation 
+}) => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'draft' | 'expired'>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -153,6 +163,13 @@ export const TarefasView: React.FC<TarefasViewProps> = ({ tasks, authToken, onRe
           )}
         </div>
       </div>
+
+      {/* CAPTCHA Widget Panel */}
+      <CaptchaWidget
+        authToken={authToken}
+        activeToken={captchaToken}
+        onTokenVerified={onCaptchaVerified}
+      />
 
       {/* Search and Filters Bar with Expired Tab */}
       <div className="flex flex-col sm:flex-row items-center gap-3">

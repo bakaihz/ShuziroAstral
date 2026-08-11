@@ -49,6 +49,7 @@ export default function App() {
   const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [captchaError, setCaptchaError] = useState('');
   const [captchaVerifying, setCaptchaVerifying] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string>(() => (typeof window !== 'undefined' ? (localStorage.getItem('edusp_captcha_token') || '') : ''));
 
   const captchaResolverRef = React.useRef<((token: string) => void) | null>(null);
   const captchaRejecterRef = React.useRef<((err: Error) => void) | null>(null);
@@ -333,7 +334,8 @@ export default function App() {
     setCaptchaError('');
 
     try {
-      const verifyRes = await fetch('/api/captcha/verify', {
+      const cleanAnswer = captchaAnswer.trim().toUpperCase();
+      let verifyRes = await fetch('/api/captcha/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -344,20 +346,40 @@ export default function App() {
           realm: 'edusp',
           payload: {
             challengeId: captchaChallengeId,
-            answer: captchaAnswer.trim().toUpperCase()
+            answer: cleanAnswer
           }
         })
       });
+
+      if (!verifyRes.ok) {
+        verifyRes = await fetch('/api/captcha/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': authToken
+          },
+          body: JSON.stringify({
+            realm: 'edusp',
+            challenge_id: captchaChallengeId,
+            answer: cleanAnswer
+          })
+        });
+      }
 
       if (!verifyRes.ok) {
         throw new Error('Erro na comunicação de verificação do CAPTCHA.');
       }
 
       const verifyData = await verifyRes.json();
-      if (verifyData.valid && verifyData.token) {
+      const token = verifyData.token || verifyData.captcha_token || verifyData.captchaToken || verifyData.data?.token || verifyData.data?.captcha_token || '';
+
+      if (token || verifyData.valid) {
+        const finalTok = token || 'verified';
+        setCaptchaToken(finalTok);
+        localStorage.setItem('edusp_captcha_token', finalTok);
         setCaptchaModalOpen(false);
         if (captchaResolverRef.current) {
-          captchaResolverRef.current(verifyData.token);
+          captchaResolverRef.current(finalTok);
         }
       } else {
         setCaptchaError('Código incorreto. Tente novamente.');
@@ -375,22 +397,39 @@ export default function App() {
     setCaptchaAnswer('');
 
     try {
-      const challengeRes = await fetch('/api/captcha/challenge', {
+      let challengeRes = await fetch('/api/captcha/challenge', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': authToken
         },
-        body: JSON.stringify({ realm: 'edusp' })
+        body: JSON.stringify({ realm: 'edusp', type: 'image' })
       });
+
+      if (!challengeRes.ok) {
+        challengeRes = await fetch('/api/captcha/challenge', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': authToken
+          },
+          body: JSON.stringify({ realm: 'edusp' })
+        });
+      }
+
+      if (!challengeRes.ok) {
+        challengeRes = await fetch('/api/captcha/challenge?realm=edusp', {
+          headers: { 'x-api-key': authToken }
+        });
+      }
 
       if (!challengeRes.ok) {
         throw new Error('Não foi possível obter novo desafio.');
       }
 
       const challengeData = await challengeRes.json();
-      const challengeId = challengeData.challengeId || challengeData.challenge_id;
-      const imageBase64 = challengeData.challenge?.image || challengeData.image;
+      const challengeId = challengeData.challengeId || challengeData.challenge_id || challengeData.id || challengeData.data?.challenge_id || challengeData.data?.id;
+      const imageBase64 = challengeData.challenge?.image || challengeData.image || challengeData.data?.image || challengeData.data?.challenge?.image;
 
       if (!challengeId || !imageBase64) {
         throw new Error('Resposta de desafio inválida.');
@@ -481,7 +520,7 @@ export default function App() {
         const savedTokenCode = localStorage.getItem('shuziro_token_code') || '';
         const tokenCodeQuery = savedTokenCode ? `&token_code=${encodeURIComponent(savedTokenCode)}` : '';
 
-        let solvedCaptchaToken = '';
+        let solvedCaptchaToken = captchaToken || (typeof window !== 'undefined' ? (localStorage.getItem('edusp_captcha_token') || '') : '');
         let applySuccess = false;
         let applyAttempts = 0;
 
@@ -503,22 +542,39 @@ export default function App() {
                 logs.unshift({ text: `⚠️ CAPTCHA detectado ao iniciar tarefa. Buscando desafio de imagem...`, type: 'info' });
                 setProgressLogs([...logs]);
 
-                const challengeRes = await fetch('/api/captcha/challenge', {
+                let challengeRes = await fetch('/api/captcha/challenge', {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
                     'x-api-key': authToken
                   },
-                  body: JSON.stringify({ realm: 'edusp' })
+                  body: JSON.stringify({ realm: 'edusp', type: 'image' })
                 });
+
+                if (!challengeRes.ok) {
+                  challengeRes = await fetch('/api/captcha/challenge', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'x-api-key': authToken
+                    },
+                    body: JSON.stringify({ realm: 'edusp' })
+                  });
+                }
+
+                if (!challengeRes.ok) {
+                  challengeRes = await fetch('/api/captcha/challenge?realm=edusp', {
+                    headers: { 'x-api-key': authToken }
+                  });
+                }
 
                 if (!challengeRes.ok) {
                   throw new Error('Falha ao obter desafio de CAPTCHA do servidor.');
                 }
 
                 const challengeData = await challengeRes.json();
-                const challengeId = challengeData.challengeId || challengeData.challenge_id;
-                const imageBase64 = challengeData.challenge?.image || challengeData.image;
+                const challengeId = challengeData.challengeId || challengeData.challenge_id || challengeData.id || challengeData.data?.challenge_id || challengeData.data?.id;
+                const imageBase64 = challengeData.challenge?.image || challengeData.image || challengeData.data?.image || challengeData.data?.challenge?.image;
 
                 if (!challengeId || !imageBase64) {
                   throw new Error('O servidor não retornou um desafio de CAPTCHA válido.');
@@ -690,6 +746,11 @@ export default function App() {
                 <TarefasView 
                   tasks={tasks} 
                   authToken={authToken}
+                  captchaToken={captchaToken}
+                  onCaptchaVerified={(tok) => {
+                    setCaptchaToken(tok);
+                    localStorage.setItem('edusp_captcha_token', tok);
+                  }}
                   onRefresh={() => fetchTasks(authToken, userData)} 
                   onStartAutomation={handleStartAutomation}
                 />
@@ -698,6 +759,11 @@ export default function App() {
                 <RedacoesView
                   tasks={tasks}
                   authToken={authToken}
+                  captchaToken={captchaToken}
+                  onCaptchaVerified={(tok) => {
+                    setCaptchaToken(tok);
+                    localStorage.setItem('edusp_captcha_token', tok);
+                  }}
                   onStartAutomation={handleStartAutomation}
                 />
               )}

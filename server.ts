@@ -514,17 +514,24 @@ REGRAS:
                 headers['x-session-key'] = cleanJwt;
             }
 
-            // Extract captcha token from URL if present and inject headers
+            // Extract captcha token from URL or body if present and inject headers
             let captchaToken = '';
             try {
                 const urlObj = new URL(url, 'https://edusp-api.ip.tv');
-                captchaToken = urlObj.searchParams.get('captcha_token') || urlObj.searchParams.get('captcha') || '';
+                captchaToken = urlObj.searchParams.get('captcha_token') || urlObj.searchParams.get('captcha') || urlObj.searchParams.get('x-captcha-token') || '';
             } catch (e) {}
+
+            if (!captchaToken && body && typeof body === 'object') {
+                captchaToken = body.captcha_token || body.captchaToken || body.captcha || '';
+            }
 
             if (captchaToken) {
                 headers['x-captcha-token'] = captchaToken;
                 headers['x-captcha'] = captchaToken;
                 headers['captcha-token'] = captchaToken;
+                headers['x-captcha-response'] = captchaToken;
+                headers['captcha'] = captchaToken;
+                headers['x-recaptcha'] = captchaToken;
             }
 
             if (clientCookies) {
@@ -1316,7 +1323,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         console.log(`[Apply] taskId=${taskId}, room_name=${rawRoom || 'não fornecido'}`);
 
         const tokenCodeParam = (req.query.token_code && req.query.token_code !== 'null') ? `&token_code=${encodeURIComponent(String(req.query.token_code))}` : '';
-        const captchaToken = req.query.captcha_token ? String(req.query.captcha_token).trim() : '';
+        const captchaToken = String(req.query.captcha_token || req.query.captcha || req.headers['x-captcha-token'] || req.headers['x-captcha'] || '').trim();
         const captchaParam = captchaToken ? `&captcha_token=${encodeURIComponent(captchaToken)}` : '';
 
         const slugsToTry = new Set<string>();
