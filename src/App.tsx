@@ -612,25 +612,29 @@ export default function App() {
         const answerId = applyData.answers?.[String(questionId)]?.answer_id;
         const roomForApply = applyData.room_name || applyData.executed_on || applyData.publication_target || applyData.room_for_apply || roomTarget;
 
-        // Complete / Submit task
+        // Complete / Submit task via Job Engine
         const compHeaders: Record<string, string> = {
           'Content-Type': 'application/json',
           'x-api-key': authToken
         };
         if (tunnelUrl) compHeaders['x-tunnel-url'] = tunnelUrl;
 
-        const compRes = await fetch('/api/complete', {
+        // 1. Criar Job em segundo plano via POST /api/tasks/run
+        const runRes = await fetch('/api/tasks/run', {
           method: 'POST',
           headers: compHeaders,
           body: JSON.stringify({
             task_id: tid,
-            question_id: questionId,
-            room_for_apply: roomForApply,
+            publication_target: roomForApply,
+            min_time_ms: 1000,
+            max_time_ms: actualDelaySec * 1000,
             auth_token: authToken,
+            room_for_apply: roomForApply,
             is_essay: isEssay,
             titulo: genTitle,
             texto: genTexto,
             questions: applyData.questions || [],
+            question_id: questionId,
             answer_id: answerId,
             status: mode,
             duration: actualDelaySec,
@@ -640,13 +644,55 @@ export default function App() {
           })
         });
 
-        if (!compRes.ok) {
-          const errData = await compRes.json().catch(() => ({}));
-          throw new Error(errData.error || `HTTP ${compRes.status} ao enviar resposta`);
+        if (!runRes.ok) {
+          const errData = await runRes.json().catch(() => ({}));
+          throw new Error(errData.error || `HTTP ${runRes.status} ao iniciar job da tarefa`);
         }
 
-        successCount++;
-        logs.unshift({ text: `Sucesso: "${title}" ${mode === 'submitted' ? 'concluída' : 'salva como rascunho'}!`, type: 'ok' });
+        const runData = await runRes.json();
+        const jobId = runData.jobId;
+
+        logs.unshift({ text: `🚀 Job #${jobId} iniciado para "${title}". Monitorando progresso...`, type: 'info' });
+        setProgressLogs([...logs]);
+
+        // 2. Acompanhar status do Job via POST /api/tasks/jobstatus
+        let jobCompleted = false;
+        let lastMsg = '';
+
+        while (!jobCompleted) {
+          await new Promise(r => setTimeout(r, 1500));
+          const statusRes = await fetch('/api/tasks/jobstatus', {
+            method: 'POST',
+            headers: compHeaders,
+            body: JSON.stringify({ jobId })
+          });
+
+          if (!statusRes.ok) {
+            throw new Error(`HTTP ${statusRes.status} ao consultar status do job ${jobId}`);
+          }
+
+          const jobInfo = await statusRes.json();
+
+          if (jobInfo.message && jobInfo.message !== lastMsg) {
+            lastMsg = jobInfo.message;
+            logs.unshift({ text: `[Job #${jobId}] ${jobInfo.progress}% - ${jobInfo.message}`, type: 'info' });
+            setProgressLogs([...logs]);
+          }
+
+          if (jobInfo.status === 'completed') {
+            jobCompleted = true;
+            if (jobInfo.confirmed) {
+              successCount++;
+              logs.unshift({ text: `✅ Confirmado pela plataforma: "${title}" ${mode === 'submitted' ? 'concluída' : 'salva'}!`, type: 'ok' });
+            } else {
+              successCount++;
+              logs.unshift({ text: `⚠️ Transmitido para "${title}" (confirmação pendente na plataforma).`, type: 'ok' });
+            }
+          } else if (jobInfo.status === 'failed' || jobInfo.status === 'error') {
+            jobCompleted = true;
+            throw new Error(jobInfo.error || 'Falha ao processar tarefa no job.');
+          }
+        }
       } catch (err: any) {
         logs.unshift({ text: `Erro em "${title}": ${err.message}`, type: 'err' });
       }

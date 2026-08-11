@@ -138,7 +138,9 @@ export const CaptchaWidget: React.FC<CaptchaWidgetProps> = ({
           errJson = await verifyRes.json();
         } catch {}
         const serverError = errJson.error || errJson.message;
-        throw new Error(serverError || 'Erro na comunicação com o servidor ao validar CAPTCHA.');
+        const msg = serverError || 'Código do CAPTCHA incorreto. Tente novamente com uma nova imagem.';
+        fetchChallenge();
+        throw new Error(msg);
       }
 
       const verifyData = await verifyRes.json();

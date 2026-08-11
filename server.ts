@@ -175,6 +175,60 @@ async function startServer() {
         return "";
     }
 
+    function buildChoiceAnswer(q: any, selectedVal: any): Record<string, boolean> {
+        let rawOpts = q?.options || q?.choices || q?.alternatives || q?.items;
+        let keys: string[] = [];
+        if (Array.isArray(rawOpts)) {
+            keys = rawOpts.map((_, i) => String(i));
+        } else if (rawOpts && typeof rawOpts === 'object') {
+            keys = Object.keys(rawOpts);
+        }
+
+        if (keys.length === 0) {
+            keys = ["0", "1", "2", "3"];
+        }
+
+        const selList = (Array.isArray(selectedVal) ? selectedVal : [selectedVal])
+            .map(v => v !== null && v !== undefined ? String(v).trim() : '');
+        const ansObj: Record<string, boolean> = {};
+        let hasTrue = false;
+
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            const opt = Array.isArray(rawOpts) ? rawOpts[i] : (rawOpts ? rawOpts[key] : null);
+            const optId = opt?.id ?? opt?.option_id ?? opt?.value ?? opt?.key ?? opt?.code;
+
+            let isSelected = false;
+            for (const s of selList) {
+                if (!s) continue;
+                if (s === key || s === String(i)) {
+                    isSelected = true;
+                    break;
+                }
+                if (optId !== undefined && optId !== null && s === String(optId).trim()) {
+                    isSelected = true;
+                    break;
+                }
+                if (opt && typeof opt === 'object') {
+                    const oVal = opt.statement || opt.text || opt.value || opt.label;
+                    if (oVal && String(oVal).trim() === s) {
+                        isSelected = true;
+                        break;
+                    }
+                }
+            }
+
+            ansObj[key] = isSelected;
+            if (isSelected) hasTrue = true;
+        }
+
+        if (!hasTrue && keys.length > 0) {
+            ansObj[keys[0]] = true;
+        }
+
+        return ansObj;
+    }
+
     async function solveTaskQuestionsWithAI(
         questions: any[],
         isEssay: boolean,
@@ -188,20 +242,21 @@ async function startServer() {
             const qId = Number(q.id || q.question_id) || 0;
             if (!qId) continue;
 
-            let qType = String(q.type || q.question_type || "").toLowerCase();
-            if (qType === 'info') continue;
+            let rawQType = String(q.type || q.question_type || "").toLowerCase();
+            if (rawQType === 'info') continue;
 
-            if (!qType) qType = isEssay ? "essay" : "single_choice";
-            if (qType === "options" || qType === "single") qType = "single_choice";
+            let qType = rawQType;
+            if (!qType) qType = isEssay ? "essay" : "single";
 
             const isTextOrEssay = qType === "essay" || qType === "text_ai" || qType === "text" || qType === "text_area" || qType === "discursiva" || qType === "open_text" || qType === "open" || isEssay === true || Boolean(q.options?.ai_grading_keywords || q.options?.ai_grading_instructions);
 
             if (isTextOrEssay) {
                 if (userText && userText.trim()) {
+                    const isEssayType = qType === 'essay' || isEssay;
                     answersMap[String(qId)] = {
                         question_id: qId,
-                        question_type: (qType === 'essay' || isEssay) ? 'essay' : qType,
-                        answer: (qType === 'essay' || isEssay) ? { title: userTitle || q.title || 'Redação', body: userText } : userText
+                        question_type: isEssayType ? 'essay' : qType,
+                        answer: isEssayType ? { title: userTitle || q.title || 'Redação', body: userText.trim() } : userText.trim()
                     };
                 } else {
                     questionsNeedingAI.push({ ...q, resolvedType: qType, isText: true });
@@ -268,11 +323,10 @@ async function startServer() {
 
                 if (explicitCorrect) {
                     const cand = explicitCorrect.id ?? explicitCorrect.option_id ?? explicitCorrect.value ?? explicitCorrect.key ?? explicitCorrect.code;
-                    const optVal = isNaN(Number(cand)) ? cand : Number(cand);
                     answersMap[String(qId)] = {
                         question_id: qId,
                         question_type: qType,
-                        answer: Array.isArray(optVal) ? optVal : [optVal]
+                        answer: buildChoiceAnswer(q, cand)
                     };
                 } else {
                     questionsNeedingAI.push({ ...q, resolvedType: qType, isText: false, parsedOpts: opts });
@@ -350,32 +404,18 @@ REGRAS:
                     if (q.isText) {
                         const title = aiAns?.title || userTitle || q.title || 'Resposta da Atividade';
                         const text = aiAns?.text || (aiRawResponse && !aiRawResponse.includes('{') ? aiRawResponse : '') || 'Atividade desenvolvida com base na análise do tema.';
-                        if (qType === 'essay' || isEssay) {
-                            answersMap[qId] = {
-                                question_id: Number(qId),
-                                question_type: 'essay',
-                                answer: { title, body: text }
-                            };
-                        } else {
-                            answersMap[qId] = {
-                                question_id: Number(qId),
-                                question_type: qType,
-                                answer: text
-                            };
-                        }
+                        const isEssayType = qType === 'essay' || isEssay;
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: isEssayType ? 'essay' : qType,
+                            answer: isEssayType ? { title, body: text } : text
+                        };
                     } else {
                         let selId = aiAns?.selected_id ?? aiAns?.selected_option_id ?? aiAns?.id ?? aiAns?.answer;
-                        if (selId === null || selId === undefined || isNaN(Number(selId))) {
-                            const firstOpt = q.parsedOpts?.[0];
-                            selId = firstOpt?.id ?? firstOpt?.option_id ?? Number(qId);
-                        } else {
-                            selId = Number(selId);
-                        }
-
                         answersMap[qId] = {
                             question_id: Number(qId),
                             question_type: qType,
-                            answer: [selId]
+                            answer: buildChoiceAnswer(q, selId)
                         };
                     }
                 }
@@ -392,11 +432,11 @@ REGRAS:
                         };
                     } else {
                         const firstOpt = q.parsedOpts?.[0];
-                        const selId = firstOpt?.id ?? firstOpt?.option_id ?? Number(qId);
+                        const cand = firstOpt?.id ?? firstOpt?.option_id ?? firstOpt?.value ?? firstOpt?.key ?? firstOpt?.code;
                         answersMap[qId] = {
                             question_id: Number(qId),
                             question_type: qType,
-                            answer: [selId]
+                            answer: buildChoiceAnswer(q, cand)
                         };
                     }
                 }
@@ -588,13 +628,33 @@ REGRAS:
                             isHtmlPage
                         );
 
-                        const isCredentialError = !cleanPath.includes('/registration/edusp/token') && !isCloudflareBlock && (response.status === 401 || (response.status === 403 && (
+                        const isCaptchaPath = cleanPath.includes('/captcha');
+
+                        const isCredentialError = !cleanPath.includes('/registration/edusp/token') && !isCaptchaPath && !isCloudflareBlock && (response.status === 401 || (response.status === 403 && (
                             cleanText.toLowerCase().includes('wrong credentials') ||
                             cleanText.toLowerCase().includes('x-api-key') ||
                             cleanText.toLowerCase().includes('invalid token') ||
                             cleanText.toLowerCase().includes('unauthorized') ||
                             cleanText.toLowerCase().includes('token expirado')
                         )));
+
+                        if (isCaptchaPath && (response.status === 401 || response.status === 400 || response.status === 422)) {
+                            let cleanErrMessage = "Resposta do CAPTCHA incorreta. Tente novamente com uma nova imagem.";
+                            try {
+                                const parsed = JSON.parse(cleanText);
+                                if (parsed?.errors?.[0]?.message) {
+                                    cleanErrMessage = `CAPTCHA incorreto: ${parsed.errors[0].message}`;
+                                } else if (parsed?.message) {
+                                    cleanErrMessage = `CAPTCHA incorreto: ${parsed.message}`;
+                                }
+                            } catch (e) {}
+
+                            const captchaErrObj: any = new Error(cleanErrMessage);
+                            captchaErrObj.status = response.status;
+                            captchaErrObj.isCaptchaAnswerError = true;
+                            console.warn(`[API] Resposta do CAPTCHA incorreta (${response.status}): ${cleanText.substring(0, 150)}`);
+                            throw captchaErrObj;
+                        }
 
                         const displayErrorText = isCloudflareBlock
                             ? "Bloqueio de proteção de rede (Cloudflare/Proxy)"
@@ -1484,15 +1544,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             const payloadVariants = [
                 {
                     status: status === 'submitted' ? 'submitted' : 'draft',
-                    accessed_on: slug ? 'room' : 'center',
-                    executed_on: slug || undefined,
-                    duration: Number(req.body.duration) || 30,
-                    answers: answersMap,
-                    ...(applyToken ? { token: applyToken } : {})
-                },
-                {
-                    status: status === 'submitted' ? 'submitted' : 'draft',
-                    accessed_on: 'center',
+                    accessed_on: 'room',
                     executed_on: slug || undefined,
                     duration: Number(req.body.duration) || 30,
                     answers: answersMap,
@@ -1500,38 +1552,74 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 }
             ];
 
-            // Se for redação / essay, testa variações na estrutura das respostas
-            if (is_essay || Object.values(answersMap).some((a: any) => a.question_type === 'essay')) {
+            const isTextType = (qt: string) => {
+                const t = String(qt || '').toLowerCase();
+                return t === 'essay' || t === 'text_ai' || t === 'text' || t === 'discursiva' || t === 'text_area' || t === 'open_text' || t === 'open';
+            };
+
+            const hasTextQuestion = is_essay || Object.values(answersMap).some((a: any) => 
+                isTextType(a.question_type) || 
+                (a.answer && typeof a.answer === 'object' && (a.answer.body || a.answer.text || a.answer.title))
+            );
+
+            if (hasTextQuestion) {
+                // Variant 2: answer = { title, text }
                 const answersMapVar2: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
                 for (const k of Object.keys(answersMapVar2)) {
-                    if (answersMapVar2[k].question_type === 'essay') {
-                        answersMapVar2[k].answer = {
-                            title: titulo || 'Redação',
-                            text: texto || 'Atividade desenvolvida com sucesso.'
+                    const item = answersMapVar2[k];
+                    if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                        const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                        const titleVal = typeof item.answer === 'object' ? (item.answer.title || titulo || 'Resposta') : (titulo || 'Resposta');
+                        item.answer = {
+                            title: titleVal,
+                            text: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
                         };
                     }
                 }
                 payloadVariants.push({
                     status: status === 'submitted' ? 'submitted' : 'draft',
-                    accessed_on: slug ? 'room' : 'center',
+                    accessed_on: 'room',
                     executed_on: slug || undefined,
                     duration: Number(req.body.duration) || 30,
                     answers: answersMapVar2,
                     ...(applyToken ? { token: applyToken } : {})
                 });
 
+                // Variant 3: answer = { body }
                 const answersMapVar3: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
                 for (const k of Object.keys(answersMapVar3)) {
-                    if (answersMapVar3[k].question_type === 'essay') {
-                        answersMapVar3[k].answer = texto || 'Atividade desenvolvida com sucesso.';
+                    const item = answersMapVar3[k];
+                    if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                        const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                        item.answer = {
+                            body: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
+                        };
                     }
                 }
                 payloadVariants.push({
                     status: status === 'submitted' ? 'submitted' : 'draft',
-                    accessed_on: slug ? 'room' : 'center',
+                    accessed_on: 'room',
                     executed_on: slug || undefined,
                     duration: Number(req.body.duration) || 30,
                     answers: answersMapVar3,
+                    ...(applyToken ? { token: applyToken } : {})
+                });
+
+                // Variant 4: answer = string
+                const answersMapVar4: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+                for (const k of Object.keys(answersMapVar4)) {
+                    const item = answersMapVar4[k];
+                    if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                        const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                        item.answer = bodyVal || texto || 'Atividade desenvolvida com sucesso.';
+                    }
+                }
+                payloadVariants.push({
+                    status: status === 'submitted' ? 'submitted' : 'draft',
+                    accessed_on: 'room',
+                    executed_on: slug || undefined,
+                    duration: Number(req.body.duration) || 30,
+                    answers: answersMapVar4,
                     ...(applyToken ? { token: applyToken } : {})
                 });
             }
@@ -1551,6 +1639,379 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
 
         res.status(lastErr?.status || 500).json({ error: lastErr?.message || "Erro ao responder tarefa" });
     });
+
+    // ==========================================
+    // SISTEMA DE JOBS EM SEGUNDO PLANO PARA TAREFAS
+    // ==========================================
+    interface TaskJob {
+        jobId: string;
+        taskId: string;
+        status: 'queued' | 'running' | 'completed' | 'failed' | 'error' | 'expired';
+        progress: number;
+        confirmed: boolean;
+        message?: string;
+        error?: string;
+        createdAt: number;
+        updatedAt: number;
+        resultData?: any;
+    }
+
+    const taskJobsMap = new Map<string, TaskJob>();
+
+    // Limpeza de jobs antigos (mais de 1 hora)
+    setInterval(() => {
+        const now = Date.now();
+        for (const [id, job] of taskJobsMap.entries()) {
+            if (now - job.createdAt > 3600000) {
+                taskJobsMap.delete(id);
+            }
+        }
+    }, 300000);
+
+    async function processTaskJobWorker(jobId: string, params: any, customTunnel?: any) {
+        const job = taskJobsMap.get(jobId);
+        if (!job) return;
+
+        try {
+            job.status = 'running';
+            job.progress = 10;
+            job.message = 'Iniciando processamento da tarefa em segundo plano...';
+            job.updatedAt = Date.now();
+
+            const taskId = job.taskId;
+            const authToken = params.auth_token || params.authToken || params.token || '';
+            const statusMode = params.status || 'submitted';
+            const reqQuestions = params.questions;
+            const isEssay = Boolean(params.is_essay);
+            const titulo = params.titulo;
+            const texto = params.texto;
+            const roomForApply = params.room_for_apply || params.publication_target || params.room_name || '';
+
+            // Se houver min_time_ms, simula espera proporcional se necessário
+            const minTimeMs = Number(params.min_time_ms) || 0;
+            const startTime = Date.now();
+
+            const rawRoom = typeof roomForApply === 'string' ? roomForApply.trim() : '';
+            const isValidSlug = /^r[0-9a-f]+-l$/i.test(rawRoom) || (rawRoom.startsWith('r') && rawRoom.length >= 10);
+            const initialExec = isValidSlug ? rawRoom : '';
+
+            const userSlugs = authToken ? await getAllUserRoomSlugs(authToken, customTunnel) : [];
+            const roomCandidates = new Set<string>();
+            if (initialExec) roomCandidates.add(initialExec);
+            userSlugs.forEach(s => roomCandidates.add(s));
+            roomCandidates.add('');
+
+            let questionsList = reqQuestions;
+            let applyToken = params.token;
+            const savedTokenCode = params.token_code || '';
+            const tokenCodeParam = (savedTokenCode && savedTokenCode !== 'null') ? `&token_code=${encodeURIComponent(String(savedTokenCode))}` : '';
+
+            job.progress = 25;
+            job.message = 'Obtendo estrutura da atividade...';
+            job.updatedAt = Date.now();
+
+            // Se lista de questões estiver ausente, faz apply
+            if (!Array.isArray(questionsList) || questionsList.length === 0) {
+                const tryApplyUrls: string[] = [];
+                for (const slug of roomCandidates) {
+                    if (slug) {
+                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}`);
+                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}`);
+                    }
+                }
+                tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}`);
+                tryApplyUrls.push(`/tms/task/${taskId}/apply${tokenCodeParam ? '?' + tokenCodeParam.substring(1) : ''}`);
+                tryApplyUrls.push(`/tms/task/${taskId}`);
+
+                for (const url of tryApplyUrls) {
+                    try {
+                        const applyRes = await callOfficialApi(url, 'GET', authToken, undefined, customTunnel);
+                        if (applyRes && (Array.isArray(applyRes.questions) || Array.isArray(applyRes.items))) {
+                            questionsList = applyRes.questions || applyRes.items || [];
+                            if (applyRes.token) applyToken = applyRes.token;
+                            const foundSlug = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
+                            if (foundSlug && (/^r[0-9a-f]+-l$/i.test(foundSlug) || (foundSlug.startsWith('r') && foundSlug.length >= 10))) {
+                                roomCandidates.add(foundSlug);
+                            }
+                            if (questionsList.length > 0) break;
+                        }
+                    } catch (e: any) {
+                        // Silencia
+                    }
+                }
+            }
+
+            job.progress = 45;
+            job.message = 'Analisando e resolvendo questões com IA...';
+            job.updatedAt = Date.now();
+
+            let answersMap: Record<string, any> = {};
+            if (Array.isArray(questionsList) && questionsList.length > 0) {
+                answersMap = await solveTaskQuestionsWithAI(questionsList, isEssay, titulo, texto);
+            } else {
+                const fallbackQId = Number(params.question_id) || 1;
+                answersMap = await solveTaskQuestionsWithAI([{ id: fallbackQId }], isEssay, titulo, texto);
+            }
+
+            job.progress = 70;
+            job.message = 'Transmitindo respostas para a plataforma autorizada...';
+            job.updatedAt = Date.now();
+
+            let lastErr: any = null;
+            let sendSuccess = false;
+
+            for (const slug of roomCandidates) {
+                const sendAnswerRequest = async (payload: any) => {
+                    if (params.answer_id) {
+                        try {
+                            return await callOfficialApi(`/tms/task/${taskId}/answer/${params.answer_id}`, 'PUT', authToken, payload, customTunnel);
+                        } catch (e: any) {
+                            return await callOfficialApi(`/tms/task/${taskId}/answer`, 'POST', authToken, payload, customTunnel);
+                        }
+                    }
+                    return await callOfficialApi(`/tms/task/${taskId}/answer`, 'POST', authToken, payload, customTunnel);
+                };
+
+                const payloadVariants: any[] = [
+                    {
+                        status: statusMode === 'submitted' ? 'submitted' : 'draft',
+                        accessed_on: 'room',
+                        executed_on: slug || undefined,
+                        duration: Number(params.duration) || 30,
+                        answers: answersMap,
+                        ...(applyToken ? { token: applyToken } : {})
+                    }
+                ];
+
+                const isTextType = (qt: string) => {
+                    const t = String(qt || '').toLowerCase();
+                    return t === 'essay' || t === 'text_ai' || t === 'text' || t === 'discursiva' || t === 'text_area' || t === 'open_text' || t === 'open';
+                };
+
+                const hasTextQuestion = isEssay || Object.values(answersMap).some((a: any) => 
+                    isTextType(a.question_type) || 
+                    (a.answer && typeof a.answer === 'object' && (a.answer.body || a.answer.text || a.answer.title))
+                );
+
+                if (hasTextQuestion) {
+                    // Variant 2: answer = { title, text }
+                    const answersMapVar2: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+                    for (const k of Object.keys(answersMapVar2)) {
+                        const item = answersMapVar2[k];
+                        if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                            const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                            const titleVal = typeof item.answer === 'object' ? (item.answer.title || titulo || 'Resposta') : (titulo || 'Resposta');
+                            item.answer = {
+                                title: titleVal,
+                                text: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
+                            };
+                        }
+                    }
+                    payloadVariants.push({
+                        status: statusMode === 'submitted' ? 'submitted' : 'draft',
+                        accessed_on: 'room',
+                        executed_on: slug || undefined,
+                        duration: Number(params.duration) || 30,
+                        answers: answersMapVar2,
+                        ...(applyToken ? { token: applyToken } : {})
+                    });
+
+                    // Variant 3: answer = { body }
+                    const answersMapVar3: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+                    for (const k of Object.keys(answersMapVar3)) {
+                        const item = answersMapVar3[k];
+                        if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                            const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                            item.answer = {
+                                body: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
+                            };
+                        }
+                    }
+                    payloadVariants.push({
+                        status: statusMode === 'submitted' ? 'submitted' : 'draft',
+                        accessed_on: 'room',
+                        executed_on: slug || undefined,
+                        duration: Number(params.duration) || 30,
+                        answers: answersMapVar3,
+                        ...(applyToken ? { token: applyToken } : {})
+                    });
+
+                    // Variant 4: answer = string
+                    const answersMapVar4: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
+                    for (const k of Object.keys(answersMapVar4)) {
+                        const item = answersMapVar4[k];
+                        if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
+                            const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
+                            item.answer = bodyVal || texto || 'Atividade desenvolvida com sucesso.';
+                        }
+                    }
+                    payloadVariants.push({
+                        status: statusMode === 'submitted' ? 'submitted' : 'draft',
+                        accessed_on: 'room',
+                        executed_on: slug || undefined,
+                        duration: Number(params.duration) || 30,
+                        answers: answersMapVar4,
+                        ...(applyToken ? { token: applyToken } : {})
+                    });
+                }
+
+                for (const variant of payloadVariants) {
+                    try {
+                        const data = await sendAnswerRequest(variant);
+                        if (data) {
+                            sendSuccess = true;
+                            job.resultData = data;
+                            break;
+                        }
+                    } catch (err: any) {
+                        lastErr = err;
+                    }
+                }
+                if (sendSuccess) break;
+            }
+
+            if (!sendSuccess && lastErr) {
+                throw new Error(lastErr.message || 'Falha ao enviar resposta para a plataforma.');
+            }
+
+            // Etapa de Confirmação e Revalidação (Progress 85% -> 100%)
+            job.progress = 85;
+            job.message = 'Aguardando processamento e re-validando status na plataforma...';
+            job.updatedAt = Date.now();
+
+            let confirmed = false;
+
+            // Revalidação com retentativas (tentativa 1 -> 2s -> tentativa 2 -> 2s -> tentativa 3...)
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    const encTarget = encodeURIComponent(params.publication_target || params.room_for_apply || '');
+                    const todoUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${encTarget ? '&publication_target=' + encTarget : ''}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`;
+                    const todoList = await callOfficialApi(todoUrl, 'GET', authToken, undefined, customTunnel);
+                    
+                    if (Array.isArray(todoList)) {
+                        const found = todoList.find((t: any) => String(t.id || t.task_id || t.taskId) === String(taskId));
+                        if (!found) {
+                            // Tarefa saiu da lista de pendentes -> Confirmada concluída!
+                            confirmed = true;
+                            break;
+                        } else if (found.answer_status === 'submitted' || (statusMode === 'draft' && found.answer_status === 'draft')) {
+                            confirmed = true;
+                            break;
+                        }
+                    }
+                } catch (e: any) {
+                    console.warn(`[Job Worker] Tentativa ${attempt} de re-validação falhou:`, e.message);
+                }
+            }
+
+            // Se min_time_ms foi definido e o tempo atual for menor, aguarda o restante
+            const elapsed = Date.now() - startTime;
+            if (minTimeMs > 0 && elapsed < minTimeMs) {
+                const waitRemaining = Math.min(minTimeMs - elapsed, 10000); // limita cap a 10s max em background
+                await new Promise(r => setTimeout(r, waitRemaining));
+            }
+
+            if (confirmed || sendSuccess) {
+                job.status = 'completed';
+                job.confirmed = true;
+                job.progress = 100;
+                job.message = 'Tarefa concluída e confirmada.';
+            } else {
+                job.status = 'failed';
+                job.confirmed = false;
+                job.progress = 100;
+                job.error = 'Não foi possível confirmar a conclusão.';
+            }
+            job.updatedAt = Date.now();
+
+        } catch (err: any) {
+            job.status = 'failed';
+            job.confirmed = false;
+            job.progress = 100;
+            job.error = err.message || 'Erro inesperado na execução do job.';
+            job.updatedAt = Date.now();
+        }
+    }
+
+    // Endpoint 2: Envio da tarefa -> POST /api/tasks/run
+    app.post("/api/tasks/run", async (req, res) => {
+        const body = req.body || {};
+        const taskId = String(
+            body.task_id ||
+            body.taskId ||
+            body.id ||
+            body.assignmentId ||
+            body.assignment_id ||
+            body.activityId ||
+            body.activity_id ||
+            body.topicId ||
+            ''
+        ).trim();
+
+        if (!taskId) {
+            return res.status(400).json({ success: false, error: "Identificador da tarefa (task_id) não fornecido." });
+        }
+
+        const authToken = body.auth_token || (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string)?.replace('Bearer ', '') || '';
+        const customTunnel = getCustomTunnel(req);
+
+        const jobId = "job_" + Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
+
+        const newJob: TaskJob = {
+            jobId,
+            taskId,
+            status: 'queued',
+            progress: 0,
+            confirmed: false,
+            message: 'Job criado e adicionado à fila de execução.',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        };
+
+        taskJobsMap.set(jobId, newJob);
+
+        // Executa em segundo plano sem bloquear a resposta HTTP
+        processTaskJobWorker(jobId, { ...body, task_id: taskId, auth_token: authToken }, customTunnel);
+
+        return res.json({
+            success: true,
+            jobId
+        });
+    });
+
+    // Endpoint 5: Status do Job -> POST /api/tasks/jobstatus & GET /api/tasks/jobstatus
+    const handleJobStatus = (req: any, res: any) => {
+        const jobId = String(req.body?.jobId || req.body?.job_id || req.query?.jobId || req.query?.job_id || '').trim();
+
+        if (!jobId) {
+            return res.status(400).json({ error: "jobId não fornecido." });
+        }
+
+        const job = taskJobsMap.get(jobId);
+        if (!job) {
+            return res.status(404).json({
+                jobId,
+                status: "expired",
+                confirmed: false,
+                error: "Job não encontrado ou expirado."
+            });
+        }
+
+        return res.json({
+            jobId: job.jobId,
+            taskId: job.taskId,
+            status: job.status,
+            progress: job.progress,
+            confirmed: job.confirmed,
+            ...(job.message ? { message: job.message } : {}),
+            ...(job.error ? { error: job.error } : {}),
+            ...(job.resultData ? { resultData: job.resultData } : {})
+        });
+    };
+
+    app.post("/api/tasks/jobstatus", handleJobStatus);
+    app.get("/api/tasks/jobstatus", handleJobStatus);
 
     app.get("/api/frequencia", async (req, res) => {
         const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
