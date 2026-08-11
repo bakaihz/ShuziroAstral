@@ -367,7 +367,12 @@ export default function App() {
       }
 
       if (!verifyRes.ok) {
-        throw new Error('Erro na comunicação de verificação do CAPTCHA.');
+        let errJson: any = {};
+        try {
+          errJson = await verifyRes.json();
+        } catch {}
+        const serverError = errJson.error || errJson.message;
+        throw new Error(serverError || 'Erro na comunicação de verificação do CAPTCHA.');
       }
 
       const verifyData = await verifyRes.json();

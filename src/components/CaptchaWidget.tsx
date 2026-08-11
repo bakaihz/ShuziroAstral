@@ -133,7 +133,12 @@ export const CaptchaWidget: React.FC<CaptchaWidgetProps> = ({
       }
 
       if (!verifyRes.ok) {
-        throw new Error('Erro na comunicação com o servidor ao validar CAPTCHA.');
+        let errJson: any = {};
+        try {
+          errJson = await verifyRes.json();
+        } catch {}
+        const serverError = errJson.error || errJson.message;
+        throw new Error(serverError || 'Erro na comunicação com o servidor ao validar CAPTCHA.');
       }
 
       const verifyData = await verifyRes.json();
