@@ -26,9 +26,7 @@ export const CaptchaWidget: React.FC<CaptchaWidgetProps> = ({
   );
 
   useEffect(() => {
-    if (activeToken) {
-      setVerifiedToken(activeToken);
-    }
+    setVerifiedToken(activeToken || '');
   }, [activeToken]);
 
   const fetchChallenge = async () => {
@@ -101,7 +99,7 @@ export const CaptchaWidget: React.FC<CaptchaWidgetProps> = ({
     setSuccessMsg('');
 
     try {
-      let verifyRes = await fetch('/api/captcha/verify', {
+      const verifyRes = await fetch('/api/captcha/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -118,27 +116,12 @@ export const CaptchaWidget: React.FC<CaptchaWidgetProps> = ({
       });
 
       if (!verifyRes.ok) {
-        verifyRes = await fetch('/api/captcha/verify', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': authToken || ''
-          },
-          body: JSON.stringify({
-            realm: 'edusp',
-            challenge_id: challengeId,
-            answer: cleanAnswer
-          })
-        });
-      }
-
-      if (!verifyRes.ok) {
         let errJson: any = {};
         try {
           errJson = await verifyRes.json();
         } catch {}
         const serverError = errJson.error || errJson.message;
-        const msg = serverError || 'Código do CAPTCHA incorreto. Tente novamente com uma nova imagem.';
+        const msg = serverError || 'Código do CAPTCHA incorreto. Tente novamente com a nova imagem.';
         fetchChallenge();
         throw new Error(msg);
       }

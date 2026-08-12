@@ -22,13 +22,14 @@ const PROXY_TUNNELS = [
     "https://edusp-api.ip.tv"
 ];
 
-// Cache em memória de respostas rápidas de GET (15 segundos)
+// Cache em memória de respostas rápidas de GET (15 segundos para sucesso, 2 segundos para respostas vazias)
 const apiGetCache = new Map<string, { data: any; timestamp: number }>();
 
 function getCachedApiResponse(key: string): any | null {
     const entry = apiGetCache.get(key);
     if (!entry) return null;
-    if (Date.now() - entry.timestamp > 15000) { // 15s TTL
+    const maxAge = (Array.isArray(entry.data) && entry.data.length === 0) ? 2000 : 15000;
+    if (Date.now() - entry.timestamp > maxAge) {
         apiGetCache.delete(key);
         return null;
     }
@@ -44,17 +45,22 @@ function setCachedApiResponse(key: string, data: any) {
 async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number }) {
     const { method = 'GET', headers = {}, body, timeoutMs = 4000, maxRetries = 2 } = options;
 
-    const cleanHeaders = { ...headers };
-    delete cleanHeaders['host'];
-    delete cleanHeaders['content-length'];
-    delete cleanHeaders['connection'];
-    delete cleanHeaders['user-agent'];
-    delete cleanHeaders['sec-ch-ua'];
-    delete cleanHeaders['sec-ch-ua-mobile'];
-    delete cleanHeaders['sec-ch-ua-platform'];
+    const cleanHeaders: Record<string, string> = {};
+    for (const [key, val] of Object.entries(headers)) {
+        if (!val) continue;
+        const lKey = key.toLowerCase();
+        if (['host', 'content-length', 'connection', 'user-agent', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform'].includes(lKey)) {
+            continue;
+        }
+        cleanHeaders[key] = String(val);
+    }
 
-    cleanHeaders['Origin'] = 'https://saladofuturo.educacao.sp.gov.br';
-    cleanHeaders['Referer'] = 'https://saladofuturo.educacao.sp.gov.br/';
+    if (!cleanHeaders['Origin'] && !cleanHeaders['origin']) {
+        cleanHeaders['Origin'] = 'https://saladofuturo.educacao.sp.gov.br';
+    }
+    if (!cleanHeaders['Referer'] && !cleanHeaders['referer']) {
+        cleanHeaders['Referer'] = 'https://saladofuturo.educacao.sp.gov.br/';
+    }
 
     let attempt = 0;
     let lastStatus = 500;
@@ -62,12 +68,15 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
 
     while (attempt <= maxRetries) {
         try {
+            const isJsonBody = body && typeof body === 'object';
+            const isStringBody = body && typeof body === 'string';
+
             const res = await gotScraping({
                 url: targetUrl,
                 method: method.toUpperCase() as any,
                 headers: cleanHeaders,
-                json: (body && typeof body === 'object') ? body : undefined,
-                body: (body && typeof body === 'string') ? body : undefined,
+                json: isJsonBody ? body : undefined,
+                body: isStringBody ? body : undefined,
                 timeout: { request: timeoutMs },
                 throwHttpErrors: false,
                 retry: { limit: 0 },
@@ -328,25 +337,40 @@ async function startServer() {
 
             let qType = rawQType;
 
+            let isSpecialType = false;
+            if (q.options?.phrase || q.options?.words || q.options?.cloud || rawQType === 'fill-words' || rawQType === 'fill_words' || rawQType === 'cloud') {
+                qType = rawQType === 'cloud' ? 'cloud' : 'fill-words';
+                isSpecialType = true;
+            } else if (q.options?.word || rawQType === 'fill-letters' || rawQType === 'fill_letters') {
+                qType = 'fill-letters';
+                isSpecialType = true;
+            } else if (q.options?.sentences || rawQType === 'order-sentences' || rawQType === 'order_sentences') {
+                qType = 'order-sentences';
+                isSpecialType = true;
+            } else if (rawQType === 'true-false' || rawQType === 'true_false') {
+                qType = 'true-false';
+                isSpecialType = true;
+            }
+
             let opts: any[] = [];
-            if (Array.isArray(q.options)) opts = q.options;
-            else if (q.options && typeof q.options === 'object') opts = Object.values(q.options);
-            else if (Array.isArray(q.choices)) opts = q.choices;
-            else if (q.choices && typeof q.choices === 'object') opts = Object.values(q.choices);
-            else if (Array.isArray(q.alternatives)) opts = q.alternatives;
-            else if (q.alternatives && typeof q.alternatives === 'object') opts = Object.values(q.alternatives);
-            else if (Array.isArray(q.items)) opts = q.items;
-            else if (q.items && typeof q.items === 'object') opts = Object.values(q.items);
+            if (!isSpecialType) {
+                if (Array.isArray(q.options)) opts = q.options;
+                else if (q.options && typeof q.options === 'object' && !q.options.phrase && !q.options.words && !q.options.cloud && !q.options.word && !q.options.sentences) opts = Object.values(q.options);
+                else if (Array.isArray(q.choices)) opts = q.choices;
+                else if (q.choices && typeof q.choices === 'object') opts = Object.values(q.choices);
+                else if (Array.isArray(q.alternatives)) opts = q.alternatives;
+                else if (q.alternatives && typeof q.alternatives === 'object') opts = Object.values(q.alternatives);
+            }
 
             const hasOptions = opts.length > 0;
             const isExplicitChoice = qType === "single" || qType === "multiple" || qType === "choice" || qType === "options";
-            const isChoice = isExplicitChoice || hasOptions;
+            const isChoice = !isSpecialType && (isExplicitChoice || hasOptions);
 
             if (!qType) {
                 qType = isChoice ? "single" : (isEssay ? "essay" : "single");
             }
 
-            const isTextOrEssay = !isChoice && (
+            const isTextOrEssay = !isChoice && !isSpecialType && (
                 qType === "essay" || qType === "text_ai" || qType === "text" || 
                 qType === "text_area" || qType === "discursiva" || qType === "open_text" || 
                 qType === "open" || isEssay === true || 
@@ -364,10 +388,11 @@ async function startServer() {
                 } else {
                     questionsNeedingAI.push({ ...q, resolvedType: qType, isText: true });
                 }
-            } else if (qType === "fill-words" || qType === "fill_words") {
+            } else if (qType === "fill-words" || qType === "fill_words" || qType === "cloud") {
                 let items: string[] = [];
                 if (Array.isArray(q.options?.items)) items = q.options.items;
                 else if (Array.isArray(q.options?.words)) items = q.options.words;
+                else if (Array.isArray(q.options?.cloud)) items = q.options.cloud;
                 else if (Array.isArray(q.items)) items = q.items;
 
                 let selectCount = 0;
@@ -381,8 +406,21 @@ async function startServer() {
 
                 answersMap[String(qId)] = {
                     question_id: qId,
-                    question_type: "fill-words",
+                    question_type: qType === "cloud" ? "cloud" : "fill-words",
                     answer: selectedWords
+                };
+            } else if (qType === "fill-letters" || qType === "fill_letters") {
+                let word = "";
+                if (q.options?.word) word = String(q.options.word);
+                else if (q.options?.answer) word = String(q.options.answer);
+                else if (q.answer) word = String(q.answer);
+
+                if (!word) word = "RESPOSTA";
+
+                answersMap[String(qId)] = {
+                    question_id: qId,
+                    question_type: "fill-letters",
+                    answer: word.toUpperCase()
                 };
             } else if (qType === "order-sentences" || qType === "order_sentences") {
                 let sentences: string[] = [];
@@ -401,15 +439,20 @@ async function startServer() {
                 if (Array.isArray(q.options)) tfOpts = q.options;
                 else if (q.options && typeof q.options === 'object') tfOpts = Object.values(q.options);
 
-                const tfAnswers = tfOpts.map((o: any, idx: number) => {
-                    if (o && o.id) return { id: o.id, value: idx % 2 === 1 };
-                    return idx % 2 === 1;
-                });
+                const tfAnsObj: Record<string, boolean> = {};
+                if (tfOpts.length > 0) {
+                    tfOpts.forEach((o: any, idx: number) => {
+                        tfAnsObj[String(idx)] = idx % 2 === 1;
+                    });
+                } else {
+                    tfAnsObj["0"] = true;
+                    tfAnsObj["1"] = false;
+                }
 
                 answersMap[String(qId)] = {
                     question_id: qId,
                     question_type: "true-false",
-                    answer: tfAnswers.length > 0 ? tfAnswers : [true, false]
+                    answer: tfAnsObj
                 };
             } else {
                 let opts: any[] = [];
@@ -564,98 +607,99 @@ REGRAS:
             return t === 'essay' || t === 'text_ai' || t === 'text' || t === 'discursiva' || t === 'text_area' || t === 'open_text' || t === 'open';
         };
 
-        const basePayload = (answersObj: any) => ({
+        const computedDuration = (duration && duration >= 65) ? duration : Number((65 + Math.random() * 15).toFixed(2));
+        const basePayload = (answersObj: any, accessedOn: string = 'room') => ({
             status: statusMode === 'submitted' ? 'submitted' : 'draft',
-            accessed_on: 'room',
+            accessed_on: accessedOn,
             executed_on: slug || undefined,
-            duration: duration || 30,
+            duration: computedDuration,
             answers: answersObj,
             ...(applyToken ? { token: applyToken } : {})
         });
 
         const variants: any[] = [];
 
-        // 1. Standard answersMap object
-        variants.push(basePayload(answersMap));
+        const textTransformations = [
+            (item: any) => ({ "0": item.textVal }),
+            (item: any) => [item.textVal],
+            (item: any) => [{ text: item.textVal }],
+            (item: any) => [{ body: item.textVal }],
+            (item: any) => [{ "0": item.textVal }],
+            (item: any) => ({ text: item.textVal }),
+            (item: any) => ({ title: item.titleVal, text: item.textVal }),
+            (item: any) => ({ body: item.textVal }),
+            (item: any) => ({ title: item.titleVal, body: item.textVal }),
+            (item: any) => item.textVal,
+            (item: any) => ({ content: item.textVal }),
+        ];
 
-        // 2. Unwrapped simple map { "qId": answer }
-        const simpleMap: Record<string, any> = {};
-        for (const [k, v] of Object.entries(answersMap)) {
-            simpleMap[k] = (v && typeof v === 'object' && 'answer' in v) ? (v as any).answer : v;
-        }
-        variants.push(basePayload(simpleMap));
+        for (const transformText of textTransformations) {
+            const mapObj: Record<string, any> = {};
+            const simpleMapObj: Record<string, any> = {};
+            const arrayList: any[] = [];
 
-        // 3. Array of question objects [ { question_id, question_type, answer }, ... ]
-        variants.push(basePayload(Object.values(answersMap)));
+            for (const [qIdStr, item] of Object.entries(answersMap)) {
+                const qId = Number(qIdStr) || (item && item.question_id) || 1;
+                const qType = (item && item.question_type) || 'single';
+                let ansVal = (item && 'answer' in item) ? item.answer : item;
 
-        // 4. Text / Essay specific transformations if text questions exist
-        const hasTextQuestion = Boolean(isEssay) || Object.values(answersMap).some((a: any) => 
-            isTextType(a.question_type) || 
-            (a.answer && typeof a.answer === 'object' && (a.answer.body || a.answer.text || a.answer.title))
-        );
+                if (isTextType(qType) || isEssay || (ansVal && typeof ansVal === 'object' && !Array.isArray(ansVal) && (ansVal.body || ansVal.text || ansVal.title || ansVal["0"]))) {
+                    let textVal = '';
+                    let titleVal = titulo || 'Resposta';
 
-        if (hasTextQuestion) {
-            // Text Variant A: { title, text }
-            const mapA: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-            for (const k of Object.keys(mapA)) {
-                const item = mapA[k];
-                if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                    const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                    const titleVal = typeof item.answer === 'object' ? (item.answer.title || titulo || 'Resposta') : (titulo || 'Resposta');
-                    item.answer = {
-                        title: titleVal,
-                        text: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
-                    };
+                    if (typeof ansVal === 'object' && ansVal !== null) {
+                        textVal = ansVal["0"] || ansVal.text || ansVal.body || ansVal.content || texto || 'Atividade desenvolvida com sucesso.';
+                        titleVal = ansVal.title || titulo || 'Resposta';
+                    } else if (typeof ansVal === 'string') {
+                        textVal = ansVal;
+                    } else {
+                        textVal = texto || 'Atividade desenvolvida com sucesso.';
+                    }
+
+                    ansVal = transformText({ textVal, titleVal });
+                } else if (qType === 'true-false' || qType === 'true_false') {
+                    if (Array.isArray(ansVal) && ansVal.length > 0 && typeof ansVal[0] === 'object' && ansVal[0] !== null) {
+                        const cleanObj: Record<string, boolean> = {};
+                        ansVal.forEach((item: any, idx: number) => {
+                            if (item && item.id !== undefined) cleanObj[String(item.id)] = Boolean(item.value);
+                            cleanObj[String(idx)] = Boolean(item?.value ?? item);
+                        });
+                        ansVal = cleanObj;
+                    }
+                } else if (qType === 'fill-words' || qType === 'fill_words' || qType === 'cloud' || qType === 'order-sentences' || qType === 'order_sentences') {
+                    if (typeof ansVal === 'string') {
+                        ansVal = [ansVal];
+                    } else if (ansVal && typeof ansVal === 'object' && !Array.isArray(ansVal)) {
+                        if (Array.isArray(ansVal.words)) ansVal = ansVal.words;
+                        else if (Array.isArray(ansVal.items)) ansVal = ansVal.items;
+                        else if (Array.isArray(ansVal.sentences)) ansVal = ansVal.sentences;
+                        else if (typeof ansVal.words === 'string') ansVal = [ansVal.words];
+                        else if (typeof ansVal.body === 'string') ansVal = [ansVal.body];
+                        else if (typeof ansVal.text === 'string') ansVal = [ansVal.text];
+                        else ansVal = ["resposta"];
+                    }
                 }
-            }
-            variants.push(basePayload(mapA));
 
-            // Text Variant B: { body }
-            const mapB: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-            for (const k of Object.keys(mapB)) {
-                const item = mapB[k];
-                if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                    const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                    item.answer = {
-                        body: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
-                    };
-                }
-            }
-            variants.push(basePayload(mapB));
+                mapObj[qIdStr] = {
+                    question_id: qId,
+                    question_type: qType,
+                    answer: ansVal
+                };
 
-            // Text Variant C: { text }
-            const mapC: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-            for (const k of Object.keys(mapC)) {
-                const item = mapC[k];
-                if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                    const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                    item.answer = {
-                        text: bodyVal || texto || 'Atividade desenvolvida com sucesso.'
-                    };
-                }
-            }
-            variants.push(basePayload(mapC));
+                simpleMapObj[qIdStr] = ansVal;
 
-            // Text Variant D: string
-            const mapD: Record<string, any> = JSON.parse(JSON.stringify(answersMap));
-            for (const k of Object.keys(mapD)) {
-                const item = mapD[k];
-                if (isTextType(item.question_type) || (item.answer && typeof item.answer === 'object')) {
-                    const bodyVal = typeof item.answer === 'object' ? (item.answer.body || item.answer.text || '') : String(item.answer);
-                    item.answer = bodyVal || texto || 'Atividade desenvolvida com sucesso.';
-                }
+                arrayList.push({
+                    question_id: qId,
+                    question_type: qType,
+                    answer: ansVal
+                });
             }
-            variants.push(basePayload(mapD));
 
-            // Text Variant E: Unwrapped simple map with text string
-            const simpleMapD: Record<string, any> = {};
-            for (const [k, v] of Object.entries(mapD)) {
-                simpleMapD[k] = (v && typeof v === 'object' && 'answer' in v) ? (v as any).answer : v;
+            for (const accOn of ['room', 'app']) {
+                variants.push(basePayload(mapObj, accOn));
+                variants.push(basePayload(simpleMapObj, accOn));
+                variants.push(basePayload(arrayList, accOn));
             }
-            variants.push(basePayload(simpleMapD));
-
-            // Text Variant F: Array with text string
-            variants.push(basePayload(Object.values(mapD)));
         }
 
         return variants;
@@ -810,37 +854,23 @@ REGRAS:
                     let responseStatus = 0;
                     let text = '';
 
-                    try {
-                        const response = await undiciFetch(finalUrl, options);
-                        responseStatus = response.status;
-                        text = await response.text();
-                    } catch (fetchErr: any) {
-                        const gotRes = await fetchWithGotScraping(finalUrl, {
-                            method,
-                            headers,
-                            body,
-                            timeoutMs: 4000,
-                            maxRetries: 2
-                        });
-                        responseStatus = gotRes.status;
-                        text = gotRes.text;
-                    }
+                    const gotRes = await fetchWithGotScraping(finalUrl, {
+                        method,
+                        headers,
+                        body,
+                        timeoutMs: isTunnelOrWorker ? 3500 : 5000,
+                        maxRetries: 2
+                    });
 
-                    if (responseStatus < 200 || responseStatus >= 300) {
-                        const isCloudflareBlockCandidate = responseStatus === 403 || responseStatus === 530 || responseStatus === 520 || responseStatus === 525;
-                        if (isCloudflareBlockCandidate) {
-                            const gotFallback = await fetchWithGotScraping(finalUrl, {
-                                method,
-                                headers,
-                                body,
-                                timeoutMs: 4000,
-                                maxRetries: 2
-                            });
-                            if (gotFallback.ok) {
-                                responseStatus = gotFallback.status;
-                                text = gotFallback.text;
-                            }
-                        }
+                    responseStatus = gotRes.status;
+                    text = gotRes.text;
+
+                    if (responseStatus === 500 && text === 'Network error') {
+                        try {
+                            const undiciRes = await undiciFetch(finalUrl, options);
+                            responseStatus = undiciRes.status;
+                            text = await undiciRes.text();
+                        } catch (e: any) {}
                     }
 
                     const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
@@ -892,10 +922,17 @@ REGRAS:
                             let cleanErrMessage = "Resposta do CAPTCHA incorreta. Tente novamente com uma nova imagem.";
                             try {
                                 const parsed = JSON.parse(cleanText);
-                                if (parsed?.errors?.[0]?.message) {
-                                    cleanErrMessage = `CAPTCHA incorreto: ${parsed.errors[0].message}`;
-                                } else if (parsed?.message) {
-                                    cleanErrMessage = `CAPTCHA incorreto: ${parsed.message}`;
+                                const rawMsg = parsed?.errors?.[0]?.message || parsed?.message || parsed?.errors?.[0]?.cause || '';
+                                if (rawMsg) {
+                                    if (rawMsg.toLowerCase().includes('wrong answer')) {
+                                        cleanErrMessage = "Código do CAPTCHA incorreto. Tente novamente com a nova imagem.";
+                                    } else if (rawMsg.toLowerCase().includes('context does not match') || rawMsg.toLowerCase().includes('original challenge')) {
+                                        cleanErrMessage = "Desafio do CAPTCHA expirou ou já foi utilizado. Carregue uma nova imagem.";
+                                    } else if (rawMsg.toLowerCase().includes('challengeid is required')) {
+                                        cleanErrMessage = "Desafio do CAPTCHA inválido. Carregue uma nova imagem.";
+                                    } else {
+                                        cleanErrMessage = `CAPTCHA incorreto: ${rawMsg}`;
+                                    }
                                 }
                             } catch (e) {}
 
@@ -1238,18 +1275,19 @@ REGRAS:
                     "content-type": "application/json",
                     "x-api-platform": "webclient",
                     "x-api-realm": "edusp",
-                    "user-agent": clientUA,
                     "referer": "https://saladofuturo.educacao.sp.gov.br/",
                     "origin": "https://saladofuturo.educacao.sp.gov.br"
                 };
                 if (clientCookies) headers["cookie"] = clientCookies;
-                const response = await undiciFetch(`${EDUSP_API}/registration/edusp/token`, {
+                const gotRes = await fetchWithGotScraping(`${EDUSP_API}/registration/edusp/token`, {
                     method: "POST",
                     headers,
-                    body: JSON.stringify({ token: sedToken })
+                    body: { token: sedToken },
+                    timeoutMs: 5000,
+                    maxRetries: 2
                 });
-                if (response.ok) {
-                    const data: any = await response.json();
+                if (gotRes.ok) {
+                    const data: any = JSON.parse(gotRes.text);
                     const eduspToken = data?.auth_token || data?.token || data?.access_token;
                     if (eduspToken) return { auth_token: eduspToken, nick: data.nick || "Aluno SP" };
                 }
@@ -1517,37 +1555,47 @@ function extractUserNickFromToken(token: string): string {
             const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
             for (const r of rooms) {
                 const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
-                const candidates = [r.publication_target, r.slug, inner.publication_target, inner.slug];
+                const candidates = [
+                    r.publication_target, r.slug, r.id, r.room_id, r.name, r.room_name,
+                    inner.publication_target, inner.slug, inner.id, inner.room_id, inner.name, inner.room_name
+                ];
                 for (const c of candidates) {
-                    if (c && typeof c === 'string' && c.trim()) {
-                        targetsToTry.add(c.trim());
+                    if (c !== undefined && c !== null) {
+                        const str = String(c).trim();
+                        if (str && str !== 'undefined' && str !== 'null') {
+                            targetsToTry.add(str);
+                        }
                     }
                 }
             }
         } catch (e: any) {}
 
-        if (targetsToTry.size === 0) {
-            const fallback = await getFallbackRoomSlug(token, customTunnel);
-            if (fallback) targetsToTry.add(fallback);
-        }
-
         const targetsArr = Array.from(targetsToTry);
+
+        const queriesToRun: string[] = [
+            `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
+            `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}`
+        ];
 
         if (targetsArr.length > 0) {
             const multiTargetQueryStr = targetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
+            queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`);
+            queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`);
 
-            const queriesToRun = [
-                `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
-                `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`
-            ];
-
-            await Promise.all(queriesToRun.map(async (qUrl) => {
-                try {
-                    const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
-                    addItems(data);
-                } catch (e: any) {}
-            }));
+            for (const target of targetsArr) {
+                const encT = encodeURIComponent(target);
+                queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&publication_target=${encT}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`);
+                queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&publication_target=${encT}`);
+                queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&room_name=${encT}`);
+            }
         }
+
+        await Promise.all(queriesToRun.map(async (qUrl) => {
+            try {
+                const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
+                addItems(data);
+            } catch (e: any) {}
+        }));
 
         setCachedApiResponse(cacheKey, allTasks);
         res.json(allTasks);
@@ -1561,14 +1609,27 @@ async function getAllUserRoomSlugs(token: string, customTunnel?: string | { tunn
         for (const room of rooms) {
             const inner = (typeof room.room === 'object' && room.room) ? room.room : {};
             const candidates = [
-                room.name, room.room_name, room.publication_target, room.slug,
-                inner.name, inner.room_name, inner.publication_target, inner.slug
+                room.publication_target, room.slug, room.name, room.room_name, room.id, room.room_id,
+                inner.publication_target, inner.slug, inner.name, inner.room_name, inner.id, inner.room_id
             ];
             for (const c of candidates) {
-                if (typeof c === 'string') {
-                    const str = c.trim();
-                    if (/^r[0-9a-f]+-l$/i.test(str) || (str.startsWith('r') && str.length >= 10)) {
+                if (c !== undefined && c !== null) {
+                    const str = String(c).trim();
+                    if (str && str !== 'undefined' && str !== 'null' && str.length > 1) {
                         slugs.add(str);
+                    }
+                }
+            }
+            if (Array.isArray(room.cards)) {
+                for (const card of room.cards) {
+                    const cardCandidates = [card.publication_target, card.slug, card.id, card.room_name, card.name];
+                    for (const cc of cardCandidates) {
+                        if (cc !== undefined && cc !== null) {
+                            const str = String(cc).trim();
+                            if (str && str !== 'undefined' && str !== 'null' && str.length > 1) {
+                                slugs.add(str);
+                            }
+                        }
                     }
                 }
             }
@@ -1597,7 +1658,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         const captchaParam = captchaToken ? `&captcha_token=${encodeURIComponent(captchaToken)}` : '';
 
         const slugsToTry = new Set<string>();
-        if (rawRoom && (/^r[0-9a-f]+-l$/i.test(rawRoom) || (rawRoom.startsWith('r') && rawRoom.length >= 10))) {
+        if (rawRoom && rawRoom !== 'undefined' && rawRoom !== 'null') {
             slugsToTry.add(rawRoom);
         }
 
@@ -1679,7 +1740,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         if (!auth_token) return res.status(401).json({ error: "Token ausente" });
 
         const rawRoom = typeof room_for_apply === 'string' ? room_for_apply.trim() : '';
-        const isValidSlug = /^r[0-9a-f]+-l$/i.test(rawRoom) || (rawRoom.startsWith('r') && rawRoom.length >= 10);
+        const isValidSlug = Boolean(rawRoom && rawRoom !== 'undefined' && rawRoom !== 'null');
         const initialExec = isValidSlug ? rawRoom : '';
 
         const userSlugs = await getAllUserRoomSlugs(auth_token, customTunnel);
@@ -1713,8 +1774,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                         questionsList = applyRes.questions || applyRes.items || [];
                         if (applyRes.token) applyToken = applyRes.token;
                         const foundSlug = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
-                        if (foundSlug && (/^r[0-9a-f]+-l$/i.test(foundSlug) || (foundSlug.startsWith('r') && foundSlug.length >= 10))) {
-                            roomCandidates.add(foundSlug);
+                        if (foundSlug && String(foundSlug).trim() && String(foundSlug) !== 'undefined') {
+                            roomCandidates.add(String(foundSlug).trim());
                         }
                         if (questionsList.length > 0) break;
                     }
@@ -1830,7 +1891,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             const startTime = Date.now();
 
             const rawRoom = typeof roomForApply === 'string' ? roomForApply.trim() : '';
-            const isValidSlug = /^r[0-9a-f]+-l$/i.test(rawRoom) || (rawRoom.startsWith('r') && rawRoom.length >= 10);
+            const isValidSlug = Boolean(rawRoom && rawRoom !== 'undefined' && rawRoom !== 'null');
             const initialExec = isValidSlug ? rawRoom : '';
 
             const userSlugs = authToken ? await getAllUserRoomSlugs(authToken, customTunnel) : [];
@@ -1868,8 +1929,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                             questionsList = applyRes.questions || applyRes.items || [];
                             if (applyRes.token) applyToken = applyRes.token;
                             const foundSlug = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
-                            if (foundSlug && (/^r[0-9a-f]+-l$/i.test(foundSlug) || (foundSlug.startsWith('r') && foundSlug.length >= 10))) {
-                                roomCandidates.add(foundSlug);
+                            if (foundSlug && String(foundSlug).trim() && String(foundSlug) !== 'undefined') {
+                                roomCandidates.add(String(foundSlug).trim());
                             }
                             if (questionsList.length > 0) break;
                         }

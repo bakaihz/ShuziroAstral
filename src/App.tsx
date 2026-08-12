@@ -285,15 +285,31 @@ export default function App() {
             
             rooms.forEach((room: any) => {
               const inner = (typeof room.room === 'object' && room.room) ? room.room : {};
-              const candidates = [room.publication_target, room.slug, inner.publication_target, inner.slug];
+              const candidates = [
+                room.publication_target, room.slug, room.id, room.room_id, room.name, room.room_name,
+                inner.publication_target, inner.slug, inner.id, inner.room_id, inner.name, inner.room_name
+              ];
               candidates.forEach(c => {
                 if (c !== undefined && c !== null) {
                   const str = String(c).trim();
-                  if (str && (/^\d+$/.test(str) || /^r[0-9a-f]+-l$/i.test(str))) {
+                  if (str && str !== 'undefined' && str !== 'null' && str.length > 1) {
                     validTargets.push(str);
                   }
                 }
               });
+              if (Array.isArray(room.cards)) {
+                room.cards.forEach((card: any) => {
+                  const cardCandidates = [card.publication_target, card.slug, card.id, card.room_name, card.name];
+                  cardCandidates.forEach(cc => {
+                    if (cc !== undefined && cc !== null) {
+                      const str = String(cc).trim();
+                      if (str && str !== 'undefined' && str !== 'null' && str.length > 1) {
+                        validTargets.push(str);
+                      }
+                    }
+                  });
+                });
+              }
             });
 
             const uniqueTargets = [...new Set(validTargets)];
@@ -335,7 +351,7 @@ export default function App() {
 
     try {
       const cleanAnswer = captchaAnswer.trim().toUpperCase();
-      let verifyRes = await fetch('/api/captcha/verify', {
+      const verifyRes = await fetch('/api/captcha/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -352,27 +368,15 @@ export default function App() {
       });
 
       if (!verifyRes.ok) {
-        verifyRes = await fetch('/api/captcha/verify', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': authToken
-          },
-          body: JSON.stringify({
-            realm: 'edusp',
-            challenge_id: captchaChallengeId,
-            answer: cleanAnswer
-          })
-        });
-      }
-
-      if (!verifyRes.ok) {
         let errJson: any = {};
         try {
           errJson = await verifyRes.json();
         } catch {}
         const serverError = errJson.error || errJson.message;
-        throw new Error(serverError || 'Erro na comunicação de verificação do CAPTCHA.');
+        
+        // Auto refresh captcha image since this challenge is invalidated
+        handleRefreshCaptcha();
+        throw new Error(serverError || 'Código do CAPTCHA incorreto. Uma nova imagem foi gerada.');
       }
 
       const verifyData = await verifyRes.json();
@@ -387,7 +391,8 @@ export default function App() {
           captchaResolverRef.current(finalTok);
         }
       } else {
-        setCaptchaError('Código incorreto. Tente novamente.');
+        setCaptchaError('Código incorreto. Uma nova imagem foi gerada.');
+        handleRefreshCaptcha();
       }
     } catch (e: any) {
       setCaptchaError(e.message || 'Erro ao verificar o CAPTCHA.');
@@ -542,7 +547,12 @@ export default function App() {
             } else {
               const errData = await applyRes.json().catch(() => ({}));
               const errMsg = (errData.error || JSON.stringify(errData) || '').toLowerCase();
-              if (errMsg.includes('captcha') || errMsg.includes('missing captcha token')) {
+              if (errMsg.includes('captcha') || errMsg.includes('missing captcha token') || errMsg.includes('invalid') || errMsg.includes('already used') || errMsg.includes('not found')) {
+                // Clear any stale/already-used captcha token
+                setCaptchaToken('');
+                solvedCaptchaToken = '';
+                localStorage.removeItem('edusp_captcha_token');
+
                 // Fetch a captcha challenge from the proxied API
                 logs.unshift({ text: `⚠️ CAPTCHA detectado ao iniciar tarefa. Buscando desafio de imagem...`, type: 'info' });
                 setProgressLogs([...logs]);
@@ -591,6 +601,8 @@ export default function App() {
                 // Prompt user to solve CAPTCHA in the UI
                 const token = await requestCaptchaSolving(challengeId, imageBase64);
                 solvedCaptchaToken = token;
+                setCaptchaToken(token);
+                localStorage.setItem('edusp_captcha_token', token);
                 logs.unshift({ text: `✅ CAPTCHA resolvido! Retomando tarefa...`, type: 'info' });
                 setProgressLogs([...logs]);
 
