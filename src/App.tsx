@@ -228,7 +228,7 @@ export default function App() {
       setIsLoggedIn(true);
       setShowDiscordModal(true);
       handleSaveAccount(ra, pass);
-      showToast(`Bem-vindo, ${data.nick || ra}!`, 'success');
+      showToast(`Bem-vindo, ${data.nome || data.nick || ra}!`, 'success');
       fetchTasks(data.auth_token, data);
     } catch (err: any) {
       setErrorMessage(err.message || 'Erro ao conectar com a API');

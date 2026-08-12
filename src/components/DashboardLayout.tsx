@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Home, Smartphone, BookOpen, CheckSquare, PenTool, BarChart3, Settings, LogOut, RefreshCw, FolderOpen, Heart, MessageSquare, Coffee, Sparkles } from 'lucide-react';
 import { UserData } from '../types';
 import { PLATFORMS_DATA } from './PlatformDetailView';
+import { AdBanner } from './AdBanner';
 
 interface DashboardLayoutProps {
   userData: UserData;
@@ -54,7 +55,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-lg font-bold text-white flex items-center gap-1.5">
-              👋 Olá, <span className="text-white font-extrabold underline decoration-zinc-500 underline-offset-4">{userData.nick || 'Usuário'}</span>
+              👋 Olá, <span className="text-white font-extrabold underline decoration-zinc-500 underline-offset-4">{userData.nome || userData.nick || 'Usuário'}</span>
             </h2>
             <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-200 font-mono font-bold flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> SP
@@ -188,7 +189,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         </aside>
 
         {/* Content Area */}
-        <main className="flex-1 min-w-0">
+        <main className="flex-1 min-w-0 space-y-4">
+          <AdBanner />
           {children}
         </main>
       </div>

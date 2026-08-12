@@ -952,7 +952,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
               <div className="flex items-center gap-4 mt-3 text-xs text-zinc-500">
                 <div className="flex items-center gap-1.5 text-zinc-300 font-medium">
                   <ShieldCheck className="w-4 h-4 text-white" />
-                  <span>Autenticação SED Conectada ({userData.nick || 'Aluno'})</span>
+                  <span>Autenticação SED Conectada ({userData.nome || userData.nick || 'Aluno'})</span>
                 </div>
               </div>
             </div>

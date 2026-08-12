@@ -15,10 +15,35 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
+    "https://edusp-api.ip.tv",
     "https://bakaiwaf.shuziroastral.lol",
     "https://proxy.shuziroastral.lol",
-    "https://edusp-api.ip.tv"
+    "https://api.davilucas99kk.workers.dev",
+    "https://corsproxy.io/?",
+    "https://corsproxy.org/?",
+    "https://api.allorigins.win/raw?url=",
+    "https://api.codetabs.com/v1/proxy?quest=",
+    "https://thingproxy.freeboard.io/fetch/"
 ];
+
+// Cache em memória de respostas rápidas de GET (15 segundos)
+const apiGetCache = new Map<string, { data: any; timestamp: number }>();
+
+function getCachedApiResponse(key: string): any | null {
+    const entry = apiGetCache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > 15000) { // 15s TTL
+        apiGetCache.delete(key);
+        return null;
+    }
+    return entry.data;
+}
+
+function setCachedApiResponse(key: string, data: any) {
+    if (data !== undefined && data !== null) {
+        apiGetCache.set(key, { data, timestamp: Date.now() });
+    }
+}
 
 async function startServer() {
     const app = express();
@@ -639,7 +664,15 @@ REGRAS:
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
             let urlsToTry: string[] = [];
-            if (domain.includes('edusp-api.ip.tv')) {
+            if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
+                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
+            } else if (domain.includes('allorigins')) {
+                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
+            } else if (domain.includes('codetabs')) {
+                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
+            } else if (domain.includes('thingproxy')) {
+                urlsToTry.push(`${domain}${'https://edusp-api.ip.tv' + cleanPath}`);
+            } else if (domain.includes('edusp-api.ip.tv')) {
                 urlsToTry.push(`https://edusp-api.ip.tv${cleanPath}`);
             } else {
                 urlsToTry.push(`${domain}${cleanPath}`);
@@ -704,7 +737,7 @@ REGRAS:
                 domain.includes('ngrok') ||
                 domain.includes('edusp-api.ip.tv');
 
-            const timeoutMs = isTunnelOrWorker ? 7000 : 3500;
+            const timeoutMs = isTunnelOrWorker ? 2500 : 1000;
             const httpMethod = String(method || 'GET').toUpperCase();
             const isGetOrHead = httpMethod === 'GET' || httpMethod === 'HEAD';
             const options: any = { method: httpMethod, headers, signal: AbortSignal.timeout(timeoutMs) };
@@ -1196,9 +1229,13 @@ REGRAS:
             const eduspData = await getEduSpToken(loginResult.token, customTunnel);
             console.log(`[Login] Autenticação concluída com sucesso.`);
 
-            const nomeCompleto = loginResult.DadosUsuario?.NAME || loginResult.DadosUsuario?.NOME || user;
-            const codigoAluno = loginResult.DadosUsuario?.CD_USUARIO || loginResult.DadosUsuario?.CodigoAluno;
-            const nick = eduspData.nick || loginResult.DadosUsuario?.NM_NICK || user;
+            let nomeCompleto = loginResult.DadosUsuario?.NAME || loginResult.DadosUsuario?.NOME || loginResult.DadosUsuario?.Nome || loginResult.DadosUsuario?.NM_COMPLETO || loginResult.DadosUsuario?.NomeUsuario;
+            if (!nomeCompleto || nomeCompleto === user) {
+                // Tenta extrair o nome/nick do JWT da SED ou EduSP
+                nomeCompleto = extractUserNickFromToken(eduspData.auth_token) || extractUserNickFromToken(loginResult.token) || user;
+            }
+            const codigoAluno = loginResult.DadosUsuario?.CD_USUARIO || loginResult.DadosUsuario?.CodigoAluno || loginResult.DadosUsuario?.cd_usuario || loginResult.DadosUsuario?.codigoAluno;
+            const nick = (eduspData.nick && eduspData.nick !== "Aluno SP") ? eduspData.nick : (loginResult.DadosUsuario?.NM_NICK || nomeCompleto || user);
             
             let escola = loginResult.DadosUsuario?.NomeEscola || loginResult.DadosUsuario?.NM_ESCOLA || loginResult.DadosUsuario?.Escola || "Escola Pública SP";
             let serie = loginResult.DadosUsuario?.DescricaoTurma || loginResult.DadosUsuario?.NM_SERIE || loginResult.DadosUsuario?.Serie || "Ensino Fundamental / Médio";
@@ -1277,6 +1314,13 @@ function extractUserNickFromToken(token: string): string {
     app.get("/api/rooms", async (req, res) => {
         const token = (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string) || (req.headers['x-access-token'] as string);
         if (!token) return res.status(401).json({ error: "Token ausente" });
+        
+        const cacheKey = `rooms:${token.slice(-16)}`;
+        if (req.query.nocache !== 'true') {
+            const cached = getCachedApiResponse(cacheKey);
+            if (cached) return res.json(cached);
+        }
+
         const customTunnel = getCustomTunnel(req);
         const roomEndpoints = [
             '/room/user?list_all=true&with_cards=true',
@@ -1289,17 +1333,16 @@ function extractUserNickFromToken(token: string): string {
             try {
                 const data = await callOfficialApi(ep, 'GET', token, undefined, customTunnel);
                 if (data) {
+                    let resultObj: any = null;
                     if (Array.isArray(data)) {
-                        return res.json({ rooms: data, items: data, blocked: false });
-                    }
-                    if (data.rooms || data.items || data.data || data.result) {
+                        resultObj = { rooms: data, items: data, blocked: false };
+                    } else if (data.rooms || data.items || data.data || data.result) {
                         const list = data.rooms || data.items || data.data || data.result || [];
-                        return res.json({
-                            ...data,
-                            rooms: list,
-                            items: list,
-                            blocked: false
-                        });
+                        resultObj = { ...data, rooms: list, items: list, blocked: false };
+                    }
+                    if (resultObj) {
+                        setCachedApiResponse(cacheKey, resultObj);
+                        return res.json(resultObj);
                     }
                 }
             } catch (err: any) {
@@ -1323,6 +1366,13 @@ function extractUserNickFromToken(token: string): string {
     app.get("/api/tms/task/todo", async (req, res) => {
         const token = (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string) || (req.headers['x-access-token'] as string);
         if (!token) return res.status(401).json({ error: "Token ausente" });
+
+        const cacheKey = `todo:${token.slice(-16)}:${req.url}`;
+        if (req.query.nocache !== 'true') {
+            const cached = getCachedApiResponse(cacheKey);
+            if (cached) return res.json(cached);
+        }
+
         const customTunnel = getCustomTunnel(req);
 
         // Extrai parâmetros de consulta
@@ -1369,11 +1419,9 @@ function extractUserNickFromToken(token: string): string {
         // Extract user nick from JWT if available
         const userNick = extractUserNickFromToken(token);
 
-        // Coleta os alvos de publicação (publication_target) fornecidos via query ou vindos das salas do aluno.
-        // O parâmetro `publication_target` é estritamente OBRIGATÓRIO pela API EDUSP.
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
 
-        // Tenta buscar salas de múltiplos endpoints para extrair publication_targets válidos
+        // Tenta buscar salas para extrair publication_targets válidos
         const roomEndpoints = [
             '/room/user?list_all=true&with_cards=true',
             '/room/user',
@@ -1418,7 +1466,7 @@ function extractUserNickFromToken(token: string): string {
                 }
                 if (targetsToTry.size > 0) break;
             } catch (e: any) {
-                // Silencia aviso de busca de salas para endpoints secundários
+                // Silencia
             }
         }
 
@@ -1428,45 +1476,44 @@ function extractUserNickFromToken(token: string): string {
             if (userNick) targetsToTry.add(`${fallbackSlug}:${userNick}`);
         }
 
-        // Busca tarefas e redações
+        // Busca tarefas e redações em paralelo
         if (targetsToTry.size > 0) {
             const allTargetsArr = Array.from(targetsToTry);
             const multiTargetQueryStr = allTargetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
 
-            // 1. Tenta query combinada oficial (passando múltiplos publication_target ao mesmo tempo)
+            // 1. Executa queries combinadas oficiais em paralelo
             const officialMultiQueries = [
                 `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
                 `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`
             ];
 
-            for (const qUrl of officialMultiQueries) {
+            await Promise.all(officialMultiQueries.map(async (qUrl) => {
                 try {
                     const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
                     addItems(data);
-                } catch (e: any) {
-                    // silencia
-                }
-            }
+                } catch (e: any) {}
+            }));
 
-            // 2. Se a query combinada não trouxe itens, ou para garantir cobertura total, busca por alvos individuais
-            for (const target of targetsToTry) {
-                const encTarget = encodeURIComponent(target);
-                const targetQueries = [
-                    `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
-                    `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`,
-                    `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=draft&publication_target=${encTarget}${essayFilter}`
-                ];
-                for (const qUrl of targetQueries) {
-                    try {
-                        const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
-                        addItems(data);
-                    } catch (e: any) {
-                        // silencia erros individuais
-                    }
-                }
+            // 2. Se for necessário buscar por alvos individuais, faz requisições em paralelo
+            if (allTasks.length === 0) {
+                const targetPromises = allTargetsArr.map(async (target) => {
+                    const encTarget = encodeURIComponent(target);
+                    const targetQueries = [
+                        `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
+                        `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`
+                    ];
+                    await Promise.all(targetQueries.map(async (qUrl) => {
+                        try {
+                            const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
+                            addItems(data);
+                        } catch (e: any) {}
+                    }));
+                });
+                await Promise.all(targetPromises);
             }
         }
 
+        setCachedApiResponse(cacheKey, allTasks);
         res.json(allTasks);
     });
 
