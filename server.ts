@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { gotScraping } from "got-scraping";
 
 dotenv.config();
 
@@ -38,6 +39,71 @@ function setCachedApiResponse(key: string, data: any) {
     if (data !== undefined && data !== null) {
         apiGetCache.set(key, { data, timestamp: Date.now() });
     }
+}
+
+async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number }) {
+    const { method = 'GET', headers = {}, body, timeoutMs = 4000, maxRetries = 2 } = options;
+
+    const cleanHeaders = { ...headers };
+    delete cleanHeaders['host'];
+    delete cleanHeaders['content-length'];
+    delete cleanHeaders['connection'];
+    delete cleanHeaders['user-agent'];
+    delete cleanHeaders['sec-ch-ua'];
+    delete cleanHeaders['sec-ch-ua-mobile'];
+    delete cleanHeaders['sec-ch-ua-platform'];
+
+    cleanHeaders['Origin'] = 'https://saladofuturo.educacao.sp.gov.br';
+    cleanHeaders['Referer'] = 'https://saladofuturo.educacao.sp.gov.br/';
+
+    let attempt = 0;
+    let lastStatus = 500;
+    let lastText = '';
+
+    while (attempt <= maxRetries) {
+        try {
+            const res = await gotScraping({
+                url: targetUrl,
+                method: method.toUpperCase() as any,
+                headers: cleanHeaders,
+                json: (body && typeof body === 'object') ? body : undefined,
+                body: (body && typeof body === 'string') ? body : undefined,
+                timeout: { request: timeoutMs },
+                throwHttpErrors: false,
+                retry: { limit: 0 },
+                useHeaderGenerator: true,
+                headerGeneratorOptions: {
+                    browsers: [{ name: 'chrome', minVersion: 120 }, { name: 'edge', minVersion: 120 }],
+                    devices: ['desktop'],
+                    locales: ['pt-BR', 'pt', 'en-US'],
+                    operatingSystems: ['windows', 'linux', 'macos']
+                }
+            });
+
+            lastStatus = res.statusCode;
+            lastText = typeof res.body === 'string' ? res.body : JSON.stringify(res.body);
+
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+                return { ok: true, status: res.statusCode, text: lastText };
+            }
+
+            if ([403, 429, 502, 503, 504].includes(res.statusCode) && attempt < maxRetries) {
+                attempt++;
+                await new Promise(r => setTimeout(r, 250 * attempt));
+                continue;
+            }
+
+            return { ok: false, status: res.statusCode, text: lastText };
+        } catch (err: any) {
+            lastText = err.message || 'Network error';
+            attempt++;
+            if (attempt <= maxRetries) {
+                await new Promise(r => setTimeout(r, 250 * attempt));
+            }
+        }
+    }
+
+    return { ok: false, status: lastStatus, text: lastText };
 }
 
 async function startServer() {
@@ -649,11 +715,6 @@ REGRAS:
             }
         });
 
-        // Tenta também o túnel local (local-proxy.js na porta 4000) se estiver rodando
-        if (!tunnelsToTry.includes("http://127.0.0.1:4000")) {
-            tunnelsToTry.push("http://127.0.0.1:4000");
-        }
-
         for (const domain of tunnelsToTry) {
             let cleanPath = url.replace(/^https?:\/\/edusp-api\.ip\.tv\/?/, '');
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
@@ -746,31 +807,65 @@ REGRAS:
 
             for (const finalUrl of urlsToTry) {
                 try {
-                    const response = await undiciFetch(finalUrl, options);
-                    const text = await response.text();
+                    let responseStatus = 0;
+                    let text = '';
+
+                    try {
+                        const response = await undiciFetch(finalUrl, options);
+                        responseStatus = response.status;
+                        text = await response.text();
+                    } catch (fetchErr: any) {
+                        const gotRes = await fetchWithGotScraping(finalUrl, {
+                            method,
+                            headers,
+                            body,
+                            timeoutMs: 4000,
+                            maxRetries: 2
+                        });
+                        responseStatus = gotRes.status;
+                        text = gotRes.text;
+                    }
+
+                    if (responseStatus < 200 || responseStatus >= 300) {
+                        const isCloudflareBlockCandidate = responseStatus === 403 || responseStatus === 530 || responseStatus === 520 || responseStatus === 525;
+                        if (isCloudflareBlockCandidate) {
+                            const gotFallback = await fetchWithGotScraping(finalUrl, {
+                                method,
+                                headers,
+                                body,
+                                timeoutMs: 4000,
+                                maxRetries: 2
+                            });
+                            if (gotFallback.ok) {
+                                responseStatus = gotFallback.status;
+                                text = gotFallback.text;
+                            }
+                        }
+                    }
+
                     const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
 
-                    if (!response.ok) {
+                    if (responseStatus < 200 || responseStatus >= 300) {
                         const isHtmlPage = cleanText.startsWith('<!') || cleanText.startsWith('<html') || cleanText.toLowerCase().includes('just a moment') || cleanText.toLowerCase().includes('attention required') || cleanText.toLowerCase().includes('cloudflare');
                         const logMsg = isHtmlPage ? '[Bloqueio Cloudflare/WAF]' : cleanText.replace(/\s+/g, ' ').substring(0, 100);
-                        console.warn(`[API] Erro HTTP ${response.status} em ${finalUrl.split('?')[0]}: ${logMsg}`);
+                        console.warn(`[API] Erro HTTP ${responseStatus} em ${finalUrl.split('?')[0]}: ${logMsg}`);
 
                         if (cachedWorkingTunnel === domain) {
                             cachedWorkingTunnel = null;
                         }
 
-                        if (response.status === 404) {
+                        if (responseStatus === 404) {
                             lastError = new Error(`HTTP 404 em ${finalUrl}`);
                             continue;
                         }
 
-                        if (response.status === 429) {
+                        if (responseStatus === 429) {
                             console.warn(`[API] Rate limit 429 no proxy ${finalUrl}. Tentando próximo túnel...`);
                             lastError = new Error(`Proxy Rate Limit (429) em ${finalUrl}`);
                             continue;
                         }
 
-                        const isCloudflareBlock = (response.status === 403 || response.status === 530 || response.status === 520 || response.status === 525) && (
+                        const isCloudflareBlock = (responseStatus === 403 || responseStatus === 530 || responseStatus === 520 || responseStatus === 525) && (
                             cleanText.toLowerCase().includes('just a moment') ||
                             cleanText.toLowerCase().includes('cloudflare') ||
                             cleanText.toLowerCase().includes('attention required') ||
@@ -785,7 +880,7 @@ REGRAS:
 
                         const isCaptchaPath = cleanPath.includes('/captcha');
 
-                        const isCredentialError = !cleanPath.includes('/registration/edusp/token') && !isCaptchaPath && !isCloudflareBlock && (response.status === 401 || (response.status === 403 && (
+                        const isCredentialError = !cleanPath.includes('/registration/edusp/token') && !isCaptchaPath && !isCloudflareBlock && (responseStatus === 401 || (responseStatus === 403 && (
                             cleanText.toLowerCase().includes('wrong credentials') ||
                             cleanText.toLowerCase().includes('x-api-key') ||
                             cleanText.toLowerCase().includes('invalid token') ||
@@ -793,7 +888,7 @@ REGRAS:
                             cleanText.toLowerCase().includes('token expirado')
                         )));
 
-                        if (isCaptchaPath && (response.status === 401 || response.status === 400 || response.status === 422)) {
+                        if (isCaptchaPath && (responseStatus === 401 || responseStatus === 400 || responseStatus === 422)) {
                             let cleanErrMessage = "Resposta do CAPTCHA incorreta. Tente novamente com uma nova imagem.";
                             try {
                                 const parsed = JSON.parse(cleanText);
@@ -805,9 +900,9 @@ REGRAS:
                             } catch (e) {}
 
                             const captchaErrObj: any = new Error(cleanErrMessage);
-                            captchaErrObj.status = response.status;
+                            captchaErrObj.status = responseStatus;
                             captchaErrObj.isCaptchaAnswerError = true;
-                            console.warn(`[API] Resposta do CAPTCHA incorreta (${response.status}): ${cleanText.substring(0, 150)}`);
+                            console.warn(`[API] Resposta do CAPTCHA incorreta (${responseStatus}): ${cleanText.substring(0, 150)}`);
                             throw captchaErrObj;
                         }
 
@@ -815,11 +910,11 @@ REGRAS:
                             ? "Bloqueio de proteção de rede (Cloudflare/Proxy)"
                             : (cleanText.substring(0, 150) || 'Erro no servidor');
 
-                        const errObj: any = new Error(isCredentialError ? "Token de acesso inválido ou recusado pela EduSP." : `HTTP ${response.status}: ${displayErrorText}`);
-                        errObj.status = response.status;
+                        const errObj: any = new Error(isCredentialError ? "Token de acesso inválido ou recusado pela EduSP." : `HTTP ${responseStatus}: ${displayErrorText}`);
+                        errObj.status = responseStatus;
                         errObj.isCredentialError = isCredentialError;
 
-                        const isCaptchaError = response.status === 403 && (
+                        const isCaptchaError = responseStatus === 403 && (
                             cleanText.toLowerCase().includes('captcha') ||
                             cleanText.toLowerCase().includes('missing captcha token')
                         );
@@ -833,12 +928,12 @@ REGRAS:
                                     if (v.token === clean) sedToEduSpCache.delete(k);
                                 }
                             }
-                            console.warn(`[API] Credenciais rejeitadas pela EduSP (${response.status}): ${cleanText.substring(0, 150)}`);
+                            console.warn(`[API] Credenciais rejeitadas pela EduSP (${responseStatus}): ${cleanText.substring(0, 150)}`);
                             throw errObj;
                         }
 
                         if (isCaptchaError) {
-                            console.warn(`[API] CAPTCHA exigido pela EduSP (${response.status}): ${cleanText.substring(0, 150)}`);
+                            console.warn(`[API] CAPTCHA exigido pela EduSP (${responseStatus}): ${cleanText.substring(0, 150)}`);
                             throw errObj;
                         }
 
@@ -1411,30 +1506,13 @@ function extractUserNickFromToken(token: string): string {
 
         const essayFilter = isEssayParam !== null ? `&is_essay=${isEssayParam}` : '';
 
-        // 1. Executa busca global sem filtro de sala (resposta em < 1s)
-        const globalQueries = [
-            `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
-            `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}`
-        ];
-
-        await Promise.all(globalQueries.map(async (qUrl) => {
-            try {
-                const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
-                addItems(data);
-            } catch (e: any) {}
-        }));
-
-        // Se encontrou tarefas na busca global, retorna imediatamente
-        if (allTasks.length > 0) {
-            setCachedApiResponse(cacheKey, allTasks);
-            return res.json(allTasks);
-        }
-
-        // 2. Se a busca global não retornou, tenta alvos de salas específicos
+        // Coleta todos os alvos de publicação do aluno para evitar o erro HTTP 400 (publication_target is required)
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
-        const userNick = extractUserNickFromToken(token);
 
         try {
+            const userRoomSlugs = await getAllUserRoomSlugs(token, customTunnel);
+            userRoomSlugs.forEach(s => targetsToTry.add(s));
+            
             const roomData = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
             const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
             for (const r of rooms) {
@@ -1448,15 +1526,22 @@ function extractUserNickFromToken(token: string): string {
             }
         } catch (e: any) {}
 
-        if (targetsToTry.size > 0) {
-            const allTargetsArr = Array.from(targetsToTry);
-            const multiTargetQueryStr = allTargetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
+        if (targetsToTry.size === 0) {
+            const fallback = await getFallbackRoomSlug(token, customTunnel);
+            if (fallback) targetsToTry.add(fallback);
+        }
 
-            const targetedQueries = [
+        const targetsArr = Array.from(targetsToTry);
+
+        if (targetsArr.length > 0) {
+            const multiTargetQueryStr = targetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
+
+            const queriesToRun = [
+                `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
                 `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`
             ];
 
-            await Promise.all(targetedQueries.map(async (qUrl) => {
+            await Promise.all(queriesToRun.map(async (qUrl) => {
                 try {
                     const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
                     addItems(data);
