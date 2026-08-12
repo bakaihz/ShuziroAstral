@@ -15,15 +15,10 @@ const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobff
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
 
 const PROXY_TUNNELS = [
-    "https://edusp-api.ip.tv",
     "https://bakaiwaf.shuziroastral.lol",
     "https://proxy.shuziroastral.lol",
     "https://api.davilucas99kk.workers.dev",
-    "https://corsproxy.io/?",
-    "https://corsproxy.org/?",
-    "https://api.allorigins.win/raw?url=",
-    "https://api.codetabs.com/v1/proxy?quest=",
-    "https://thingproxy.freeboard.io/fetch/"
+    "https://edusp-api.ip.tv"
 ];
 
 // Cache em memória de respostas rápidas de GET (15 segundos)
@@ -1416,101 +1411,57 @@ function extractUserNickFromToken(token: string): string {
 
         const essayFilter = isEssayParam !== null ? `&is_essay=${isEssayParam}` : '';
 
-        // Extract user nick from JWT if available
-        const userNick = extractUserNickFromToken(token);
-
-        const targetsToTry = new Set<string>(publicationTargetsFromQuery);
-
-        // Tenta buscar salas para extrair publication_targets válidos
-        const roomEndpoints = [
-            '/room/user?list_all=true&with_cards=true',
-            '/room/user',
-            '/v1/room/user'
+        // 1. Executa busca global sem filtro de sala (resposta em < 1s)
+        const globalQueries = [
+            `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
+            `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}`
         ];
 
-        for (const ep of roomEndpoints) {
+        await Promise.all(globalQueries.map(async (qUrl) => {
             try {
-                const roomData = await callOfficialApi(ep, 'GET', token, undefined, customTunnel);
-                const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
-                for (const r of rooms) {
-                    const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
-                    const roomName = (r.name || r.room_name || inner.name || inner.room_name || '').trim();
-                    const candidates = [
-                        r.publication_target, r.slug, r.id, r.code, r.room_id, roomName, r.topic,
-                        inner.publication_target, inner.slug, inner.id, inner.code, inner.room_id, inner.topic
-                    ];
-                    if (roomName && userNick) {
-                        candidates.push(`${roomName}:${userNick}`);
-                    }
-                    if (Array.isArray(r.group_categories)) {
-                        r.group_categories.forEach((gc: any) => {
-                            if (gc?.id !== undefined) candidates.push(String(gc.id));
-                            if (gc?.name) candidates.push(gc.name);
-                        });
-                    }
-                    if (Array.isArray(r.subjects)) {
-                        r.subjects.forEach((s: any) => {
-                            if (s?.publication_target) candidates.push(s.publication_target);
-                            if (s?.id !== undefined) candidates.push(String(s.id));
-                            if (s?.code) candidates.push(s.code);
-                        });
-                    }
-                    for (const c of candidates) {
-                        if (c !== undefined && c !== null) {
-                            const str = String(c).trim();
-                            if (str && str !== 'null' && str !== 'undefined') {
-                                targetsToTry.add(str);
-                            }
-                        }
+                const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
+                addItems(data);
+            } catch (e: any) {}
+        }));
+
+        // Se encontrou tarefas na busca global, retorna imediatamente
+        if (allTasks.length > 0) {
+            setCachedApiResponse(cacheKey, allTasks);
+            return res.json(allTasks);
+        }
+
+        // 2. Se a busca global não retornou, tenta alvos de salas específicos
+        const targetsToTry = new Set<string>(publicationTargetsFromQuery);
+        const userNick = extractUserNickFromToken(token);
+
+        try {
+            const roomData = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
+            const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
+            for (const r of rooms) {
+                const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
+                const candidates = [r.publication_target, r.slug, inner.publication_target, inner.slug];
+                for (const c of candidates) {
+                    if (c && typeof c === 'string' && c.trim()) {
+                        targetsToTry.add(c.trim());
                     }
                 }
-                if (targetsToTry.size > 0) break;
-            } catch (e: any) {
-                // Silencia
             }
-        }
+        } catch (e: any) {}
 
-        const fallbackSlug = await getFallbackRoomSlug(token, customTunnel);
-        if (fallbackSlug) {
-            targetsToTry.add(fallbackSlug);
-            if (userNick) targetsToTry.add(`${fallbackSlug}:${userNick}`);
-        }
-
-        // Busca tarefas e redações em paralelo
         if (targetsToTry.size > 0) {
             const allTargetsArr = Array.from(targetsToTry);
             const multiTargetQueryStr = allTargetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
 
-            // 1. Executa queries combinadas oficiais em paralelo
-            const officialMultiQueries = [
-                `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
+            const targetedQueries = [
                 `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`
             ];
 
-            await Promise.all(officialMultiQueries.map(async (qUrl) => {
+            await Promise.all(targetedQueries.map(async (qUrl) => {
                 try {
                     const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
                     addItems(data);
                 } catch (e: any) {}
             }));
-
-            // 2. Se for necessário buscar por alvos individuais, faz requisições em paralelo
-            if (allTasks.length === 0) {
-                const targetPromises = allTargetsArr.map(async (target) => {
-                    const encTarget = encodeURIComponent(target);
-                    const targetQueries = [
-                        `/tms/task/todo?expired_only=false&limit=100&offset=0&publication_target=${encTarget}${essayFilter}`,
-                        `/tms/task/todo?expired_only=false&limit=100&offset=0&answer_statuses=pending&publication_target=${encTarget}${essayFilter}`
-                    ];
-                    await Promise.all(targetQueries.map(async (qUrl) => {
-                        try {
-                            const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
-                            addItems(data);
-                        } catch (e: any) {}
-                    }));
-                });
-                await Promise.all(targetPromises);
-            }
         }
 
         setCachedApiResponse(cacheKey, allTasks);
