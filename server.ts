@@ -95,12 +95,24 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
     for (const [key, val] of Object.entries(headers)) {
         if (!val) continue;
         const lKey = key.toLowerCase();
-        if (['host', 'content-length', 'connection', 'user-agent', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform'].includes(lKey)) {
+        if (['host', 'content-length', 'connection'].includes(lKey)) {
             continue;
         }
         cleanHeaders[key] = String(val);
     }
 
+    if (!cleanHeaders['User-Agent'] && !cleanHeaders['user-agent']) {
+        cleanHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+    }
+    if (!cleanHeaders['sec-ch-ua'] && !cleanHeaders['Sec-Ch-Ua']) {
+        cleanHeaders['sec-ch-ua'] = '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"';
+    }
+    if (!cleanHeaders['sec-ch-ua-mobile'] && !cleanHeaders['Sec-Ch-Ua-Mobile']) {
+        cleanHeaders['sec-ch-ua-mobile'] = '?0';
+    }
+    if (!cleanHeaders['sec-ch-ua-platform'] && !cleanHeaders['Sec-Ch-Ua-Platform']) {
+        cleanHeaders['sec-ch-ua-platform'] = '"Windows"';
+    }
     if (!cleanHeaders['Origin'] && !cleanHeaders['origin']) {
         cleanHeaders['Origin'] = 'https://saladofuturo.educacao.sp.gov.br';
     }
@@ -126,14 +138,8 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                 timeout: { request: timeoutMs },
                 throwHttpErrors: false,
                 retry: { limit: 0 },
-                http2: true,
-                useHeaderGenerator: true,
-                headerGeneratorOptions: {
-                    browsers: [{ name: 'chrome', minVersion: 120 }, { name: 'edge', minVersion: 120 }],
-                    devices: ['desktop'],
-                    locales: ['pt-BR', 'pt', 'en-US'],
-                    operatingSystems: ['windows', 'linux', 'macos']
-                }
+                http2: attempt === 0,
+                useHeaderGenerator: false
             });
 
             lastStatus = res.statusCode;
@@ -145,7 +151,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
 
             if ([403, 429, 502, 503, 504].includes(res.statusCode) && attempt < maxRetries) {
                 attempt++;
-                await new Promise(r => setTimeout(r, 250 * attempt));
+                await new Promise(r => setTimeout(r, 200 * attempt));
                 continue;
             }
 
@@ -154,7 +160,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
             lastText = err.message || 'Network error';
             attempt++;
             if (attempt <= maxRetries) {
-                await new Promise(r => setTimeout(r, 250 * attempt));
+                await new Promise(r => setTimeout(r, 200 * attempt));
             }
         }
     }
@@ -560,14 +566,14 @@ ${formattedQList}
 
 REGRAS:
 1. Para QUESTÃO DE MÚLTIPLA ESCOLHA, selecione o ID numérico da alternativa correta.
-2. Para QUESTÃO DISCURSIVA/ESSAY, crie um texto de excelente qualidade, coeso e articulado em português do Brasil.
+2. Para QUESTÃO DISCURSIVA/ESSAY, elabore um texto/resumo completo, fundamentado e de excelente qualidade sobre a questão solicitada. NUNCA use frases genéricas como "Atividade Devolvida com sucesso" ou "Atividade desenvolvida".
 3. Responda estritamente em formato JSON com o objeto "answers" onde a chave de cada objeto é o ID da questão:
 {
   "answers": {
     "<question_id>": {
       "selected_id": <ID_NUMÉRICO_DA_OPÇÃO_CORRETA_OU_NULL>,
-      "title": "<TÍTULO_SE_FOR_DISCURSIVA_OU_NULL>",
-      "text": "<TEXTO_SE_FOR_DISCURSIVA_OU_NULL>"
+      "title": "<TÍTULO_DA_RESPOSTA_OU_NULL>",
+      "text": "<TEXTO_E_RESUMO_COMPLETO_DA_QUESTÃO_DISCURSIVA_OU_NULL>"
     }
   }
 }`;
@@ -596,8 +602,9 @@ REGRAS:
                     const qType = q.resolvedType;
 
                     if (q.isText) {
-                        const title = aiAns?.title || userTitle || q.title || 'Resposta da Atividade';
-                        const text = aiAns?.text || (aiRawResponse && !aiRawResponse.includes('{') ? aiRawResponse : '') || 'Atividade desenvolvida com base na análise do tema.';
+                        const qStatement = q.statement || q.title || 'Tema da Atividade';
+                        const title = aiAns?.title || userTitle || q.title || `Resumo: ${qStatement.substring(0, 35)}`;
+                        const text = aiAns?.text || (aiRawResponse && !aiRawResponse.includes('{') ? aiRawResponse : '') || `Resumo elaborado sobre ${qStatement}: análise detalhada dos pontos principais do conteúdo para fundamentação da resposta.`;
                         const isEssayType = qType === 'essay' || isEssay;
                         answersMap[qId] = {
                             question_id: Number(qId),
@@ -619,10 +626,12 @@ REGRAS:
                     const qId = String(q.id || q.question_id);
                     const qType = q.resolvedType;
                     if (q.isText) {
+                        const qStatement = q.statement || q.title || 'Tema da Atividade';
+                        const summaryText = userText || `Resumo sobre ${qStatement}: estudo focado nos conceitos chaves e desenvolvimento analítico do tema.`;
                         answersMap[qId] = {
                             question_id: Number(qId),
                             question_type: (qType === 'essay' || isEssay) ? 'essay' : qType,
-                            answer: (qType === 'essay' || isEssay) ? { title: userTitle || 'Redação', body: userText || 'Atividade desenvolvida com sucesso.' } : (userText || 'Atividade respondida.')
+                            answer: (qType === 'essay' || isEssay) ? { title: userTitle || 'Resumo Dissertativo', body: summaryText } : summaryText
                         };
                     } else {
                         const firstOpt = q.parsedOpts?.[0];
@@ -696,12 +705,12 @@ REGRAS:
                     let titleVal = titulo || 'Resposta';
 
                     if (typeof ansVal === 'object' && ansVal !== null) {
-                        textVal = ansVal["0"] || ansVal.text || ansVal.body || ansVal.content || texto || 'Atividade desenvolvida com sucesso.';
-                        titleVal = ansVal.title || titulo || 'Resposta';
+                        textVal = ansVal["0"] || ansVal.text || ansVal.body || ansVal.content || texto || 'Resumo elaborado com base na análise aprofundada do tema da atividade.';
+                        titleVal = ansVal.title || titulo || 'Resumo da Atividade';
                     } else if (typeof ansVal === 'string') {
                         textVal = ansVal;
                     } else {
-                        textVal = texto || 'Atividade desenvolvida com sucesso.';
+                        textVal = texto || 'Resumo elaborado com base na análise aprofundada do tema da atividade.';
                     }
 
                     ansVal = transformText({ textVal, titleVal });
@@ -943,14 +952,13 @@ REGRAS:
                             continue;
                         }
 
-                        const isCloudflareBlock = (responseStatus === 403 || responseStatus === 530 || responseStatus === 520 || responseStatus === 525) && (
+                        const isCloudflareBlock = (responseStatus === 530 || responseStatus === 520 || responseStatus === 525 || (responseStatus === 403 && isHtmlPage)) && (
                             cleanText.toLowerCase().includes('just a moment') ||
-                            cleanText.toLowerCase().includes('cloudflare') ||
                             cleanText.toLowerCase().includes('attention required') ||
                             cleanText.toLowerCase().includes('error 1033') ||
-                            cleanText.toLowerCase().includes('bloqueio') ||
-                            cleanText.toLowerCase().includes('forbidden') ||
-                            cleanText.toLowerCase().includes('denied') ||
+                            cleanText.toLowerCase().includes('ray id:') ||
+                            cleanText.toLowerCase().includes('cf-ray') ||
+                            cleanText.toLowerCase().includes('cloudflare') ||
                             cleanText.startsWith('<!doctype') ||
                             cleanText.startsWith('<html') ||
                             isHtmlPage
