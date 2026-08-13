@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShieldCheck, RefreshCw, CheckCircle2, AlertTriangle, KeyRound, Send, Sparkles } from 'lucide-react';
+import { TurnstileWidget } from './TurnstileWidget';
 
 interface CaptchaWidgetProps {
   authToken?: string;
@@ -238,87 +239,105 @@ export const CaptchaWidget: React.FC<CaptchaWidgetProps> = ({
                 <RefreshCw className="w-6 h-6 animate-spin text-amber-400" />
                 <span className="text-xs">Buscando desafio de imagem do servidor...</span>
               </div>
-            ) : imageBase64 ? (
-              <form onSubmit={handleVerify} className="flex flex-col gap-3">
-                <div className="flex flex-col sm:flex-row items-center gap-4 bg-[#18181b] p-3 rounded-xl border border-[#27272a]">
-                  <div className="bg-white border border-zinc-200 rounded-lg p-2.5 flex items-center justify-center gap-2 shrink-0 min-w-[160px] shadow-sm">
-                    <img
-                      src={`data:image/png;base64,${imageBase64}`}
-                      alt="Desafio CAPTCHA"
-                      referrerPolicy="no-referrer"
-                      className="h-10 object-contain select-none"
-                    />
+            ) : (
+              <div className="space-y-4">
+                <TurnstileWidget
+                  onVerify={(token) => {
+                    setVerifiedToken(token);
+                    localStorage.setItem('edusp_captcha_token', token);
+                    if (onTokenVerified) {
+                      onTokenVerified(token);
+                    }
+                    setSuccessMsg('✅ Cloudflare Turnstile verificado e ativo!');
+                  }}
+                />
+
+                {imageBase64 ? (
+                  <form onSubmit={handleVerify} className="flex flex-col gap-3 pt-2 border-t border-[#27272a]">
+                    <div className="text-xs font-bold text-zinc-300">
+                      Ou valide digitando o código da imagem SED:
+                    </div>
+                    <div className="flex flex-col sm:flex-row items-center gap-4 bg-[#18181b] p-3 rounded-xl border border-[#27272a]">
+                      <div className="bg-white border border-zinc-200 rounded-lg p-2.5 flex items-center justify-center gap-2 shrink-0 min-w-[160px] shadow-sm">
+                        <img
+                          src={`data:image/png;base64,${imageBase64}`}
+                          alt="Desafio CAPTCHA"
+                          referrerPolicy="no-referrer"
+                          className="h-10 object-contain select-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={fetchChallenge}
+                          disabled={isLoading || isVerifying}
+                          title="Trocar imagem"
+                          className="p-1.5 text-zinc-500 hover:text-black hover:bg-zinc-100 rounded-md transition-all cursor-pointer"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                        </button>
+                      </div>
+
+                      <div className="flex-1 w-full space-y-1">
+                        <label className="text-[11px] font-semibold text-zinc-300 block">
+                          Código da Imagem:
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={answer}
+                            onChange={(e) => setAnswer(e.target.value.toUpperCase())}
+                            placeholder="Ex: A7X9P"
+                            maxLength={10}
+                            disabled={isVerifying}
+                            className="flex-1 bg-[#09090b] border border-[#27272a] focus:border-amber-500/60 text-white font-mono tracking-widest text-sm rounded-lg px-3 py-2 outline-none uppercase transition-all shadow-inner"
+                          />
+                          <motion.button
+                            type="submit"
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            disabled={isVerifying || !answer.trim()}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                          >
+                            {isVerifying ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                Verificando...
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-3.5 h-3.5" />
+                                Enviar p/ SED
+                              </>
+                            )}
+                          </motion.button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {errorMsg && (
+                      <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>{errorMsg}</span>
+                      </div>
+                    )}
+
+                    {successMsg && (
+                      <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                        <span>{successMsg}</span>
+                      </div>
+                    )}
+                  </form>
+                ) : (
+                  <div className="text-center py-2">
                     <button
                       type="button"
                       onClick={fetchChallenge}
-                      disabled={isLoading || isVerifying}
-                      title="Trocar imagem"
-                      className="p-1.5 text-zinc-500 hover:text-black hover:bg-zinc-100 rounded-md transition-all cursor-pointer"
+                      className="px-4 py-2 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold hover:bg-amber-500/30 transition-all cursor-pointer"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                      Ou Carregar CAPTCHA por Imagem SED
                     </button>
                   </div>
-
-                  <div className="flex-1 w-full space-y-1">
-                    <label className="text-[11px] font-semibold text-zinc-300 block">
-                      Código da Imagem:
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={answer}
-                        onChange={(e) => setAnswer(e.target.value.toUpperCase())}
-                        placeholder="Ex: A7X9P"
-                        maxLength={10}
-                        autoFocus
-                        disabled={isVerifying}
-                        className="flex-1 bg-[#09090b] border border-[#27272a] focus:border-amber-500/60 text-white font-mono tracking-widest text-sm rounded-lg px-3 py-2 outline-none uppercase transition-all shadow-inner"
-                      />
-                      <motion.button
-                        type="submit"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        disabled={isVerifying || !answer.trim()}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                      >
-                        {isVerifying ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            Verificando...
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-3.5 h-3.5" />
-                            Enviar p/ SED
-                          </>
-                        )}
-                      </motion.button>
-                    </div>
-                  </div>
-                </div>
-
-                {errorMsg && (
-                  <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>{errorMsg}</span>
-                  </div>
                 )}
-
-                {successMsg && (
-                  <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                    <span>{successMsg}</span>
-                  </div>
-                )}
-              </form>
-            ) : (
-              <div className="text-center py-3">
-                <button
-                  onClick={fetchChallenge}
-                  className="px-4 py-2 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold hover:bg-amber-500/30 transition-all cursor-pointer"
-                >
-                  Carregar Imagem CAPTCHA
-                </button>
               </div>
             )}
           </motion.div>

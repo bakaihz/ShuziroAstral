@@ -3552,6 +3552,55 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         }
     });
 
+    // Endpoint do Cloudflare Turnstile Verification
+    app.post(["/api/turnstile/verify", "/turnstile/verify"], async (req, res) => {
+        const token = req.body?.token || req.body?.['cf-turnstile-response'] || req.body?.response;
+        if (!token) {
+            return res.status(400).json({ success: false, error: "Token do Turnstile não fornecido." });
+        }
+
+        const turnstileSecret = process.env.TURNSTILE_SECRET_KEY || '0x4AAAAAAEOio6rwbX1EEVuP4PISf7OvPJU';
+
+        try {
+            const formData = new URLSearchParams();
+            formData.append('secret', turnstileSecret);
+            formData.append('response', token);
+            if (req.ip) formData.append('remoteip', req.ip);
+
+            const verifyRes = await undiciFetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: formData.toString()
+            });
+
+            const outcome: any = await verifyRes.json();
+            console.log('[Turnstile] Resultado da verificação:', outcome);
+
+            if (outcome.success) {
+                return res.json({
+                    success: true,
+                    valid: true,
+                    message: "Turnstile verificado com sucesso!",
+                    token: token,
+                    challenge_ts: outcome.challenge_ts,
+                    hostname: outcome.hostname
+                });
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    valid: false,
+                    error: "Falha na verificação do Cloudflare Turnstile.",
+                    errorCodes: outcome['error-codes'] || []
+                });
+            }
+        } catch (err: any) {
+            console.error('[Turnstile] Erro na verificação:', err.message);
+            return res.status(500).json({ success: false, error: "Erro interno ao conectar ao serviço Turnstile." });
+        }
+    });
+
     const handleUniversalProxy = async (req: express.Request, res: express.Response) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');

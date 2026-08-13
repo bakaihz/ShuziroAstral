@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Eye, EyeOff, Sparkles, ArrowRight, UserCheck, Code2 } from 'lucide-react';
+import { Eye, EyeOff, Sparkles, ArrowRight, UserCheck, Code2, ShieldCheck } from 'lucide-react';
 import { SavedAccount } from '../types';
+import { TurnstileWidget } from './TurnstileWidget';
 
 interface LoginViewProps {
   onLogin: (ra: string, pass: string) => Promise<void>;
@@ -9,6 +10,7 @@ interface LoginViewProps {
   errorMessage: string;
   onOpenAccounts: () => void;
   onOpenEmojiChallenge: () => void;
+  onTurnstileVerify?: (token: string) => void;
   isVerified: boolean;
   selectedAccount?: SavedAccount | null;
 }
@@ -19,6 +21,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
   errorMessage,
   onOpenAccounts,
   onOpenEmojiChallenge,
+  onTurnstileVerify,
   isVerified,
   selectedAccount
 }) => {
@@ -209,24 +212,27 @@ export const LoginView: React.FC<LoginViewProps> = ({
             </div>
           </div>
 
-          {/* Captcha button */}
-          <div>
-            <button
-              type="button"
-              onClick={onOpenEmojiChallenge}
-              className={`w-full py-3 px-4 rounded-xl border flex items-center justify-center gap-3 transition-all text-xs font-bold cursor-pointer ${
-                isVerified
-                  ? 'bg-zinc-800 border-zinc-500 text-white shadow-md'
-                  : 'bg-[#121214] border-[#27272a] text-zinc-300 hover:border-zinc-600'
-              }`}
-            >
-              <div className={`w-5 h-5 rounded flex items-center justify-center border transition-all ${
-                isVerified ? 'bg-white border-white text-black font-extrabold' : 'border-zinc-600 bg-[#18181b]'
-              }`}>
-                {isVerified ? '✓' : ''}
+          {/* Turnstile / Anti-Bot Widget */}
+          <div className="space-y-2">
+            <TurnstileWidget
+              onVerify={(token) => {
+                if (onTurnstileVerify) {
+                  onTurnstileVerify(token);
+                }
+              }}
+            />
+
+            {!isVerified && (
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={onOpenEmojiChallenge}
+                  className="text-[11px] text-zinc-400 hover:text-white transition-colors underline cursor-pointer"
+                >
+                  Prefere o Desafio Anti-Bot de Emojis? Clique aqui
+                </button>
               </div>
-              <span>{isVerified ? 'Verificado (Não sou um robô)' : 'Clique para verificar (Anti-Bot)'}</span>
-            </button>
+            )}
           </div>
 
           {errorMessage && (
