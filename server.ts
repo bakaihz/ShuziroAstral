@@ -104,6 +104,24 @@ function getOrCreateCookieJar(sessionKey: string): CookieJar {
     return userCookieJars.get(sessionKey)!;
 }
 
+// Store de Tokens de CAPTCHA/Turnstile ativos por sessão (válidos por 20 min)
+const sessionCaptchaStore = new Map<string, { token: string; timestamp: number }>();
+
+function getActiveCaptchaToken(sessionKey: string): string {
+    const cached = sessionCaptchaStore.get(sessionKey) || sessionCaptchaStore.get('global');
+    if (cached && (Date.now() - cached.timestamp < 20 * 60 * 1000)) {
+        return cached.token;
+    }
+    return '';
+}
+
+function setActiveCaptchaToken(sessionKey: string, token: string) {
+    if (!token || !token.trim()) return;
+    const cleanTok = token.trim();
+    sessionCaptchaStore.set(sessionKey, { token: cleanTok, timestamp: Date.now() });
+    sessionCaptchaStore.set('global', { token: cleanTok, timestamp: Date.now() });
+}
+
 async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number; cookieJar?: CookieJar }) {
     const { method = 'GET', headers = {}, body, timeoutMs = 4000, maxRetries = 2, cookieJar } = options;
 
@@ -841,6 +859,32 @@ REGRAS:
             let cleanPath = url.replace(/^https?:\/\/edusp-api\.ip\.tv\/?/, '');
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
+            const sessionKey = String(effectiveToken || token || 'global');
+
+            // Extract captcha token from URL, body, custom header or session cache
+            let captchaToken = req.headers['x-captcha-token'] as string || req.headers['captcha-token'] as string || '';
+            try {
+                const urlObj = new URL(url, 'https://edusp-api.ip.tv');
+                if (!captchaToken) {
+                    captchaToken = urlObj.searchParams.get('captcha_token') || urlObj.searchParams.get('captcha') || urlObj.searchParams.get('x-captcha-token') || '';
+                }
+            } catch (e) {}
+
+            if (!captchaToken && body && typeof body === 'object') {
+                captchaToken = body.captcha_token || body.captchaToken || body.captcha || '';
+            }
+
+            if (captchaToken) {
+                setActiveCaptchaToken(sessionKey, captchaToken);
+            } else {
+                captchaToken = getActiveCaptchaToken(sessionKey);
+            }
+
+            if (captchaToken && !cleanPath.includes('captcha_token=')) {
+                const sep = cleanPath.includes('?') ? '&' : '?';
+                cleanPath += `${sep}captcha_token=${encodeURIComponent(captchaToken)}`;
+            }
+
             let urlsToTry: string[] = [];
             if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
                 urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
@@ -881,21 +925,11 @@ REGRAS:
                 headers['x-session-key'] = cleanJwt;
             }
 
-            // Extract captcha token from URL or body if present and inject headers
-            let captchaToken = '';
-            try {
-                const urlObj = new URL(url, 'https://edusp-api.ip.tv');
-                captchaToken = urlObj.searchParams.get('captcha_token') || urlObj.searchParams.get('captcha') || urlObj.searchParams.get('x-captcha-token') || '';
-            } catch (e) {}
-
-            if (!captchaToken && body && typeof body === 'object') {
-                captchaToken = body.captcha_token || body.captchaToken || body.captcha || '';
-            }
-
             if (captchaToken) {
                 headers['x-captcha-token'] = captchaToken;
                 headers['x-captcha'] = captchaToken;
                 headers['captcha-token'] = captchaToken;
+                headers['captcha_token'] = captchaToken;
                 headers['x-captcha-response'] = captchaToken;
                 headers['captcha'] = captchaToken;
                 headers['x-recaptcha'] = captchaToken;
@@ -1735,7 +1769,12 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         console.log(`[Apply] taskId=${taskId}, room_name=${rawRoom || 'não fornecido'}`);
 
         const tokenCodeParam = (req.query.token_code && req.query.token_code !== 'null') ? `&token_code=${encodeURIComponent(String(req.query.token_code))}` : '';
-        const captchaToken = String(req.query.captcha_token || req.query.captcha || req.headers['x-captcha-token'] || req.headers['x-captcha'] || '').trim();
+        let captchaToken = String(req.query.captcha_token || req.query.captcha || req.headers['x-captcha-token'] || req.headers['x-captcha'] || '').trim();
+        if (captchaToken) {
+            setActiveCaptchaToken(token, captchaToken);
+        } else {
+            captchaToken = getActiveCaptchaToken(token);
+        }
         const captchaParam = captchaToken ? `&captcha_token=${encodeURIComponent(captchaToken)}` : '';
 
         const slugsToTry = new Set<string>();
@@ -1990,18 +2029,26 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             job.message = 'Obtendo estrutura da atividade...';
             job.updatedAt = Date.now();
 
+            let captchaToken = job.captchaToken || params.captcha_token || params.captchaToken || params.captcha || '';
+            if (captchaToken) {
+                setActiveCaptchaToken(authToken, captchaToken);
+            } else {
+                captchaToken = getActiveCaptchaToken(authToken);
+            }
+            const captchaParam = captchaToken ? `&captcha_token=${encodeURIComponent(captchaToken)}` : '';
+
             // Se lista de questões estiver ausente, faz apply
             if (!Array.isArray(questionsList) || questionsList.length === 0) {
                 const tryApplyUrls: string[] = [];
                 for (const slug of roomCandidates) {
                     if (slug) {
-                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}`);
-                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}`);
+                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
+                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
                     }
                 }
-                tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}`);
-                tryApplyUrls.push(`/tms/task/${taskId}/apply${tokenCodeParam ? '?' + tokenCodeParam.substring(1) : ''}`);
-                tryApplyUrls.push(`/tms/task/${taskId}`);
+                tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}${captchaParam}`);
+                tryApplyUrls.push(`/tms/task/${taskId}/apply${tokenCodeParam ? '?' + tokenCodeParam.substring(1) + captchaParam : (captchaParam ? '?' + captchaParam.substring(1) : '')}`);
+                tryApplyUrls.push(`/tms/task/${taskId}${captchaParam ? '?' + captchaParam.substring(1) : ''}`);
 
                 for (const url of tryApplyUrls) {
                     try {
@@ -3612,6 +3659,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             console.log('[Turnstile] Resultado da verificação:', outcome);
 
             if (outcome.success) {
+                const sessionKey = String(req.headers['x-api-key'] || req.body?.auth_token || 'global');
+                setActiveCaptchaToken(sessionKey, token);
                 return res.json({
                     success: true,
                     valid: true,
