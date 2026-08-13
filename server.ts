@@ -1,4 +1,6 @@
 import express from 'express';
+import http from 'http';
+import https from 'https';
 import { fetch as undiciFetch, Agent, setGlobalDispatcher } from "undici";
 import { CookieJar } from "tough-cookie";
 import { JSDOM } from "jsdom";
@@ -9,6 +11,10 @@ import { GoogleGenAI } from "@google/genai";
 import { gotScraping } from "got-scraping";
 
 dotenv.config();
+
+// Keep-Alive Connection Pooling para Got / Got-Scraping (HTTP/1.1)
+const gotHttpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 128 });
+const gotHttpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 128 });
 
 // Configuração de Connection Pooling / Keep-Alive Global do Undici
 const undiciGlobalDispatcher = new Agent({
@@ -148,7 +154,11 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                 timeout: { request: timeoutMs },
                 throwHttpErrors: false,
                 retry: { limit: 0 },
-                http2: attempt === 0,
+                http2: false,
+                agent: {
+                    http: gotHttpAgent,
+                    https: gotHttpsAgent
+                },
                 useHeaderGenerator: false,
                 cookieJar: cookieJar
             });
