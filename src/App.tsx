@@ -36,17 +36,9 @@ export default function App() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [isVerified, setIsVerified] = useState(() => {
-    return typeof window !== 'undefined' ? Boolean(localStorage.getItem('shuziro_turnstile_token')) : false;
-  });
+  const [isVerified, setIsVerified] = useState(false);
   const [showEmojiModal, setShowEmojiModal] = useState(false);
   const [showAccountsModal, setShowAccountsModal] = useState(false);
-
-  const handleTurnstileVerify = (token: string) => {
-    setIsVerified(true);
-    localStorage.setItem('shuziro_turnstile_token', token);
-    showToast('Cloudflare Turnstile verificado com sucesso!', 'success');
-  };
   const [showDiscordModal, setShowDiscordModal] = useState(false);
   const [showDoacaoModal, setShowDoacaoModal] = useState(false);
 
@@ -756,7 +748,6 @@ export default function App() {
           errorMessage={errorMessage}
           onOpenAccounts={() => setShowAccountsModal(true)}
           onOpenEmojiChallenge={() => setShowEmojiModal(true)}
-          onTurnstileVerify={handleTurnstileVerify}
           isVerified={isVerified}
           selectedAccount={selectedAccountForLogin}
         />

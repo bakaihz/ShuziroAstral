@@ -1,7 +1,5 @@
 import express from 'express';
-import http from 'http';
-import https from 'https';
-import { fetch as undiciFetch, Agent, setGlobalDispatcher } from "undici";
+import { fetch as undiciFetch, Agent } from "undici";
 import { CookieJar } from "tough-cookie";
 import { JSDOM } from "jsdom";
 import dotenv from "dotenv";
@@ -11,19 +9,6 @@ import { GoogleGenAI } from "@google/genai";
 import { gotScraping } from "got-scraping";
 
 dotenv.config();
-
-// Keep-Alive Connection Pooling para Got / Got-Scraping (HTTP/1.1)
-const gotHttpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 128 });
-const gotHttpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 128 });
-
-// Configuração de Connection Pooling / Keep-Alive Global do Undici
-const undiciGlobalDispatcher = new Agent({
-    keepAliveTimeout: 30000,
-    keepAliveMaxTimeout: 60000,
-    pipelining: 1,
-    connections: 128
-});
-setGlobalDispatcher(undiciGlobalDispatcher);
 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 const EDUSP_API = 'https://edusp-api.ip.tv';
@@ -37,7 +22,7 @@ const PROXY_TUNNELS = [
     "https://edusp-api.ip.tv"
 ];
 
-// Cache em memória de respostas rápidas de GET com auto-limpeza (TTL 15s para sucesso, 2s para vazio)
+// Cache em memória de respostas rápidas de GET (15 segundos para sucesso, 2 segundos para respostas vazias)
 const apiGetCache = new Map<string, { data: any; timestamp: number }>();
 
 function getCachedApiResponse(key: string): any | null {
@@ -57,96 +42,19 @@ function setCachedApiResponse(key: string, data: any) {
     }
 }
 
-// Limpeza automática periódica do cache a cada 2 minutos
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of apiGetCache.entries()) {
-        if (now - entry.timestamp > 30000) {
-            apiGetCache.delete(key);
-        }
-    }
-}, 120_000);
-
-// Rate Limiter suave em memória para prevenção de requisições em rajada
-const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
-
-function rateLimiterMiddleware(maxReqsPerWindow = 120, windowMs = 10000) {
-    return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-        const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'client') as string;
-        const now = Date.now();
-        const record = rateLimitMap.get(ip) || { count: 0, resetTime: now + windowMs };
-
-        if (now > record.resetTime) {
-            record.count = 1;
-            record.resetTime = now + windowMs;
-        } else {
-            record.count++;
-        }
-
-        rateLimitMap.set(ip, record);
-
-        if (record.count > maxReqsPerWindow) {
-            res.setHeader('Retry-After', Math.ceil((record.resetTime - now) / 1000));
-            return res.status(429).json({ error: true, message: 'Muitas requisições em pouco tempo. Por favor aguarde um instante.' });
-        }
-
-        next();
-    };
-}
-
-// Store de CookieJars persistentes em memória organizados por token/sessão
-const userCookieJars = new Map<string, CookieJar>();
-
-function getOrCreateCookieJar(sessionKey: string): CookieJar {
-    if (!userCookieJars.has(sessionKey)) {
-        userCookieJars.set(sessionKey, new CookieJar());
-    }
-    return userCookieJars.get(sessionKey)!;
-}
-
-// Store de Tokens de CAPTCHA/Turnstile ativos por sessão (válidos por 20 min)
-const sessionCaptchaStore = new Map<string, { token: string; timestamp: number }>();
-
-function getActiveCaptchaToken(sessionKey: string): string {
-    const cached = sessionCaptchaStore.get(sessionKey) || sessionCaptchaStore.get('global');
-    if (cached && (Date.now() - cached.timestamp < 20 * 60 * 1000)) {
-        return cached.token;
-    }
-    return '';
-}
-
-function setActiveCaptchaToken(sessionKey: string, token: string) {
-    if (!token || !token.trim()) return;
-    const cleanTok = token.trim();
-    sessionCaptchaStore.set(sessionKey, { token: cleanTok, timestamp: Date.now() });
-    sessionCaptchaStore.set('global', { token: cleanTok, timestamp: Date.now() });
-}
-
-async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number; cookieJar?: CookieJar }) {
-    const { method = 'GET', headers = {}, body, timeoutMs = 4000, maxRetries = 2, cookieJar } = options;
+async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number }) {
+    const { method = 'GET', headers = {}, body, timeoutMs = 4000, maxRetries = 2 } = options;
 
     const cleanHeaders: Record<string, string> = {};
     for (const [key, val] of Object.entries(headers)) {
         if (!val) continue;
         const lKey = key.toLowerCase();
-        if (['host', 'content-length', 'connection'].includes(lKey)) {
+        if (['host', 'content-length', 'connection', 'user-agent', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform'].includes(lKey)) {
             continue;
         }
         cleanHeaders[key] = String(val);
     }
 
-    if (!cleanHeaders['User-Agent'] && !cleanHeaders['user-agent']) {
-        cleanHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-    }
-    if (!cleanHeaders['sec-ch-ua'] && !cleanHeaders['Sec-Ch-Ua']) {
-        cleanHeaders['sec-ch-ua'] = '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"';
-    }
-    if (!cleanHeaders['sec-ch-ua-mobile'] && !cleanHeaders['Sec-Ch-Ua-Mobile']) {
-        cleanHeaders['sec-ch-ua-mobile'] = '?0';
-    }
-    if (!cleanHeaders['sec-ch-ua-platform'] && !cleanHeaders['Sec-Ch-Ua-Platform']) {
-        cleanHeaders['sec-ch-ua-platform'] = '"Windows"';
-    }
     if (!cleanHeaders['Origin'] && !cleanHeaders['origin']) {
         cleanHeaders['Origin'] = 'https://saladofuturo.educacao.sp.gov.br';
     }
@@ -172,13 +80,13 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                 timeout: { request: timeoutMs },
                 throwHttpErrors: false,
                 retry: { limit: 0 },
-                http2: false,
-                agent: {
-                    http: gotHttpAgent,
-                    https: gotHttpsAgent
-                },
-                useHeaderGenerator: false,
-                cookieJar: cookieJar
+                useHeaderGenerator: true,
+                headerGeneratorOptions: {
+                    browsers: [{ name: 'chrome', minVersion: 120 }, { name: 'edge', minVersion: 120 }],
+                    devices: ['desktop'],
+                    locales: ['pt-BR', 'pt', 'en-US'],
+                    operatingSystems: ['windows', 'linux', 'macos']
+                }
             });
 
             lastStatus = res.statusCode;
@@ -190,7 +98,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
 
             if ([403, 429, 502, 503, 504].includes(res.statusCode) && attempt < maxRetries) {
                 attempt++;
-                await new Promise(r => setTimeout(r, 200 * attempt));
+                await new Promise(r => setTimeout(r, 250 * attempt));
                 continue;
             }
 
@@ -199,7 +107,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
             lastText = err.message || 'Network error';
             attempt++;
             if (attempt <= maxRetries) {
-                await new Promise(r => setTimeout(r, 200 * attempt));
+                await new Promise(r => setTimeout(r, 250 * attempt));
             }
         }
     }
@@ -223,7 +131,6 @@ async function startServer() {
 
     app.use(express.json({ limit: '50mb' }));
     app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-    app.use('/api', rateLimiterMiddleware(150, 10000));
 
     const agent = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
 
@@ -605,14 +512,14 @@ ${formattedQList}
 
 REGRAS:
 1. Para QUESTÃO DE MÚLTIPLA ESCOLHA, selecione o ID numérico da alternativa correta.
-2. Para QUESTÃO DISCURSIVA/ESSAY, elabore um texto/resumo completo, fundamentado e de excelente qualidade sobre a questão solicitada. NUNCA use frases genéricas como "Atividade Devolvida com sucesso" ou "Atividade desenvolvida".
+2. Para QUESTÃO DISCURSIVA/ESSAY, crie um texto de excelente qualidade, coeso e articulado em português do Brasil.
 3. Responda estritamente em formato JSON com o objeto "answers" onde a chave de cada objeto é o ID da questão:
 {
   "answers": {
     "<question_id>": {
       "selected_id": <ID_NUMÉRICO_DA_OPÇÃO_CORRETA_OU_NULL>,
-      "title": "<TÍTULO_DA_RESPOSTA_OU_NULL>",
-      "text": "<TEXTO_E_RESUMO_COMPLETO_DA_QUESTÃO_DISCURSIVA_OU_NULL>"
+      "title": "<TÍTULO_SE_FOR_DISCURSIVA_OU_NULL>",
+      "text": "<TEXTO_SE_FOR_DISCURSIVA_OU_NULL>"
     }
   }
 }`;
@@ -641,9 +548,8 @@ REGRAS:
                     const qType = q.resolvedType;
 
                     if (q.isText) {
-                        const qStatement = q.statement || q.title || 'Tema da Atividade';
-                        const title = aiAns?.title || userTitle || q.title || `Resumo: ${qStatement.substring(0, 35)}`;
-                        const text = aiAns?.text || (aiRawResponse && !aiRawResponse.includes('{') ? aiRawResponse : '') || `Resumo elaborado sobre ${qStatement}: análise detalhada dos pontos principais do conteúdo para fundamentação da resposta.`;
+                        const title = aiAns?.title || userTitle || q.title || 'Resposta da Atividade';
+                        const text = aiAns?.text || (aiRawResponse && !aiRawResponse.includes('{') ? aiRawResponse : '') || 'Atividade desenvolvida com base na análise do tema.';
                         const isEssayType = qType === 'essay' || isEssay;
                         answersMap[qId] = {
                             question_id: Number(qId),
@@ -665,12 +571,10 @@ REGRAS:
                     const qId = String(q.id || q.question_id);
                     const qType = q.resolvedType;
                     if (q.isText) {
-                        const qStatement = q.statement || q.title || 'Tema da Atividade';
-                        const summaryText = userText || `Resumo sobre ${qStatement}: estudo focado nos conceitos chaves e desenvolvimento analítico do tema.`;
                         answersMap[qId] = {
                             question_id: Number(qId),
                             question_type: (qType === 'essay' || isEssay) ? 'essay' : qType,
-                            answer: (qType === 'essay' || isEssay) ? { title: userTitle || 'Resumo Dissertativo', body: summaryText } : summaryText
+                            answer: (qType === 'essay' || isEssay) ? { title: userTitle || 'Redação', body: userText || 'Atividade desenvolvida com sucesso.' } : (userText || 'Atividade respondida.')
                         };
                     } else {
                         const firstOpt = q.parsedOpts?.[0];
@@ -744,12 +648,12 @@ REGRAS:
                     let titleVal = titulo || 'Resposta';
 
                     if (typeof ansVal === 'object' && ansVal !== null) {
-                        textVal = ansVal["0"] || ansVal.text || ansVal.body || ansVal.content || texto || 'Resumo elaborado com base na análise aprofundada do tema da atividade.';
-                        titleVal = ansVal.title || titulo || 'Resumo da Atividade';
+                        textVal = ansVal["0"] || ansVal.text || ansVal.body || ansVal.content || texto || 'Atividade desenvolvida com sucesso.';
+                        titleVal = ansVal.title || titulo || 'Resposta';
                     } else if (typeof ansVal === 'string') {
                         textVal = ansVal;
                     } else {
-                        textVal = texto || 'Resumo elaborado com base na análise aprofundada do tema da atividade.';
+                        textVal = texto || 'Atividade desenvolvida com sucesso.';
                     }
 
                     ansVal = transformText({ textVal, titleVal });
@@ -859,32 +763,6 @@ REGRAS:
             let cleanPath = url.replace(/^https?:\/\/edusp-api\.ip\.tv\/?/, '');
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
-            const sessionKey = String(effectiveToken || token || 'global');
-
-            // Extract captcha token from URL, body, custom header or session cache
-            let captchaToken = req.headers['x-captcha-token'] as string || req.headers['captcha-token'] as string || '';
-            try {
-                const urlObj = new URL(url, 'https://edusp-api.ip.tv');
-                if (!captchaToken) {
-                    captchaToken = urlObj.searchParams.get('captcha_token') || urlObj.searchParams.get('captcha') || urlObj.searchParams.get('x-captcha-token') || '';
-                }
-            } catch (e) {}
-
-            if (!captchaToken && body && typeof body === 'object') {
-                captchaToken = body.captcha_token || body.captchaToken || body.captcha || '';
-            }
-
-            if (captchaToken) {
-                setActiveCaptchaToken(sessionKey, captchaToken);
-            } else {
-                captchaToken = getActiveCaptchaToken(sessionKey);
-            }
-
-            if (captchaToken && !cleanPath.includes('captcha_token=')) {
-                const sep = cleanPath.includes('?') ? '&' : '?';
-                cleanPath += `${sep}captcha_token=${encodeURIComponent(captchaToken)}`;
-            }
-
             let urlsToTry: string[] = [];
             if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
                 urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
@@ -925,11 +803,21 @@ REGRAS:
                 headers['x-session-key'] = cleanJwt;
             }
 
+            // Extract captcha token from URL or body if present and inject headers
+            let captchaToken = '';
+            try {
+                const urlObj = new URL(url, 'https://edusp-api.ip.tv');
+                captchaToken = urlObj.searchParams.get('captcha_token') || urlObj.searchParams.get('captcha') || urlObj.searchParams.get('x-captcha-token') || '';
+            } catch (e) {}
+
+            if (!captchaToken && body && typeof body === 'object') {
+                captchaToken = body.captcha_token || body.captchaToken || body.captcha || '';
+            }
+
             if (captchaToken) {
                 headers['x-captcha-token'] = captchaToken;
                 headers['x-captcha'] = captchaToken;
                 headers['captcha-token'] = captchaToken;
-                headers['captcha_token'] = captchaToken;
                 headers['x-captcha-response'] = captchaToken;
                 headers['captcha'] = captchaToken;
                 headers['x-recaptcha'] = captchaToken;
@@ -938,9 +826,6 @@ REGRAS:
             if (clientCookies) {
                 headers['cookie'] = clientCookies;
             }
-
-            const sessionKey = String(effectiveToken || token || 'global');
-            const userJar = getOrCreateCookieJar(sessionKey);
 
             const isTunnelOrWorker = domain.includes('workers.dev') ||
                 domain.includes('worker') ||
@@ -974,8 +859,7 @@ REGRAS:
                         headers,
                         body,
                         timeoutMs: isTunnelOrWorker ? 3500 : 5000,
-                        maxRetries: 2,
-                        cookieJar: userJar
+                        maxRetries: 2
                     });
 
                     responseStatus = gotRes.status;
@@ -1011,13 +895,14 @@ REGRAS:
                             continue;
                         }
 
-                        const isCloudflareBlock = (responseStatus === 530 || responseStatus === 520 || responseStatus === 525 || (responseStatus === 403 && isHtmlPage)) && (
+                        const isCloudflareBlock = (responseStatus === 403 || responseStatus === 530 || responseStatus === 520 || responseStatus === 525) && (
                             cleanText.toLowerCase().includes('just a moment') ||
+                            cleanText.toLowerCase().includes('cloudflare') ||
                             cleanText.toLowerCase().includes('attention required') ||
                             cleanText.toLowerCase().includes('error 1033') ||
-                            cleanText.toLowerCase().includes('ray id:') ||
-                            cleanText.toLowerCase().includes('cf-ray') ||
-                            cleanText.toLowerCase().includes('cloudflare') ||
+                            cleanText.toLowerCase().includes('bloqueio') ||
+                            cleanText.toLowerCase().includes('forbidden') ||
+                            cleanText.toLowerCase().includes('denied') ||
                             cleanText.startsWith('<!doctype') ||
                             cleanText.startsWith('<html') ||
                             isHtmlPage
@@ -1769,12 +1654,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         console.log(`[Apply] taskId=${taskId}, room_name=${rawRoom || 'não fornecido'}`);
 
         const tokenCodeParam = (req.query.token_code && req.query.token_code !== 'null') ? `&token_code=${encodeURIComponent(String(req.query.token_code))}` : '';
-        let captchaToken = String(req.query.captcha_token || req.query.captcha || req.headers['x-captcha-token'] || req.headers['x-captcha'] || '').trim();
-        if (captchaToken) {
-            setActiveCaptchaToken(token, captchaToken);
-        } else {
-            captchaToken = getActiveCaptchaToken(token);
-        }
+        const captchaToken = String(req.query.captcha_token || req.query.captcha || req.headers['x-captcha-token'] || req.headers['x-captcha'] || '').trim();
         const captchaParam = captchaToken ? `&captcha_token=${encodeURIComponent(captchaToken)}` : '';
 
         const slugsToTry = new Set<string>();
@@ -2029,26 +1909,18 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             job.message = 'Obtendo estrutura da atividade...';
             job.updatedAt = Date.now();
 
-            let captchaToken = job.captchaToken || params.captcha_token || params.captchaToken || params.captcha || '';
-            if (captchaToken) {
-                setActiveCaptchaToken(authToken, captchaToken);
-            } else {
-                captchaToken = getActiveCaptchaToken(authToken);
-            }
-            const captchaParam = captchaToken ? `&captcha_token=${encodeURIComponent(captchaToken)}` : '';
-
             // Se lista de questões estiver ausente, faz apply
             if (!Array.isArray(questionsList) || questionsList.length === 0) {
                 const tryApplyUrls: string[] = [];
                 for (const slug of roomCandidates) {
                     if (slug) {
-                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
-                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
+                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}`);
+                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}`);
                     }
                 }
-                tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}${captchaParam}`);
-                tryApplyUrls.push(`/tms/task/${taskId}/apply${tokenCodeParam ? '?' + tokenCodeParam.substring(1) + captchaParam : (captchaParam ? '?' + captchaParam.substring(1) : '')}`);
-                tryApplyUrls.push(`/tms/task/${taskId}${captchaParam ? '?' + captchaParam.substring(1) : ''}`);
+                tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}`);
+                tryApplyUrls.push(`/tms/task/${taskId}/apply${tokenCodeParam ? '?' + tokenCodeParam.substring(1) : ''}`);
+                tryApplyUrls.push(`/tms/task/${taskId}`);
 
                 for (const url of tryApplyUrls) {
                     try {
@@ -3629,57 +3501,6 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             }
         } catch (err: any) {
             return res.status(500).json({ error: err.message });
-        }
-    });
-
-    // Endpoint do Cloudflare Turnstile Verification
-    app.post(["/api/turnstile/verify", "/turnstile/verify"], async (req, res) => {
-        const token = req.body?.token || req.body?.['cf-turnstile-response'] || req.body?.response;
-        if (!token) {
-            return res.status(400).json({ success: false, error: "Token do Turnstile não fornecido." });
-        }
-
-        const turnstileSecret = process.env.TURNSTILE_SECRET_KEY || '0x4AAAAAAEOio6rwbX1EEVuP4PISf7OvPJU';
-
-        try {
-            const formData = new URLSearchParams();
-            formData.append('secret', turnstileSecret);
-            formData.append('response', token);
-            if (req.ip) formData.append('remoteip', req.ip);
-
-            const verifyRes = await undiciFetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: formData.toString()
-            });
-
-            const outcome: any = await verifyRes.json();
-            console.log('[Turnstile] Resultado da verificação:', outcome);
-
-            if (outcome.success) {
-                const sessionKey = String(req.headers['x-api-key'] || req.body?.auth_token || 'global');
-                setActiveCaptchaToken(sessionKey, token);
-                return res.json({
-                    success: true,
-                    valid: true,
-                    message: "Turnstile verificado com sucesso!",
-                    token: token,
-                    challenge_ts: outcome.challenge_ts,
-                    hostname: outcome.hostname
-                });
-            } else {
-                return res.status(400).json({
-                    success: false,
-                    valid: false,
-                    error: "Falha na verificação do Cloudflare Turnstile.",
-                    errorCodes: outcome['error-codes'] || []
-                });
-            }
-        } catch (err: any) {
-            console.error('[Turnstile] Erro na verificação:', err.message);
-            return res.status(500).json({ success: false, error: "Erro interno ao conectar ao serviço Turnstile." });
         }
     });
 
