@@ -88,8 +88,18 @@ function rateLimiterMiddleware(maxReqsPerWindow = 120, windowMs = 10000) {
     };
 }
 
-async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number }) {
-    const { method = 'GET', headers = {}, body, timeoutMs = 4000, maxRetries = 2 } = options;
+// Store de CookieJars persistentes em memória organizados por token/sessão
+const userCookieJars = new Map<string, CookieJar>();
+
+function getOrCreateCookieJar(sessionKey: string): CookieJar {
+    if (!userCookieJars.has(sessionKey)) {
+        userCookieJars.set(sessionKey, new CookieJar());
+    }
+    return userCookieJars.get(sessionKey)!;
+}
+
+async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number; cookieJar?: CookieJar }) {
+    const { method = 'GET', headers = {}, body, timeoutMs = 4000, maxRetries = 2, cookieJar } = options;
 
     const cleanHeaders: Record<string, string> = {};
     for (const [key, val] of Object.entries(headers)) {
@@ -139,7 +149,8 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                 throwHttpErrors: false,
                 retry: { limit: 0 },
                 http2: attempt === 0,
-                useHeaderGenerator: false
+                useHeaderGenerator: false,
+                cookieJar: cookieJar
             });
 
             lastStatus = res.statusCode;
@@ -884,6 +895,9 @@ REGRAS:
                 headers['cookie'] = clientCookies;
             }
 
+            const sessionKey = String(effectiveToken || token || 'global');
+            const userJar = getOrCreateCookieJar(sessionKey);
+
             const isTunnelOrWorker = domain.includes('workers.dev') ||
                 domain.includes('worker') ||
                 domain.includes('shuziroastral.lol') ||
@@ -916,7 +930,8 @@ REGRAS:
                         headers,
                         body,
                         timeoutMs: isTunnelOrWorker ? 3500 : 5000,
-                        maxRetries: 2
+                        maxRetries: 2,
+                        cookieJar: userJar
                     });
 
                     responseStatus = gotRes.status;
