@@ -89,6 +89,7 @@ const server = http.createServer(async (req, res) => {
                     timeout: { request: 12000 },
                     throwHttpErrors: false,
                     retry: { limit: 1 },
+                    http2: true,
                     useHeaderGenerator: true,
                     headerGeneratorOptions: {
                         browsers: [{ name: 'chrome', minVersion: 120 }, { name: 'edge', minVersion: 120 }],

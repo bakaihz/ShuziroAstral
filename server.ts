@@ -1,5 +1,5 @@
 import express from 'express';
-import { fetch as undiciFetch, Agent } from "undici";
+import { fetch as undiciFetch, Agent, setGlobalDispatcher } from "undici";
 import { CookieJar } from "tough-cookie";
 import { JSDOM } from "jsdom";
 import dotenv from "dotenv";
@@ -9,6 +9,15 @@ import { GoogleGenAI } from "@google/genai";
 import { gotScraping } from "got-scraping";
 
 dotenv.config();
+
+// Configuração de Connection Pooling / Keep-Alive Global do Undici
+const undiciGlobalDispatcher = new Agent({
+    keepAliveTimeout: 30000,
+    keepAliveMaxTimeout: 60000,
+    pipelining: 1,
+    connections: 128
+});
+setGlobalDispatcher(undiciGlobalDispatcher);
 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 const EDUSP_API = 'https://edusp-api.ip.tv';
@@ -22,7 +31,7 @@ const PROXY_TUNNELS = [
     "https://edusp-api.ip.tv"
 ];
 
-// Cache em memória de respostas rápidas de GET (15 segundos para sucesso, 2 segundos para respostas vazias)
+// Cache em memória de respostas rápidas de GET com auto-limpeza (TTL 15s para sucesso, 2s para vazio)
 const apiGetCache = new Map<string, { data: any; timestamp: number }>();
 
 function getCachedApiResponse(key: string): any | null {
@@ -40,6 +49,43 @@ function setCachedApiResponse(key: string, data: any) {
     if (data !== undefined && data !== null) {
         apiGetCache.set(key, { data, timestamp: Date.now() });
     }
+}
+
+// Limpeza automática periódica do cache a cada 2 minutos
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of apiGetCache.entries()) {
+        if (now - entry.timestamp > 30000) {
+            apiGetCache.delete(key);
+        }
+    }
+}, 120_000);
+
+// Rate Limiter suave em memória para prevenção de requisições em rajada
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+
+function rateLimiterMiddleware(maxReqsPerWindow = 120, windowMs = 10000) {
+    return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+        const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'client') as string;
+        const now = Date.now();
+        const record = rateLimitMap.get(ip) || { count: 0, resetTime: now + windowMs };
+
+        if (now > record.resetTime) {
+            record.count = 1;
+            record.resetTime = now + windowMs;
+        } else {
+            record.count++;
+        }
+
+        rateLimitMap.set(ip, record);
+
+        if (record.count > maxReqsPerWindow) {
+            res.setHeader('Retry-After', Math.ceil((record.resetTime - now) / 1000));
+            return res.status(429).json({ error: true, message: 'Muitas requisições em pouco tempo. Por favor aguarde um instante.' });
+        }
+
+        next();
+    };
 }
 
 async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number }) {
@@ -80,6 +126,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                 timeout: { request: timeoutMs },
                 throwHttpErrors: false,
                 retry: { limit: 0 },
+                http2: true,
                 useHeaderGenerator: true,
                 headerGeneratorOptions: {
                     browsers: [{ name: 'chrome', minVersion: 120 }, { name: 'edge', minVersion: 120 }],
@@ -131,6 +178,7 @@ async function startServer() {
 
     app.use(express.json({ limit: '50mb' }));
     app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+    app.use('/api', rateLimiterMiddleware(150, 10000));
 
     const agent = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
 
