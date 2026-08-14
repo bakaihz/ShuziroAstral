@@ -139,8 +139,16 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#27272a] pb-4">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <CheckSquare className="w-5 h-5 text-white" /> Tarefas SP & CMSP
+          <h2 className="text-xl font-bold text-white flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg overflow-hidden border border-zinc-700 shadow-sm shrink-0 bg-zinc-900 flex items-center justify-center">
+              <img 
+                src="https://static.vecteezy.com/ti/vetor-gratis/p1/26587905-cuidadosamente-projetado-lista-de-controle-icone-representa-uma-lista-do-tarefas-ou-itens-para-estar-concluido-frequentemente-usava-dentro-produtividade-e-organizacao-apps-vetor.jpg" 
+                alt="Tarefas" 
+                className="w-full h-full object-cover" 
+                referrerPolicy="no-referrer" 
+              />
+            </div>
+            <span>Tarefas SP & CMSP</span>
           </h2>
           <p className="text-xs text-zinc-400 mt-0.5">
             Gerencie, selecione e resolva tarefas e lições de casa das suas salas.
@@ -150,34 +158,28 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
         <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
           {filteredTarefas.length > 0 && (
             <>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+              <button
                 onClick={handleSelectAll}
-                className="px-3 py-2 bg-[#18181b] hover:bg-[#222226] border border-[#27272a] text-zinc-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                className="px-3 py-2 bg-[#18181b] hover:bg-[#222226] active:scale-[0.98] border border-[#27272a] text-zinc-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
               >
                 Selecionar Todas
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+              </button>
+              <button
                 onClick={handleDeselectAll}
-                className="px-3 py-2 bg-[#18181b] hover:bg-[#222226] border border-[#27272a] text-zinc-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                className="px-3 py-2 bg-[#18181b] hover:bg-[#222226] active:scale-[0.98] border border-[#27272a] text-zinc-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
               >
                 Limpar
-              </motion.button>
+              </button>
             </>
           )}
 
           {onRefresh && (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={onRefresh}
-              className="px-3.5 py-2 bg-[#18181b] hover:bg-[#222226] border border-[#27272a] text-zinc-200 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all cursor-pointer"
+              className="px-3.5 py-2 bg-[#18181b] hover:bg-[#222226] active:scale-[0.98] border border-[#27272a] text-zinc-200 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5 text-white" /> Atualizar
-            </motion.button>
+            </button>
           )}
         </div>
       </div>
@@ -198,7 +200,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
             placeholder="Buscar tarefas por título ou sala..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[#121214] border border-[#27272a] focus:border-emerald-500/50 text-zinc-200 text-xs rounded-xl pl-9 pr-3 py-2.5 outline-none transition-all shadow-inner"
+            className="w-full bg-[#121214] border border-[#27272a] focus:border-zinc-500 text-zinc-200 text-xs rounded-xl pl-9 pr-3 py-2.5 outline-none transition-all shadow-inner"
           />
         </div>
 
@@ -290,15 +292,15 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
 
                 <div className="flex items-center gap-2 shrink-0">
                   {isExpired ? (
-                    <span className="text-[11px] px-2.5 py-1 rounded-full border font-medium bg-amber-950/40 border-amber-700/60 text-amber-300 flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-amber-400" /> Expirada
+                    <span className="text-[11px] px-2.5 py-1 rounded-full border font-mono font-medium bg-red-500/10 border-red-500/30 text-red-400 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-red-500" /> Expirada
                     </span>
                   ) : isDraft ? (
-                    <span className="text-[11px] px-2.5 py-1 rounded-full border font-medium bg-zinc-800 border-zinc-700 text-zinc-300">
+                    <span className="text-[11px] px-2.5 py-1 rounded-full border font-mono font-medium bg-zinc-800 border-zinc-700 text-zinc-400">
                       Rascunho
                     </span>
                   ) : (
-                    <span className="text-[11px] px-2.5 py-1 rounded-full border font-medium bg-emerald-950/40 border-emerald-700/50 text-emerald-300">
+                    <span className="text-[11px] px-2.5 py-1 rounded-full border font-mono font-medium bg-zinc-900 border-zinc-700 text-zinc-300">
                       Pendente
                     </span>
                   )}
@@ -337,8 +339,8 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
             exit={{ opacity: 0, y: 20 }}
             className="sticky bottom-4 bg-[#121214]/95 backdrop-blur-xl border border-zinc-600 rounded-2xl p-4 flex items-center justify-between shadow-2xl z-20"
           >
-            <div className="text-xs font-medium text-zinc-200 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+            <div className="text-xs font-medium text-zinc-200 flex items-center gap-2 font-mono">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
               <strong className="text-white text-sm">{selectedIds.size}</strong> tarefa(s) selecionada(s)
             </div>
             <motion.button
@@ -363,10 +365,10 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
               exit={{ opacity: 0, scale: 0.92, y: 15 }}
               className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 max-w-md w-full shadow-2xl relative overflow-hidden space-y-5"
             >
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-zinc-700 via-white to-zinc-700" />
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-zinc-400 to-white" />
               <div>
                 <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-white" /> Configuração do Envio das Tarefas
+                  <Sparkles className="w-5 h-5 text-red-500" /> Configuração do Envio das Tarefas
                 </h3>
                 <p className="text-xs text-zinc-400">
                   Resolver automaticamente <strong className="text-white font-bold">{selectedIds.size}</strong> tarefa(s) selecionada(s).
@@ -375,7 +377,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
 
               {/* Preset selection */}
               <div className="space-y-2">
-                <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider font-mono">
                   Presets de Velocidade (Anti-Ban)
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -389,9 +391,9 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     }`}
                   >
                     <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> Rápido
+                      <Zap className="w-3.5 h-3.5 text-red-500 fill-red-500" /> Rápido
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">Mín 1 min • Máx 3 min</div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 1 min • Máx 3 min</div>
                   </button>
 
                   <button
@@ -404,9 +406,9 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     }`}
                   >
                     <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      <Clock className="w-3.5 h-3.5 text-emerald-400" /> Normal
+                      <Clock className="w-3.5 h-3.5 text-zinc-300" /> Normal
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">Mín 3 min • Máx 6 min</div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 3 min • Máx 6 min</div>
                   </button>
 
                   <button
@@ -419,9 +421,9 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     }`}
                   >
                     <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Seguro
+                      <ShieldCheck className="w-3.5 h-3.5 text-zinc-300" /> Seguro
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">Mín 8 min • Máx 12 min</div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 8 min • Máx 12 min</div>
                   </button>
 
                   <button

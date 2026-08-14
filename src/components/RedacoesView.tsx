@@ -100,8 +100,16 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#27272a] pb-4">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <PenTool className="w-5 h-5 text-purple-400" /> Redações SP Paulista
+          <h2 className="text-xl font-bold text-white flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg overflow-hidden border border-zinc-700 shadow-sm shrink-0 bg-zinc-900 flex items-center justify-center">
+              <img 
+                src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQroFJxwJ0-n17TqNJJb0-qCsFoHNixRNwIXdaD4VNDBg&s=10" 
+                alt="Redação" 
+                className="w-full h-full object-cover" 
+                referrerPolicy="no-referrer" 
+              />
+            </div>
+            <span>Redações SP Paulista</span>
           </h2>
           <p className="text-xs text-zinc-400 mt-0.5">
             Gere, elabore e envie redações dissertativas automaticamente via IA.
@@ -271,19 +279,19 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({
               exit={{ opacity: 0, scale: 0.92, y: 15 }}
               className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 max-w-md w-full shadow-2xl relative overflow-hidden space-y-4"
             >
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 via-indigo-500 to-emerald-400" />
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-zinc-400 to-white" />
               <div>
                 <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-purple-400" /> Automação de Redações por IA
+                  <Sparkles className="w-5 h-5 text-red-500" /> Automação de Redações por IA
                 </h3>
                 <p className="text-xs text-zinc-400">
-                  Gerar e enviar <strong className="text-purple-300 font-bold">{selectedIds.size}</strong> redação(ões) automaticamente.
+                  Gerar e enviar <strong className="text-white font-bold">{selectedIds.size}</strong> redação(ões) automaticamente.
                 </p>
               </div>
 
               {/* Presets */}
               <div className="space-y-2">
-                <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider font-mono">
                   Presets de Velocidade (Anti-Ban)
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -292,14 +300,14 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({
                     onClick={() => handlePresetChange('rapido')}
                     className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
                       preset === 'rapido'
-                        ? 'border-purple-400 bg-purple-950/40 text-purple-300 font-bold'
+                        ? 'border-white bg-zinc-800 text-white font-bold'
                         : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
                     }`}
                   >
                     <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> Rápido
+                      <Zap className="w-3.5 h-3.5 text-red-500 fill-red-500" /> Rápido
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">Mín 1 min • Máx 3 min</div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 1 min • Máx 3 min</div>
                   </button>
 
                   <button
@@ -307,14 +315,14 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({
                     onClick={() => handlePresetChange('normal')}
                     className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
                       preset === 'normal'
-                        ? 'border-purple-400 bg-purple-950/40 text-purple-300 font-bold'
+                        ? 'border-white bg-zinc-800 text-white font-bold'
                         : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
                     }`}
                   >
                     <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      <Clock className="w-3.5 h-3.5 text-emerald-400" /> Normal
+                      <Clock className="w-3.5 h-3.5 text-zinc-300" /> Normal
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">Mín 3 min • Máx 6 min</div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 3 min • Máx 6 min</div>
                   </button>
                 </div>
               </div>

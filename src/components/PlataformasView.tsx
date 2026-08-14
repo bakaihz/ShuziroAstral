@@ -23,7 +23,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
   {
     nome: 'TarefaSP',
     slug: 'tarefas',
-    icon: '📝',
+    imageUrl: 'https://static.vecteezy.com/ti/vetor-gratis/p1/26587905-cuidadosamente-projetado-lista-de-controle-icone-representa-uma-lista-do-tarefas-ou-itens-para-estar-concluido-frequentemente-usava-dentro-produtividade-e-organizacao-apps-vetor.jpg',
     desc: 'Tarefas e lições do dia no CMSP',
     fundamental: true,
     medio: true,
@@ -31,7 +31,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
   {
     nome: 'Redação SP',
     slug: 'redacoes',
-    icon: '✍️',
+    imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQroFJxwJ0-n17TqNJJb0-qCsFoHNixRNwIXdaD4VNDBg&s=10',
     desc: 'Redações, IA e devolutivas pedagógicas',
     fundamental: true,
     medio: true,
@@ -39,7 +39,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
   {
     nome: 'LeiaSP & Árvore',
     slug: 'leiasp',
-    imageUrl: 'https://s3.sa-east-1.amazonaws.com/edusp-static.ip.tv/room/cards/edusp/julianasanche3225895-sp/RbJxeFVGxD8ioStvVh3UvdJEgMQZWI.png',
+    imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTi_t2qU7OStT-nJbRJuBvwhHH_hfIK78iImskozn7cDw&s=10',
     desc: 'Leituras, e-books e acervo digital escolar',
     fundamental: true,
     medio: true,
@@ -47,7 +47,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
   {
     nome: 'Matific',
     slug: 'matific',
-    imageUrl: 'https://s3.sa-east-1.amazonaws.com/edusp-static.ip.tv/room/cards/edusp/julianasanche3225895-sp/VDJKB7A43QWgudrnkkxj81OZMa6SkG.jpg',
+    imageUrl: 'https://cdn-ileajni.nitrocdn.com/gYBTbeuvnSFIBVzMBthiwYtYRGGhOkdm/assets/images/optimized/rev-7ee458d/theobelus.com/wp-content/uploads/2024/03/2-1.png',
     desc: 'Matemática interativa e episódios para Fundamental (6º ao 9º)',
     fundamental: true,
     medio: false,
@@ -56,7 +56,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
   {
     nome: 'Khan Academy (Em Desenvolvimento)',
     slug: 'khan',
-    icon: '📐',
+    imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSRG9s8j2nJMyewDZK0pSDt2TzlAu6AwMj5wi8GvJcr-A&s=10',
     desc: 'Matemática e Ciências com aprendizado adaptativo',
     fundamental: false,
     medio: true,
@@ -65,7 +65,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
   {
     nome: 'Speak (Inglês) (Em Desenvolvimento)',
     slug: 'speak',
-    imageUrl: 'https://s3.sa-east-1.amazonaws.com/edusp-static.ip.tv/room/cards/edusp/mairaeliasman3315708-sp/3mzK7R96oE5dkUhd4TVA1l292CVDoL.png',
+    imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRZreTcfuh9lqMDFAsYPQ4OUH6aepbbaxJWVE7R1Oj4wA&s=10',
     desc: 'Conversação em inglês com assistente IA',
     fundamental: true,
     medio: true,
@@ -82,7 +82,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
   {
     nome: 'AVA Expansão (Em Desenvolvimento)',
     slug: 'expansao',
-    icon: '📺',
+    imageUrl: 'https://cdn.discordapp.com/attachments/1470207550694625322/1470207551118377044/expansao.png?ex=6a7fabfb&is=6a7e5a7b&hm=03ee840e94328eefc7822adc034c79938e19744283b6742259e73499005ac489&',
     desc: 'Aulas de expansão curricular e eletivas do Ensino Médio',
     fundamental: false,
     medio: true,
@@ -91,7 +91,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
   {
     nome: 'Educação Profissional (Em Desenvolvimento)',
     slug: 'educacaoprofissional',
-    icon: '🎓',
+    imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRmO1__qoRUeR4LCKNDlpomxhVJRBzWH7MC11UZMWPgqQ&s=10',
     desc: 'Cursos técnicos integrados e qualificação profissional',
     fundamental: false,
     medio: true,
@@ -100,7 +100,7 @@ export const PLATFORMS_LIST: PlatformItem[] = [
   {
     nome: 'PreparaSP & SimulaSP (Em Desenvolvimento)',
     slug: 'preparasp',
-    icon: '🎯',
+    imageUrl: 'https://cdn.discordapp.com/attachments/1475489919316000860/1475489919693623356/preparasp.png?ex=6a7f1d12&is=6a7dcb92&hm=f412e29d47fd65074084560a3ab660819d6088902c877f87d66a3864e115eeb6&',
     desc: 'Simulados e preparação para o ENEM e FUVEST',
     fundamental: false,
     medio: true,
@@ -218,17 +218,17 @@ export const PlataformasView: React.FC<PlataformasViewProps> = ({ userData, onNa
                 </span>
               )}
               {p.emDesenvolvimento && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400">
                   Em Desenvolvimento
                 </span>
               )}
               {p.fundamental && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300">
                   EF
                 </span>
               )}
               {p.medio && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300">
                   EM
                 </span>
               )}
@@ -246,7 +246,7 @@ export const PlataformasView: React.FC<PlataformasViewProps> = ({ userData, onNa
               </div>
               <div className="pr-12">
                 <div className={`text-sm font-bold transition-colors ${
-                  p.emManutencao ? 'text-zinc-500 group-hover:text-red-400' : 'text-zinc-100 group-hover:text-emerald-400'
+                  p.emManutencao ? 'text-zinc-500 group-hover:text-red-400' : 'text-zinc-100 group-hover:text-white'
                 }`}>
                   {p.nome}
                 </div>
@@ -255,10 +255,10 @@ export const PlataformasView: React.FC<PlataformasViewProps> = ({ userData, onNa
             </div>
 
             <div className="flex items-center justify-between pt-4 mt-4 border-t border-[#27272a]/60 text-xs">
-              <span className={`text-[11px] font-medium flex items-center gap-1.5 ${
-                p.emManutencao ? 'text-red-400/80' : 'text-emerald-400'
+              <span className={`text-[11px] font-mono font-medium flex items-center gap-1.5 ${
+                p.emManutencao ? 'text-red-400/80' : 'text-zinc-400'
               }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${p.emManutencao ? 'bg-red-500 animate-pulse' : 'bg-emerald-400 animate-pulse'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full ${p.emManutencao ? 'bg-red-500 animate-pulse' : 'bg-red-500'}`} />
                 {p.emManutencao ? 'Em Manutenção' : `ShuziroAstral.lol/${p.slug}`}
               </span>
               <div className={`flex items-center gap-1 transition-colors font-medium text-[11px] ${

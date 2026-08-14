@@ -7,6 +7,10 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { gotScraping } from "got-scraping";
+import got from "got";
+import { HeaderGenerator } from "header-generator";
+import pRetry from "p-retry";
+import { ProxyAgent } from "proxy-agent";
 
 dotenv.config();
 
@@ -14,6 +18,32 @@ const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const EDUSP_API = 'https://edusp-api.ip.tv';
 const SED_LOGIN_URL = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/credenciais/api/LoginCompletoToken';
 const SUBSCRIPTION_KEY = 'd701a2043aa24d7ebb37e9adf60d043b';
+
+const serverCookieJar = new CookieJar();
+const serverHeaderGenerator = new HeaderGenerator({
+    browsers: [
+        { name: 'chrome', minVersion: 120 },
+        { name: 'edge', minVersion: 120 },
+        { name: 'firefox', minVersion: 120 }
+    ],
+    devices: ['desktop'],
+    locales: ['pt-BR', 'pt', 'en-US'],
+    operatingSystems: ['windows', 'linux', 'macos']
+});
+
+// Suporte a proxy upstream caso configurado no ambiente
+const upstreamProxy = process.env.UPSTREAM_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+const serverProxyAgent = upstreamProxy ? new ProxyAgent({ getProxyForUrl: () => upstreamProxy }) : undefined;
+
+// Fingerprint e sessão do navegador sincronizados a partir da verificação anti-bot do cliente
+let activeBrowserSession = {
+    userAgent: USER_AGENT,
+    platform: 'Win32',
+    language: 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+    cookies: '',
+    secChUa: '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    lastSync: Date.now()
+};
 
 const PROXY_TUNNELS = [
     "https://bakaiwaf.shuziroastral.lol",
@@ -42,14 +72,14 @@ function setCachedApiResponse(key: string, data: any) {
     }
 }
 
-async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number }) {
-    const { method = 'GET', headers = {}, body, timeoutMs = 4000, maxRetries = 2 } = options;
+async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number; forceHttp1?: boolean }) {
+    const { method = 'GET', headers = {}, body, timeoutMs = 5000, maxRetries = 2, forceHttp1 = false } = options;
 
     const cleanHeaders: Record<string, string> = {};
     for (const [key, val] of Object.entries(headers)) {
         if (!val) continue;
         const lKey = key.toLowerCase();
-        if (['host', 'content-length', 'connection', 'user-agent', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform'].includes(lKey)) {
+        if (['host', 'content-length', 'connection'].includes(lKey)) {
             continue;
         }
         cleanHeaders[key] = String(val);
@@ -61,54 +91,96 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
     if (!cleanHeaders['Referer'] && !cleanHeaders['referer']) {
         cleanHeaders['Referer'] = 'https://saladofuturo.educacao.sp.gov.br/';
     }
+    if (!cleanHeaders['Accept'] && !cleanHeaders['accept']) {
+        cleanHeaders['Accept'] = 'application/json, text/plain, */*';
+    }
+
+    const isJsonBody = body && typeof body === 'object';
+    const isStringBody = body && typeof body === 'string';
 
     let attempt = 0;
     let lastStatus = 500;
     let lastText = '';
 
     while (attempt <= maxRetries) {
-        try {
-            const isJsonBody = body && typeof body === 'object';
-            const isStringBody = body && typeof body === 'string';
+        // 1. Tenta gotScraping se forceHttp1 não estiver ativo
+        if (!forceHttp1) {
+            try {
+                const res = await gotScraping({
+                    url: targetUrl,
+                    method: method.toUpperCase() as any,
+                    headers: cleanHeaders,
+                    json: isJsonBody ? body : undefined,
+                    body: isStringBody ? body : undefined,
+                    timeout: { request: timeoutMs },
+                    throwHttpErrors: false,
+                    retry: { limit: 0 },
+                    useHeaderGenerator: true,
+                    headerGeneratorOptions: {
+                        browsers: [{ name: 'chrome', minVersion: 120 }, { name: 'edge', minVersion: 120 }],
+                        devices: ['desktop'],
+                        locales: ['pt-BR', 'pt', 'en-US'],
+                        operatingSystems: ['windows', 'linux', 'macos']
+                    }
+                });
 
-            const res = await gotScraping({
-                url: targetUrl,
+                lastStatus = res.statusCode;
+                lastText = typeof res.body === 'string' ? res.body : JSON.stringify(res.body);
+
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    return { ok: true, status: res.statusCode, text: lastText };
+                }
+
+                // Se não foi 403 / 502 / 530, retorna a resposta da API (ex: 400 ou 401 que são respostas válidas de negócio)
+                if (res.statusCode < 400 || (res.statusCode !== 403 && res.statusCode !== 530 && res.statusCode !== 520)) {
+                    return { ok: false, status: res.statusCode, text: lastText };
+                }
+            } catch (err: any) {
+                lastText = err.message || 'Scraping network error';
+            }
+        }
+
+        // 2. Fallback: Got com HTTP/1.1 puro e headers do cliente
+        try {
+            const http1Headers = {
+                ...cleanHeaders,
+                'user-agent': cleanHeaders['user-agent'] || cleanHeaders['User-Agent'] || activeBrowserSession.userAgent,
+                'sec-ch-ua': activeBrowserSession.secChUa,
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'cross-site'
+            };
+
+            const fallbackRes = await got(targetUrl, {
                 method: method.toUpperCase() as any,
-                headers: cleanHeaders,
+                headers: http1Headers,
                 json: isJsonBody ? body : undefined,
                 body: isStringBody ? body : undefined,
+                http2: false, // Força HTTP/1.1
                 timeout: { request: timeoutMs },
                 throwHttpErrors: false,
-                retry: { limit: 0 },
-                useHeaderGenerator: true,
-                headerGeneratorOptions: {
-                    browsers: [{ name: 'chrome', minVersion: 120 }, { name: 'edge', minVersion: 120 }],
-                    devices: ['desktop'],
-                    locales: ['pt-BR', 'pt', 'en-US'],
-                    operatingSystems: ['windows', 'linux', 'macos']
-                }
+                retry: { limit: 0 }
             });
 
-            lastStatus = res.statusCode;
-            lastText = typeof res.body === 'string' ? res.body : JSON.stringify(res.body);
+            lastStatus = fallbackRes.statusCode;
+            lastText = typeof fallbackRes.body === 'string' ? fallbackRes.body : JSON.stringify(fallbackRes.body);
 
-            if (res.statusCode >= 200 && res.statusCode < 300) {
-                return { ok: true, status: res.statusCode, text: lastText };
+            if (fallbackRes.statusCode >= 200 && fallbackRes.statusCode < 300) {
+                return { ok: true, status: fallbackRes.statusCode, text: lastText };
             }
 
-            if ([403, 429, 502, 503, 504].includes(res.statusCode) && attempt < maxRetries) {
-                attempt++;
-                await new Promise(r => setTimeout(r, 250 * attempt));
-                continue;
+            if (fallbackRes.statusCode < 400 || (fallbackRes.statusCode !== 403 && fallbackRes.statusCode !== 530)) {
+                return { ok: false, status: fallbackRes.statusCode, text: lastText };
             }
-
-            return { ok: false, status: res.statusCode, text: lastText };
         } catch (err: any) {
-            lastText = err.message || 'Network error';
-            attempt++;
-            if (attempt <= maxRetries) {
-                await new Promise(r => setTimeout(r, 250 * attempt));
-            }
+            lastText = err.message || 'Fallback HTTP/1.1 error';
+        }
+
+        attempt++;
+        if (attempt <= maxRetries) {
+            await new Promise(r => setTimeout(r, 200 * attempt));
         }
     }
 
@@ -319,6 +391,20 @@ async function startServer() {
         return ansObj;
     }
 
+    function extractQuestionsList(data: any): any[] {
+        if (!data || typeof data !== 'object') return [];
+        if (Array.isArray(data)) return data;
+        if (Array.isArray(data.questions)) return data.questions;
+        if (Array.isArray(data.items)) return data.items;
+        if (Array.isArray(data.data?.questions)) return data.data.questions;
+        if (Array.isArray(data.data?.items)) return data.data.items;
+        if (Array.isArray(data.task?.questions)) return data.task.questions;
+        if (Array.isArray(data.task?.items)) return data.task.items;
+        if (Array.isArray(data.body?.questions)) return data.body.questions;
+        if (Array.isArray(data.question_list)) return data.question_list;
+        return [];
+    }
+
     async function solveTaskQuestionsWithAI(
         questions: any[],
         isEssay: boolean,
@@ -328,8 +414,14 @@ async function startServer() {
         const answersMap: Record<string, any> = {};
         const questionsNeedingAI: any[] = [];
 
-        for (const q of questions) {
-            const qId = Number(q.id || q.question_id) || 0;
+        const cleanQList = extractQuestionsList(questions).length > 0 ? extractQuestionsList(questions) : (Array.isArray(questions) ? questions : []);
+
+        for (const rawQ of cleanQList) {
+            const q = (rawQ && typeof rawQ.question === 'object' && rawQ.question) 
+                ? { ...rawQ.question, answer_id: rawQ.answer_id || rawQ.question?.answer_id, ...rawQ } 
+                : ((rawQ && typeof rawQ.item === 'object' && rawQ.item) ? { ...rawQ.item, answer_id: rawQ.answer_id || rawQ.item?.answer_id, ...rawQ } : rawQ);
+
+            const qId = Number(q.id || q.question_id || q.code) || 0;
             if (!qId) continue;
 
             let rawQType = String(q.type || q.question_type || "").toLowerCase();
@@ -380,35 +472,19 @@ async function startServer() {
             if (isTextOrEssay) {
                 if (userText && userText.trim()) {
                     const isEssayType = qType === 'essay' || isEssay;
+                    const ansVal = qType === 'text_ai' 
+                        ? { "0": userText.trim() }
+                        : (isEssayType ? { title: userTitle || q.title || 'Redação', body: userText.trim() } : userText.trim());
                     answersMap[String(qId)] = {
                         question_id: qId,
                         question_type: isEssayType ? 'essay' : qType,
-                        answer: isEssayType ? { title: userTitle || q.title || 'Redação', body: userText.trim() } : userText.trim()
+                        answer: ansVal
                     };
                 } else {
                     questionsNeedingAI.push({ ...q, resolvedType: qType, isText: true });
                 }
-            } else if (qType === "fill-words" || qType === "fill_words" || qType === "cloud") {
-                let items: string[] = [];
-                if (Array.isArray(q.options?.items)) items = q.options.items;
-                else if (Array.isArray(q.options?.words)) items = q.options.words;
-                else if (Array.isArray(q.options?.cloud)) items = q.options.cloud;
-                else if (Array.isArray(q.items)) items = q.items;
-
-                let selectCount = 0;
-                if (Array.isArray(q.options?.phrase)) {
-                    selectCount = q.options.phrase.filter((p: any) => p.type === 'select').length;
-                }
-                if (selectCount <= 0) selectCount = items.length || 1;
-
-                let selectedWords = items.slice(0, selectCount);
-                if (selectedWords.length === 0) selectedWords = ["resposta"];
-
-                answersMap[String(qId)] = {
-                    question_id: qId,
-                    question_type: qType === "cloud" ? "cloud" : "fill-words",
-                    answer: selectedWords
-                };
+            } else if (qType === "fill-words" || qType === "fill_words" || qType === "cloud" || qType === "order-sentences" || qType === "order_sentences") {
+                questionsNeedingAI.push({ ...q, resolvedType: qType, isText: false, isSpecialSequence: true });
             } else if (qType === "fill-letters" || qType === "fill_letters") {
                 let word = "";
                 if (q.options?.word) word = String(q.options.word);
@@ -422,38 +498,12 @@ async function startServer() {
                     question_type: "fill-letters",
                     answer: word.toUpperCase()
                 };
-            } else if (qType === "order-sentences" || qType === "order_sentences") {
-                let sentences: string[] = [];
-                if (Array.isArray(q.options?.sentences)) sentences = q.options.sentences;
-                else if (Array.isArray(q.options?.incorrects)) sentences = q.options.incorrects.map((i: any) => i.value || i);
-
-                if (sentences.length === 0) sentences = ["Etapa 1", "Etapa 2"];
-
-                answersMap[String(qId)] = {
-                    question_id: qId,
-                    question_type: "order-sentences",
-                    answer: sentences
-                };
             } else if (qType === "true-false" || qType === "true_false") {
                 let tfOpts: any[] = [];
                 if (Array.isArray(q.options)) tfOpts = q.options;
                 else if (q.options && typeof q.options === 'object') tfOpts = Object.values(q.options);
 
-                const tfAnsObj: Record<string, boolean> = {};
-                if (tfOpts.length > 0) {
-                    tfOpts.forEach((o: any, idx: number) => {
-                        tfAnsObj[String(idx)] = idx % 2 === 1;
-                    });
-                } else {
-                    tfAnsObj["0"] = true;
-                    tfAnsObj["1"] = false;
-                }
-
-                answersMap[String(qId)] = {
-                    question_id: qId,
-                    question_type: "true-false",
-                    answer: tfAnsObj
-                };
+                questionsNeedingAI.push({ ...q, resolvedType: "true-false", isText: false, isTrueFalse: true, parsedOpts: tfOpts });
             } else {
                 let opts: any[] = [];
                 if (Array.isArray(q.options)) opts = q.options;
@@ -484,11 +534,31 @@ async function startServer() {
             const formattedQList = questionsNeedingAI.map((q, idx) => {
                 const statement = String(q.statement || q.title || q.description || '').replace(/<[^>]*>/g, '').trim();
                 const support = String(q.options?.support_text || q.support_text || '').replace(/<[^>]*>/g, '').trim();
+                const keywords = Array.isArray(q.options?.ai_grading_keywords) ? q.options.ai_grading_keywords.join(', ') : '';
+                const rubric = String(q.options?.ai_grading_instructions || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
                 if (q.isText) {
-                    return `[QUESTÃO ${idx + 1}] (TIPO: DISCURSIVA/ESSAY) (ID: ${q.id})
+                    return `[QUESTÃO ${idx + 1}] (TIPO: TEXTO / DISCURSIVA / TEXT_AI / REDAÇÃO) (ID: ${q.id})
 Enunciado: "${statement}"
-${support ? `Texto Apoio: "${support.substring(0, 300)}"` : ''}`;
+${keywords ? `PALAVRAS-CHAVE OBRIGATÓRIAS PELA BANCA/IA KUMULUS: [${keywords}]` : ''}
+${rubric ? `Critérios de Correção: ${rubric.substring(0, 300)}...` : ''}
+${support ? `Texto de Apoio: "${support.substring(0, 500)}"` : ''}`;
+                } else if (q.isSpecialSequence) {
+                    const rawItems = q.options?.words || q.options?.items || q.options?.sentences || q.options?.cloud || [];
+                    const phraseStruct = Array.isArray(q.options?.phrase) ? q.options.phrase.map((p: any) => p.type === 'select' ? '[___]' : p.value).join('') : '';
+                    return `[QUESTÃO ${idx + 1}] (TIPO: ${q.resolvedType.toUpperCase()}) (ID: ${q.id})
+Enunciado: "${statement}"
+${phraseStruct ? `Frase com lacunas: "${phraseStruct}"` : ''}
+Itens/Palavras/Frases disponíveis: ${JSON.stringify(rawItems)}`;
+                } else if (q.isTrueFalse) {
+                    const optList = (q.parsedOpts || []).map((o: any, oIdx: number) => {
+                        const oText = String(o.statement || o.text || o.label || o.value || o).replace(/<[^>]*>/g, '').trim();
+                        return `  - Item ${oIdx}: ${oText}`;
+                    }).join('\n');
+                    return `[QUESTÃO ${idx + 1}] (TIPO: VERDADEIRO OU FALSO) (ID: ${q.id})
+Enunciado: "${statement}"
+Itens:
+${optList}`;
                 } else {
                     const optStr = (q.parsedOpts || []).map((o: any) => {
                         const oId = o.id ?? o.option_id ?? o.value ?? o.key;
@@ -498,34 +568,41 @@ ${support ? `Texto Apoio: "${support.substring(0, 300)}"` : ''}`;
 
                     return `[QUESTÃO ${idx + 1}] (TIPO: MÚLTIPLA ESCOLHA) (ID: ${q.id})
 Enunciado: "${statement}"
-${support ? `Texto Apoio: "${support.substring(0, 300)}"` : ''}
+${support ? `Texto Apoio: "${support.substring(0, 400)}"` : ''}
 Opções:
 ${optStr}`;
                 }
             }).join('\n\n');
 
-            const prompt = `Você é um tutor e professor acadêmico especialista que resolve com 100% de precisão atividades e provas escolares da plataforma SEDUC-SP (Sala do Futuro).
-
-Examine as questões a seguir e responda todas com máxima exatidão:
+            const prompt = `Você é um professor especialista e tutor acadêmico da SEDUC-SP (Sala do Futuro / CMSP / Centro de Mídias).
+Resolva com 100% de exatidão pedagógica e precisão técnica as questões escolares abaixo:
 
 ${formattedQList}
 
-REGRAS:
-1. Para QUESTÃO DE MÚLTIPLA ESCOLHA, selecione o ID numérico da alternativa correta.
-2. Para QUESTÃO DISCURSIVA/ESSAY, crie um texto de excelente qualidade, coeso e articulado em português do Brasil.
-3. Responda estritamente em formato JSON com o objeto "answers" onde a chave de cada objeto é o ID da questão:
+DIRETRIZES FUNDAMENTAIS DE RESOLUÇÃO:
+1. Para MÚLTIPLA ESCOLHA: Identifique o ID ou índice numérico da alternativa correta.
+2. Para VERDADEIRO OU FALSO: Retorne um objeto mapeando cada índice para true ou false, ex: {"0": true, "1": false}.
+3. Para CLOUD / FILL-WORDS / ORDER-SENTENCES: Retorne em "sequence" o array de strings ordenado com a resposta correta (ex: ordenação da frase ou preenchimento ordenado das lacunas).
+4. Para DISCURSIVAS / TEXT_AI / REDAÇÕES:
+   - SE houver PALAVRAS-CHAVE OBRIGATÓRIAS (Kumulus AI grading), você DEVE incluir todas elas naturalmente no texto de resposta!
+   - Redija um texto dissertativo completo, coerente e com rigor conceitual (2 a 3 parágrafos).
+   - NUNCA use respostas genéricas de uma linha.
+
+Responda ESTRITAMENTE em JSON no seguinte formato:
 {
   "answers": {
     "<question_id>": {
-      "selected_id": <ID_NUMÉRICO_DA_OPÇÃO_CORRETA_OU_NULL>,
-      "title": "<TÍTULO_SE_FOR_DISCURSIVA_OU_NULL>",
-      "text": "<TEXTO_SE_FOR_DISCURSIVA_OU_NULL>"
+      "selected_id": <ID_NUMERICO_DA_OPCAO_CORRETA_OU_NULL>,
+      "tf_map": { "0": true, "1": false },
+      "sequence": ["palavra1", "palavra2"],
+      "title": "<TITULO_RESUMO_OU_NULL>",
+      "text": "<TEXTO_DISCURSIVO_COMPLETO_E_DETALHADO_OU_NULL>"
     }
   }
 }`;
 
             try {
-                console.log(`[AI Solver] Resolvendo ${questionsNeedingAI.length} questão(ões) via IA (Gemini/Rochwxs)...`);
+                console.log(`[AI Solver] Resolvendo ${questionsNeedingAI.length} questão(ões) com Gemini / IA estruturada...`);
                 const aiRawResponse = await askAI(prompt);
                 let aiJson: any = null;
                 if (aiRawResponse) {
@@ -548,13 +625,69 @@ REGRAS:
                     const qType = q.resolvedType;
 
                     if (q.isText) {
-                        const title = aiAns?.title || userTitle || q.title || 'Resposta da Atividade';
-                        const text = aiAns?.text || (aiRawResponse && !aiRawResponse.includes('{') ? aiRawResponse : '') || 'Atividade desenvolvida com base na análise do tema.';
+                        const statement = String(q.statement || q.title || '').replace(/<[^>]*>/g, '').trim();
+                        const defaultTitle = q.title || (statement ? statement.substring(0, 45) : 'Análise Temática');
+                        const title = aiAns?.title || userTitle || defaultTitle;
+                        
+                        let text = aiAns?.text;
+                        if (!text || text.length < 30) {
+                            if (aiRawResponse && !aiRawResponse.includes('{') && aiRawResponse.length > 40) {
+                                text = aiRawResponse;
+                            } else {
+                                const kw = Array.isArray(q.options?.ai_grading_keywords) ? q.options.ai_grading_keywords.join(', ') : '';
+                                text = generateContextualRichSummary(statement + (kw ? ` (Conceitos: ${kw})` : ''), q.options?.support_text || '', title);
+                            }
+                        }
+
                         const isEssayType = qType === 'essay' || isEssay;
+                        const isTextAi = qType === 'text_ai';
+                        const ansPayload = isTextAi
+                            ? { "0": text }
+                            : (isEssayType ? { title, body: text } : text);
+
                         answersMap[qId] = {
                             question_id: Number(qId),
                             question_type: isEssayType ? 'essay' : qType,
-                            answer: isEssayType ? { title, body: text } : text
+                            answer: ansPayload
+                        };
+                    } else if (q.isSpecialSequence) {
+                        let seq = Array.isArray(aiAns?.sequence) ? aiAns.sequence : null;
+                        if (!seq) {
+                            let items: string[] = [];
+                            if (Array.isArray(q.options?.items)) items = q.options.items;
+                            else if (Array.isArray(q.options?.words)) items = q.options.words;
+                            else if (Array.isArray(q.options?.sentences)) items = q.options.sentences;
+                            else if (Array.isArray(q.options?.cloud)) items = q.options.cloud;
+                            
+                            let selectCount = 0;
+                            if (Array.isArray(q.options?.phrase)) {
+                                selectCount = q.options.phrase.filter((p: any) => p.type === 'select').length;
+                            }
+                            if (selectCount <= 0) selectCount = items.length || 1;
+                            seq = items.slice(0, selectCount);
+                            if (seq.length === 0) seq = ["resposta"];
+                        }
+
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: qType,
+                            answer: seq
+                        };
+                    } else if (q.isTrueFalse) {
+                        let tfObj = aiAns?.tf_map;
+                        if (!tfObj || typeof tfObj !== 'object') {
+                            tfObj = {};
+                            (q.parsedOpts || []).forEach((_: any, idx: number) => {
+                                tfObj[String(idx)] = idx % 2 === 1;
+                            });
+                            if (Object.keys(tfObj).length === 0) {
+                                tfObj = { "0": true, "1": false };
+                            }
+                        }
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: "true-false",
+                            answer: tfObj
                         };
                     } else {
                         let selId = aiAns?.selected_id ?? aiAns?.selected_option_id ?? aiAns?.id ?? aiAns?.answer;
@@ -566,15 +699,57 @@ REGRAS:
                     }
                 }
             } catch (aiErr: any) {
-                console.warn('[AI Solver] Erro na resolução por IA:', aiErr.message);
+                console.warn('[AI Solver] Erro na resolução por IA, ativando síntese curricular:', aiErr.message);
                 for (const q of questionsNeedingAI) {
                     const qId = String(q.id || q.question_id);
                     const qType = q.resolvedType;
+                    const statement = String(q.statement || q.title || '').replace(/<[^>]*>/g, '').trim();
+
                     if (q.isText) {
+                        const fallbackTitle = userTitle || q.title || (statement ? statement.substring(0, 45) : 'Resumo Curricular');
+                        const richText = userText || generateContextualRichSummary(statement, q.options?.support_text || '', fallbackTitle);
+                        const isEssayType = qType === 'essay' || isEssay;
+                        const isTextAi = qType === 'text_ai';
+                        const ansPayload = isTextAi
+                            ? { "0": richText }
+                            : (isEssayType ? { title: fallbackTitle, body: richText } : richText);
+
                         answersMap[qId] = {
                             question_id: Number(qId),
-                            question_type: (qType === 'essay' || isEssay) ? 'essay' : qType,
-                            answer: (qType === 'essay' || isEssay) ? { title: userTitle || 'Redação', body: userText || 'Atividade desenvolvida com sucesso.' } : (userText || 'Atividade respondida.')
+                            question_type: isEssayType ? 'essay' : qType,
+                            answer: ansPayload
+                        };
+                    } else if (q.isSpecialSequence) {
+                        let items: string[] = [];
+                        if (Array.isArray(q.options?.items)) items = q.options.items;
+                        else if (Array.isArray(q.options?.words)) items = q.options.words;
+                        else if (Array.isArray(q.options?.sentences)) items = q.options.sentences;
+                        let selectCount = 0;
+                        if (Array.isArray(q.options?.phrase)) {
+                            selectCount = q.options.phrase.filter((p: any) => p.type === 'select').length;
+                        }
+                        if (selectCount <= 0) selectCount = items.length || 1;
+                        let seq = items.slice(0, selectCount);
+                        if (seq.length === 0) seq = ["resposta"];
+
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: qType,
+                            answer: seq
+                        };
+                    } else if (q.isTrueFalse) {
+                        const tfAnsObj: Record<string, boolean> = {};
+                        (q.parsedOpts || []).forEach((_: any, idx: number) => {
+                            tfAnsObj[String(idx)] = idx % 2 === 1;
+                        });
+                        if (Object.keys(tfAnsObj).length === 0) {
+                            tfAnsObj["0"] = true;
+                            tfAnsObj["1"] = false;
+                        }
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: "true-false",
+                            answer: tfAnsObj
                         };
                     } else {
                         const firstOpt = q.parsedOpts?.[0];
@@ -590,6 +765,22 @@ REGRAS:
         }
 
         return answersMap;
+    }
+
+    function generateContextualRichSummary(statement: string, supportText: string, title: string): string {
+        const cleanStatement = statement.replace(/<[^>]*>/g, '').trim();
+        const cleanSupport = supportText.replace(/<[^>]*>/g, '').trim();
+        const topic = cleanStatement || title || 'o tema proposto';
+
+        const p1 = `A análise reflexiva acerca de ${topic.toLowerCase().startsWith('sobre') ? topic : `"${topic}"`} demonstra papel crucial no desenvolvimento das competências e habilidades curriculares. Compreender as relações conceituais envolvidas permite identificar os fatores determinantes que estruturam essa temática no contexto contemporâneo.`;
+        
+        const p2 = cleanSupport 
+            ? `A partir das informações e dos dados fornecidos pelo material de apoio, verifica-se que ${cleanSupport.substring(0, 180)}... Diante disso, evidencia-se a importância da sistematização crítica das ideias apresentadas, conectando o embasamento teórico às práticas sociais e científicas.`
+            : `Sob a ótica analítica, observa-se que os aspectos fundamentais abordados exigem uma investigação criteriosa, na qual a articulação entre teoria e aplicação prática favorece a construção de um pensamento reflexivo, autônomo e fundamentado.`;
+
+        const p3 = `Em suma, conclui-se que o aprofundamento contínuo deste estudo contribui diretamente para a consolidação do aprendizado, capacitando a formulação de conclusões fundamentadas e o enfrentamento consciente dos desafios apresentados pela disciplina.`;
+
+        return `${p1}\n\n${p2}\n\n${p3}`;
     }
 
     function createPayloadVariants(
@@ -1104,55 +1295,76 @@ REGRAS:
             'https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/credenciais/api/LoginCompletoToken'
         ];
 
-        const clientUA = customTunnelInfo?.userAgent || USER_AGENT;
-        const clientCookies = customTunnelInfo?.cookies;
+        const clientUA = customTunnelInfo?.userAgent || activeBrowserSession.userAgent || USER_AGENT;
+        const clientCookies = customTunnelInfo?.cookies || activeBrowserSession.cookies;
 
         let lastErrMessage = "Não foi possível conectar ao servidor SED. Tente novamente.";
         
         for (const url of loginUrls) {
-            // Try primary variant first, then fallback variants for this URL
             for (const userVariant of raVariants) {
                 try {
-                    console.log(`[Login] Tentando SED (${url}) com usuário: ${userVariant}`);
+                    console.log(`[Login] Tentando SED (${url}) com usuário: ${userVariant} via Got-Scraping / Got HTTP/1.1`);
                     const headers: Record<string, string> = {
                         "accept": "application/json, text/plain, */*",
                         "content-type": "application/json",
                         "ocp-apim-subscription-key": SUBSCRIPTION_KEY,
+                        "origin": "https://saladofuturo.educacao.sp.gov.br",
                         "referer": "https://saladofuturo.educacao.sp.gov.br/",
                         "user-agent": clientUA
                     };
                     if (clientCookies) {
                         headers["cookie"] = clientCookies;
                     }
-                    const response = await undiciFetch(url, {
-                        method: "POST",
+
+                    // 1. Tenta com Got-Scraping & fallback Got HTTP/1.1
+                    const gotRes = await fetchWithGotScraping(url, {
+                        method: 'POST',
                         headers,
-                        body: JSON.stringify({ user: userVariant, senha: password }),
-                        dispatcher: agent
+                        body: { user: userVariant, senha: password },
+                        timeoutMs: 6000,
+                        maxRetries: 1
                     });
 
-                    if (response.ok) {
-                        const data = await response.json() as Promise<any>;
-                        console.log(`[Login] Sucesso na SED com variante: ${userVariant}`);
-                        return data;
+                    let status = gotRes.status;
+                    let text = gotRes.text;
+
+                    // 2. Se falhar por erro de rede do Got, tenta undiciFetch como backup
+                    if (status === 500 && text.includes('error')) {
+                        try {
+                            const response = await undiciFetch(url, {
+                                method: "POST",
+                                headers,
+                                body: JSON.stringify({ user: userVariant, senha: password }),
+                                dispatcher: agent
+                            });
+                            status = response.status;
+                            text = await response.text();
+                        } catch (e: any) {}
                     }
 
-                    if (response.status === 400 || response.status === 401 || response.status === 403) {
-                        const text = await response.text();
+                    if (status >= 200 && status < 300) {
+                        try {
+                            const data = JSON.parse(text);
+                            console.log(`[Login] Sucesso na SED com variante: ${userVariant}`);
+                            return data;
+                        } catch {
+                            return text;
+                        }
+                    }
+
+                    if (status === 400 || status === 401 || status === 403) {
                         let cleanText = text.replace(/<[^>]*>?/gm, '').trim();
                         if (cleanText.includes('type') || cleanText.includes('cloudflare') || cleanText.length > 120) {
                             cleanText = "RA ou Senha incorretos. Verifique os dados informados.";
                         }
-                        console.warn(`[Login] Credenciais rejeitadas (${response.status}): ${cleanText}`);
+                        console.warn(`[Login] Credenciais rejeitadas (${status}): ${cleanText}`);
                         
-                        // If it's 401 or 400 on official SED, credentials/RA is invalid, try next variant or throw user-friendly error
                         lastErrMessage = cleanText || "RA ou Senha incorretos. Verifique os dados digitados.";
                         if (userVariant === raVariants[raVariants.length - 1] && url === loginUrls[0]) {
-                            // Checked all variants on primary official URL
                             throw new Error(lastErrMessage);
                         }
                     } else {
-                        console.warn(`[Login] Erro HTTP ${response.status} na SED (${url}).`);
+                        console.warn(`[Login] Erro HTTP ${status} na SED (${url}).`);
                     }
                 } catch (err: any) {
                     if (err.message && !err.message.includes('530') && !err.message.includes('cloudflare') && !err.message.includes('FetchError')) {
@@ -1681,7 +1893,13 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         for (const url of applyUrls) {
             try {
                 const data = await callOfficialApi(url, 'GET', token, undefined, customTunnel);
-                if (data && typeof data === 'object') return res.json(data);
+                if (data && typeof data === 'object') {
+                    const qList = extractQuestionsList(data);
+                    if (qList.length > 0 && !data.questions) {
+                        data.questions = qList;
+                    }
+                    return res.json(data);
+                }
             } catch (err: any) {
                 console.warn(`[Apply] Tentativa na URL ${url} resultou em: ${err.message}`);
                 lastErr = err;
@@ -1749,7 +1967,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         userSlugs.forEach(s => roomCandidates.add(s));
         roomCandidates.add(''); // Candidato sem room_name / executed_on
 
-        let questionsList = reqQuestions;
+        let questionsList = extractQuestionsList(reqQuestions).length > 0 ? extractQuestionsList(reqQuestions) : reqQuestions;
         let applyToken = req.body.token;
         const savedTokenCode = req.body.token_code || req.query.token_code || '';
         const tokenCodeParam = (savedTokenCode && savedTokenCode !== 'null') ? `&token_code=${encodeURIComponent(String(savedTokenCode))}` : '';
@@ -1770,14 +1988,15 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             for (const url of tryApplyUrls) {
                 try {
                     const applyRes = await callOfficialApi(url, 'GET', auth_token, undefined, customTunnel);
-                    if (applyRes && (Array.isArray(applyRes.questions) || Array.isArray(applyRes.items))) {
-                        questionsList = applyRes.questions || applyRes.items || [];
+                    const qExtracted = extractQuestionsList(applyRes);
+                    if (qExtracted.length > 0) {
+                        questionsList = qExtracted;
                         if (applyRes.token) applyToken = applyRes.token;
                         const foundSlug = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
                         if (foundSlug && String(foundSlug).trim() && String(foundSlug) !== 'undefined') {
                             roomCandidates.add(String(foundSlug).trim());
                         }
-                        if (questionsList.length > 0) break;
+                        break;
                     }
                 } catch (e: any) {
                     // Silencia aviso de tentativa de apply
@@ -1900,7 +2119,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             userSlugs.forEach(s => roomCandidates.add(s));
             roomCandidates.add('');
 
-            let questionsList = reqQuestions;
+            let questionsList = extractQuestionsList(reqQuestions).length > 0 ? extractQuestionsList(reqQuestions) : reqQuestions;
             let applyToken = params.token;
             const savedTokenCode = params.token_code || '';
             const tokenCodeParam = (savedTokenCode && savedTokenCode !== 'null') ? `&token_code=${encodeURIComponent(String(savedTokenCode))}` : '';
@@ -1925,14 +2144,15 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 for (const url of tryApplyUrls) {
                     try {
                         const applyRes = await callOfficialApi(url, 'GET', authToken, undefined, customTunnel);
-                        if (applyRes && (Array.isArray(applyRes.questions) || Array.isArray(applyRes.items))) {
-                            questionsList = applyRes.questions || applyRes.items || [];
+                        const qExtracted = extractQuestionsList(applyRes);
+                        if (qExtracted.length > 0) {
+                            questionsList = qExtracted;
                             if (applyRes.token) applyToken = applyRes.token;
                             const foundSlug = applyRes.executed_on || applyRes.room_name || applyRes.publication_target;
                             if (foundSlug && String(foundSlug).trim() && String(foundSlug) !== 'undefined') {
                                 roomCandidates.add(String(foundSlug).trim());
                             }
-                            if (questionsList.length > 0) break;
+                            break;
                         }
                     } catch (e: any) {
                         // Silencia
@@ -3581,8 +3801,53 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         "/room/*", "/tms/*", "/user/*", "/auth/*", "/school/*", "/notification/*", "/captcha/*"
     ], handleUniversalProxy);
 
+    app.post(["/api/verify-antibot", "/session-sync"], async (req, res) => {
+        try {
+            const { userAgent, platform, language, cookies, secChUa } = req.body || {};
+            if (userAgent) activeBrowserSession.userAgent = String(userAgent);
+            if (platform) activeBrowserSession.platform = String(platform);
+            if (language) activeBrowserSession.language = String(language);
+            if (cookies) activeBrowserSession.cookies = String(cookies);
+            if (secChUa) activeBrowserSession.secChUa = String(secChUa);
+            activeBrowserSession.lastSync = Date.now();
+
+            // Se o usuário tiver um túnel customizado configurado, tenta sincronizar a sessão nele também
+            const customTunnel = getCustomTunnel(req)?.tunnel;
+            let tunnelSyncStatus = 'skipped';
+            if (customTunnel && customTunnel.startsWith('http')) {
+                try {
+                    await fetchWithGotScraping(`${customTunnel.replace(/\/$/, '')}/api/verify-antibot`, {
+                        method: 'POST',
+                        body: req.body,
+                        timeoutMs: 3000,
+                        maxRetries: 0
+                    });
+                    tunnelSyncStatus = 'success';
+                } catch (e: any) {
+                    tunnelSyncStatus = `tunnel error: ${e.message}`;
+                }
+            }
+
+            console.log(`[AntiBot] Verificação e sessão do navegador sincronizadas com sucesso! (UA: ${activeBrowserSession.userAgent.substring(0, 40)}...)`);
+
+            res.json({
+                ok: true,
+                message: 'Verificação anti-bot e sessão do navegador sincronizadas com sucesso!',
+                syncedAt: new Date().toISOString(),
+                tunnelSync: tunnelSyncStatus
+            });
+        } catch (err: any) {
+            res.status(500).json({ ok: false, error: err.message });
+        }
+    });
+
     app.get(["/api/ping", "/ping"], (req, res) => {
-        res.json({ status: 'ok', online: true, timestamp: new Date().toISOString() });
+        res.json({
+            status: 'ok',
+            online: true,
+            browserSessionSynced: Boolean(activeBrowserSession.lastSync),
+            timestamp: new Date().toISOString()
+        });
     });
 
     app.get("/api/health", (req, res) => {

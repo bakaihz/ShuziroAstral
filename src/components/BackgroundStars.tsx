@@ -1,87 +1,179 @@
-import React, { useMemo, useEffect, useState } from 'react';
-import { motion } from 'motion/react';
+import React, { useEffect, useRef } from 'react';
 
 interface BackgroundStarsProps {
   isStatic?: boolean;
 }
 
 export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = false }) => {
-  const [isMobile, setIsMobile] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) return;
+
+    let animId: number;
+    let width = (canvas.width = window.innerWidth);
+    let height = (canvas.height = window.innerHeight);
+
+    const handleResize = () => {
+      if (!canvas) return;
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+      initStars();
     };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
-  const particleCount = isMobile ? 25 : 80;
+    window.addEventListener('resize', handleResize, { passive: true });
 
-  const particles = useMemo(() => {
-    return Array.from({ length: particleCount }).map((_, i) => ({
-      id: i,
-      size: Math.random() * 2.2 + 0.8,
-      left: Math.random() * 100,
-      top: Math.random() * 100,
-      duration: 4 + Math.random() * 6,
-      delay: Math.random() * 5,
-      opacity: Math.random() * 0.6 + 0.3,
-      color: i % 4 === 0 ? 'bg-zinc-400' : i % 5 === 0 ? 'bg-zinc-300' : 'bg-white'
-    }));
-  }, [particleCount]);
+    const isMobile = width < 768;
+    const count = isMobile ? 38 : 75;
+    const connectionDist = isMobile ? 85 : 120;
+
+    interface Star {
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      size: number;
+      baseAlpha: number;
+      flickerSpeed: number;
+      flickerOffset: number;
+      color: string;
+    }
+
+    let stars: Star[] = [];
+
+    const colors = ['#ffffff', '#f4f4f5', '#e4e4e7', '#fecdd3', '#cbd5e1'];
+
+    const initStars = () => {
+      stars = [];
+      for (let i = 0; i < count; i++) {
+        stars.push({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          vx: (Math.random() - 0.5) * 0.25,
+          vy: (Math.random() - 0.5) * 0.25,
+          size: Math.random() * 1.6 + 0.6,
+          baseAlpha: Math.random() * 0.5 + 0.25,
+          flickerSpeed: Math.random() * 0.02 + 0.01,
+          flickerOffset: Math.random() * Math.PI * 2,
+          color: colors[Math.floor(Math.random() * colors.length)],
+        });
+      }
+    };
+
+    initStars();
+
+    if (isStatic) {
+      ctx.clearRect(0, 0, width, height);
+      stars.forEach(s => {
+        ctx.globalAlpha = s.baseAlpha;
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      return () => {
+        window.removeEventListener('resize', handleResize);
+      };
+    }
+
+    let t = 0;
+    const render = () => {
+      t += 0.015;
+      ctx.clearRect(0, 0, width, height);
+
+      // 1. Draw connection lines between close stars (constellation web)
+      for (let i = 0; i < stars.length; i++) {
+        const s1 = stars[i];
+        for (let j = i + 1; j < stars.length; j++) {
+          const s2 = stars[j];
+          const dx = s1.x - s2.x;
+          const dy = s1.y - s2.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < connectionDist) {
+            const lineAlpha = (1 - dist / connectionDist) * 0.12;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${lineAlpha})`;
+            ctx.lineWidth = 0.6;
+            ctx.beginPath();
+            ctx.moveTo(s1.x, s1.y);
+            ctx.lineTo(s2.x, s2.y);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // 2. Draw and update stars
+      for (let i = 0; i < stars.length; i++) {
+        const s = stars[i];
+
+        // Move stars smoothly
+        s.x += s.vx;
+        s.y += s.vy;
+
+        // Wrap edges
+        if (s.x < 0) s.x = width;
+        else if (s.x > width) s.x = 0;
+        if (s.y < 0) s.y = height;
+        else if (s.y > height) s.y = 0;
+
+        // Flicker luminescence
+        const flicker = Math.sin(t * s.flickerSpeed * 60 + s.flickerOffset) * 0.35 + 0.65;
+        const currentAlpha = Math.max(0.1, Math.min(1, s.baseAlpha * flicker));
+
+        ctx.globalAlpha = currentAlpha;
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Subtle glow for larger stars
+        if (s.size > 1.4) {
+          ctx.globalAlpha = currentAlpha * 0.25;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.size * 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      animId = requestAnimationFrame(render);
+    };
+
+    animId = requestAnimationFrame(render);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      cancelAnimationFrame(animId);
+    };
+  }, [isStatic]);
 
   return (
-    <div className="fixed inset-0 z-0 bg-[#060608] overflow-hidden pointer-events-none select-none">
-      {/* Ambient glowing nebulae - lightened blur on mobile */}
+    <div className="fixed inset-0 z-0 bg-[#060608] overflow-hidden pointer-events-none select-none contain-strict">
+      {/* Dynamic Aurora Ambient Nebula Glows */}
       <div 
-        className="absolute -top-32 -left-32 w-[350px] md:w-[650px] h-[350px] md:h-[650px] bg-zinc-700/15 rounded-full blur-[60px] md:blur-[140px] transform-gpu" 
+        className="absolute -top-32 -left-32 w-[380px] md:w-[650px] h-[380px] md:h-[650px] bg-red-950/20 rounded-full blur-[110px] pointer-events-none will-change-transform transform-gpu animate-pulse" 
+        style={{ animationDuration: '8s' }}
       />
       <div 
-        className="absolute top-1/2 -right-32 w-[400px] md:w-[700px] h-[400px] md:h-[700px] bg-zinc-800/15 rounded-full blur-[70px] md:blur-[160px] transform-gpu" 
+        className="absolute top-1/3 -right-24 w-[350px] md:w-[600px] h-[350px] md:h-[600px] bg-zinc-700/10 rounded-full blur-[120px] pointer-events-none will-change-transform transform-gpu" 
       />
-
-      {/* Grid mesh background */}
       <div 
-        className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_75%_75%_at_50%_50%,#000_70%,transparent_100%)]" 
+        className="absolute -bottom-32 left-1/4 w-[350px] md:w-[550px] h-[350px] md:h-[550px] bg-red-900/15 rounded-full blur-[130px] pointer-events-none will-change-transform transform-gpu" 
       />
 
-      {/* Starry particles */}
-      {particles.map((p) => (
-        <motion.div
-          key={p.id}
-          initial={{ opacity: p.opacity }}
-          animate={isStatic || isMobile ? { opacity: p.opacity } : { opacity: [p.opacity * 0.4, p.opacity, p.opacity * 0.4] }}
-          transition={{ duration: p.duration, repeat: isStatic || isMobile ? 0 : Infinity, ease: 'easeInOut', delay: p.delay }}
-          className={`absolute rounded-full ${p.color} transform-gpu`}
-          style={{
-            width: `${p.size}px`,
-            height: `${p.size}px`,
-            left: `${p.left}%`,
-            top: `${p.top}%`,
-            willChange: 'opacity'
-          }}
-        />
-      ))}
+      {/* Futuristic Geometric Mesh Grid */}
+      <div 
+        className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:3.5rem_3.5rem] [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_60%,transparent_100%)] opacity-80" 
+      />
 
-      {/* Shooting lights - desktop only */}
-      {!isStatic && !isMobile && (
-        <>
-          <motion.div 
-            animate={{ x: [-200, 600], opacity: [0, 0.8, 0] }}
-            transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
-            className="absolute top-1/4 left-10 w-[450px] h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent -rotate-12 transform-gpu" 
-          />
-          <motion.div 
-            animate={{ x: [200, -600], opacity: [0, 0.8, 0] }}
-            transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut', delay: 4 }}
-            className="absolute bottom-1/3 right-10 w-[450px] h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent rotate-12 transform-gpu" 
-          />
-        </>
-      )}
+      {/* Lightweight canvas for all celestial stars in 1 draw cycle */}
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full pointer-events-none"
+      />
     </div>
   );
 };
-
 

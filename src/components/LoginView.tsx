@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Eye, EyeOff, Sparkles, ArrowRight, UserCheck, Code2 } from 'lucide-react';
 import { SavedAccount } from '../types';
+import eyeLogoImg from '../assets/images/shuziro_eye_logo_1786668563276.jpg';
 
 interface LoginViewProps {
   onLogin: (ra: string, pass: string) => Promise<void>;
@@ -11,6 +12,7 @@ interface LoginViewProps {
   onOpenEmojiChallenge: () => void;
   isVerified: boolean;
   selectedAccount?: SavedAccount | null;
+  onOpenBakaiProfile?: () => void;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
@@ -20,7 +22,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
   onOpenAccounts,
   onOpenEmojiChallenge,
   isVerified,
-  selectedAccount
+  selectedAccount,
+  onOpenBakaiProfile
 }) => {
   const [ra, setRa] = useState('');
   const [senha, setSenha] = useState('');
@@ -71,8 +74,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
             transition={{ type: 'spring', damping: 22, stiffness: 300 }}
             className="fixed top-6 z-50 bg-[#121214]/95 border border-zinc-600 backdrop-blur-2xl px-6 py-3.5 rounded-2xl shadow-[0_15px_50px_rgba(0,0,0,0.9)] flex items-center gap-3 text-white max-w-sm sm:max-w-md"
           >
-            <div className="w-9 h-9 rounded-xl bg-white text-black flex items-center justify-center font-extrabold shrink-0 shadow-md">
-              <Sparkles className="w-5 h-5 text-black" />
+            <div className="w-10 h-10 rounded-xl overflow-hidden border border-zinc-500 shadow-md shrink-0 bg-black">
+              <img src={eyeLogoImg} alt="Astral Eye" className="w-full h-full object-cover" />
             </div>
             <div>
               <div className="text-xs font-black tracking-wide text-white">
@@ -124,56 +127,57 @@ export const LoginView: React.FC<LoginViewProps> = ({
       </div>
 
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: 'easeOut' }}
-        className="bg-[#09090b]/95 backdrop-blur-2xl border border-[#27272a] hover:border-zinc-600 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-[0_25px_80px_rgba(0,0,0,0.95)] relative overflow-hidden my-auto transform-gpu"
+        transition={{ duration: 0.35, ease: 'easeOut' }}
+        className="bg-[#09090b]/95 backdrop-blur-2xl border border-[#27272a] hover:border-zinc-600 rounded-2xl p-5 sm:p-6 max-w-sm sm:max-w-md w-full shadow-2xl relative overflow-hidden my-auto transform-gpu"
       >
         {/* Top white-metallic highlight border */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-zinc-700 via-white to-zinc-700" />
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-zinc-400 to-white" />
 
         {/* Header Branding */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white text-black mb-3 shadow-xl shadow-white/10 transition-transform hover:scale-105">
-            <Sparkles className="w-7 h-7" />
+        <div className="text-center mb-4 sm:mb-5">
+          <div className="inline-flex items-center justify-center w-13 h-13 sm:w-14 sm:h-14 rounded-xl overflow-hidden border border-zinc-600 mb-2 shadow-xl shadow-black/80 transition-transform hover:scale-105 bg-black group relative">
+            <img src={eyeLogoImg} alt="Astral Eye Logo" className="w-full h-full object-cover group-hover:rotate-6 transition-transform duration-500" />
+            <div className="absolute inset-0 bg-gradient-to-t from-white/10 to-transparent pointer-events-none" />
           </div>
-          <h1 className="text-2xl font-black tracking-tight text-white">
+          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center justify-center gap-1.5">
             Shuziro<span className="text-zinc-400 font-extrabold">Astral</span> Hub
           </h1>
-          <p className="text-xs text-zinc-400 mt-1">
+          <p className="text-[11px] text-zinc-400 mt-0.5">
             Sistema Integrado da <strong className="text-white">Sala do Futuro</strong>
           </p>
         </div>
 
         {/* Quick Access Button for Saved Accounts */}
-        <div className="mb-6">
+        <div className="mb-4">
           <button
             type="button"
             onClick={onOpenAccounts}
-            className="w-full p-4 bg-[#121214] hover:bg-[#18181b] border border-zinc-700 hover:border-white rounded-2xl flex items-center justify-between text-left transition-all shadow-lg group cursor-pointer relative overflow-hidden"
+            className="w-full p-3 bg-[#121214] hover:bg-[#18181b] border border-zinc-700 hover:border-white rounded-xl flex items-center justify-between text-left transition-all shadow-sm group cursor-pointer relative overflow-hidden"
           >
-            <div className="flex items-center gap-3.5 z-10">
-              <div className="w-10 h-10 rounded-xl bg-white text-black font-extrabold flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
-                <UserCheck className="w-5 h-5 text-black" />
+            <div className="flex items-center gap-3 z-10">
+              <div className="w-8 h-8 rounded-lg bg-white text-black font-extrabold flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
+                <UserCheck className="w-4 h-4 text-black" />
               </div>
               <div>
-                <div className="text-xs font-black text-white flex items-center gap-2">
+                <div className="text-xs font-black text-white flex items-center gap-1.5">
                   Contas Salvas
-                  <span className="text-[9px] uppercase px-2 py-0.5 rounded-md bg-zinc-800 text-white border border-zinc-600 font-mono font-bold tracking-wider">
-                    Atalho Rápido
+                  <span className="text-[8px] uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-white border border-zinc-600 font-mono font-bold tracking-wider">
+                    Atalho
                   </span>
                 </div>
-                <div className="text-[11px] text-zinc-400 mt-0.5">Selecione e entre com 1 clique</div>
+                <div className="text-[10px] text-zinc-400 mt-0.5">Selecione e entre com 1 clique</div>
               </div>
             </div>
-            <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-transform group-hover:translate-x-1.5 shrink-0 z-10" />
+            <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-white transition-transform group-hover:translate-x-1 shrink-0 z-10" />
           </button>
         </div>
 
         {/* Form Fields */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">
               RA / Usuário
             </label>
             <input
@@ -182,12 +186,12 @@ export const LoginView: React.FC<LoginViewProps> = ({
               onChange={(e) => setRa(e.target.value)}
               placeholder="Ex.: 000123456789sp"
               required
-              className="w-full px-4 py-3 bg-[#121214] border border-[#27272a] focus:border-zinc-400 rounded-xl text-white text-sm focus:outline-none transition-colors shadow-inner"
+              className="w-full px-3.5 py-2.5 bg-[#121214] border border-[#27272a] focus:border-zinc-400 rounded-xl text-white text-xs focus:outline-none transition-colors shadow-inner"
             />
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">
               Senha
             </label>
             <div className="relative">
@@ -197,14 +201,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 onChange={(e) => setSenha(e.target.value)}
                 placeholder="Digite sua senha"
                 required
-                className="w-full px-4 py-3 pr-12 bg-[#121214] border border-[#27272a] focus:border-zinc-400 rounded-xl text-white text-sm focus:outline-none transition-colors shadow-inner"
+                className="w-full px-3.5 py-2.5 pr-10 bg-[#121214] border border-[#27272a] focus:border-zinc-400 rounded-xl text-white text-xs focus:outline-none transition-colors shadow-inner"
               />
               <button
                 type="button"
                 onClick={() => setShowPass(!showPass)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors p-1 cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors p-1 cursor-pointer"
               >
-                {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
             </div>
           </div>
@@ -214,39 +218,39 @@ export const LoginView: React.FC<LoginViewProps> = ({
             <button
               type="button"
               onClick={onOpenEmojiChallenge}
-              className={`w-full py-3 px-4 rounded-xl border flex items-center justify-center gap-3 transition-all text-xs font-bold cursor-pointer ${
+              className={`w-full py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition-all text-xs font-bold cursor-pointer ${
                 isVerified
-                  ? 'bg-zinc-800 border-zinc-500 text-white shadow-md'
+                  ? 'bg-zinc-800 border-zinc-500 text-white shadow-sm'
                   : 'bg-[#121214] border-[#27272a] text-zinc-300 hover:border-zinc-600'
               }`}
             >
-              <div className={`w-5 h-5 rounded flex items-center justify-center border transition-all ${
+              <div className={`w-4 h-4 rounded flex items-center justify-center border text-[10px] transition-all ${
                 isVerified ? 'bg-white border-white text-black font-extrabold' : 'border-zinc-600 bg-[#18181b]'
               }`}>
                 {isVerified ? '✓' : ''}
               </div>
-              <span>{isVerified ? 'Verificado (Não sou um robô)' : 'Clique para verificar (Anti-Bot)'}</span>
+              <span className="text-[11px]">{isVerified ? 'Verificado (Não sou um robô)' : 'Clique para verificar (Anti-Bot)'}</span>
             </button>
           </div>
 
           {errorMessage && (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs text-center font-bold">
+            <div className="p-2.5 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs text-center font-bold">
               {errorMessage}
             </div>
           )}
 
           {/* Main Login Submit Button */}
-          <div>
+          <div className="pt-0.5">
             <button
               type="submit"
               disabled={isLoading || !isVerified}
-              className="w-full py-3.5 px-4 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:hover:bg-white text-black font-black rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-xl shadow-white/10 cursor-pointer"
+              className="w-full py-2.5 sm:py-3 px-4 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:hover:bg-white text-black font-black rounded-xl text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer"
             >
               {isLoading ? (
                 <span className="inline-block w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  Entrar no Sistema <ArrowRight className="w-4 h-4 stroke-[3]" />
+                  Entrar no Sistema <ArrowRight className="w-3.5 h-3.5 stroke-[3]" />
                 </>
               )}
             </button>
@@ -254,14 +258,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
         </form>
 
         {/* Discord community button */}
-        <div className="mt-4">
+        <div className="mt-3">
           <a
             href="https://discord.gg/VdnsPj8sA"
             target="_blank"
             rel="noreferrer"
-            className="w-full py-2.5 px-4 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-[#5865F2]/20 cursor-pointer block text-center"
+            className="w-full py-2 px-3.5 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-sm shadow-[#5865F2]/20 cursor-pointer block text-center"
           >
-            <svg className="w-4 h-4 fill-current inline-block mr-1" viewBox="0 0 24 24">
+            <svg className="w-3.5 h-3.5 fill-current inline-block mr-1" viewBox="0 0 24 24">
               <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
             </svg>
             Entrar na Comunidade Discord
@@ -269,14 +273,18 @@ export const LoginView: React.FC<LoginViewProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="mt-6 pt-5 border-t border-[#27272a] flex items-center justify-center">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#121214] border border-[#27272a] text-xs shadow-inner">
-            <Code2 className="w-3.5 h-3.5 text-white" />
-            <span className="text-zinc-400 font-medium">Feito com carinho por</span>
-            <strong className="text-white font-black tracking-tight underline decoration-zinc-500 underline-offset-2">
+        <div className="mt-4 pt-3 border-t border-[#27272a] flex items-center justify-center">
+          <button
+            type="button"
+            onClick={onOpenBakaiProfile}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-zinc-500 text-[10px] shadow-inner transition-all cursor-pointer group"
+          >
+            <Code2 className="w-3 h-3 text-white" />
+            <span className="text-zinc-400 font-medium group-hover:text-zinc-300">Feito com carinho por</span>
+            <strong className="text-white font-black tracking-tight underline decoration-zinc-500 group-hover:decoration-white underline-offset-2">
               bakai Shuziro
             </strong>
-          </div>
+          </button>
         </div>
       </motion.div>
     </div>

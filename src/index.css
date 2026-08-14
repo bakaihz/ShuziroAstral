@@ -1,1 +1,53 @@
 @import "tailwindcss";
+
+@layer base {
+  * {
+    border-color: #27272a;
+  }
+  
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: #070709;
+    color: #f4f4f5;
+    overflow-x: hidden;
+  }
+}
+
+/* Otimização de GPU e listas virtuais */
+.gpu-accelerated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+  will-change: transform, opacity;
+}
+
+.content-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 70px;
+}
+
+/* Custom lightweight scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #09090b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}

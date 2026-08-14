@@ -1,8 +1,9 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Heart, ChevronRight, Sparkles, MessageSquare, ExternalLink, ArrowRight } from 'lucide-react';
+import { Heart, ChevronRight, Sparkles, MessageSquare, ExternalLink, ArrowRight, BookOpen, CheckCircle, FileText, Flame } from 'lucide-react';
 import { UserData } from '../types';
 import { PLATFORMS_LIST, detectGradeLevel } from './PlataformasView';
+import eyeLogoImg from '../assets/images/shuziro_eye_logo_1786668563276.jpg';
 
 interface HomeViewProps {
   userData?: UserData;
@@ -10,6 +11,13 @@ interface HomeViewProps {
   taskCount: number;
   essayCount: number;
 }
+
+// Crisp Discord Icon
+const DiscordLogo = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+  </svg>
+);
 
 export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCount, essayCount }) => {
   const level = detectGradeLevel(userData?.serie);
@@ -48,11 +56,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
       {/* Featured Header Banner */}
       <motion.div 
         variants={itemVariants}
-        className="relative rounded-2xl overflow-hidden border border-[#27272a] shadow-2xl bg-[#121214] group"
+        className="relative rounded-2xl overflow-hidden border border-[#27272a] shadow-xl bg-[#121214] group"
       >
-        <a href="https://ibb.co/FqyzXq3h" target="_blank" rel="noreferrer" className="block relative h-52 sm:h-64 w-full overflow-hidden">
+        <a href="https://ibb.co/vxDB7tqF" target="_blank" rel="noreferrer" className="block relative h-40 sm:h-52 w-full overflow-hidden">
           <img
-            src="https://i.ibb.co/dJVDtJMf/1784647906279.png"
+            src="https://i.ibb.co/XZV4hwLQ/1784647906279.png"
             alt="ShuziroAstral Official Banner"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
             referrerPolicy="no-referrer"
@@ -60,52 +68,46 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
           <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
         </a>
 
-        <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
+        <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:right-4 flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
           <div>
-            <div className="text-xs uppercase font-bold tracking-wider text-zinc-300 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" /> ShuziroAstral Hub 2026
+            <div className="text-[11px] uppercase font-bold tracking-wider text-zinc-300 flex items-center gap-1.5 font-mono">
+              <Sparkles className="w-3 h-3 text-red-500 animate-pulse" /> ShuziroAstral Hub 2026
             </div>
-            <h1 className="text-lg sm:text-xl font-extrabold text-white">Comunidade & Automações Escolares</h1>
+            <h1 className="text-base sm:text-lg font-extrabold text-white">Comunidade & Automações Escolares</h1>
           </div>
 
           <motion.a
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.96 }}
             href="https://discord.gg/VdnsPj8sA"
             target="_blank"
             rel="noreferrer"
-            className="px-4 py-2.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer"
+            className="px-3.5 py-2 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer"
           >
-            <MessageSquare className="w-4 h-4 fill-black" />
+            <DiscordLogo className="w-3.5 h-3.5 text-black" />
             Entrar no Discord
-            <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+            <ExternalLink className="w-3 h-3 opacity-80" />
           </motion.a>
         </div>
       </motion.div>
 
-      {/* Discord Promo Card with Second Image */}
+      {/* Discord Promo Card */}
       <motion.div 
         variants={itemVariants}
-        className="bg-[#121214] border border-[#27272a] hover:border-indigo-500/30 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-5 relative overflow-hidden shadow-xl transition-all"
+        className="bg-[#121214] border border-[#27272a] hover:border-zinc-700 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-5 relative overflow-hidden shadow-xl transition-all"
       >
         <div className="flex items-center gap-4">
-          <a
-            href="https://ibb.co/1GkZrxMn"
-            target="_blank"
-            rel="noreferrer"
-            className="w-16 h-16 rounded-2xl bg-[#18181b] border border-zinc-700 p-1 shrink-0 overflow-hidden shadow-inner hover:scale-105 transition-transform"
-          >
+          <div className="w-16 h-16 rounded-2xl bg-black border-2 border-zinc-700 p-0.5 shrink-0 overflow-hidden shadow-xl group-hover:scale-105 transition-transform">
             <img
-              src="https://i.ibb.co/1GkZrxMn/1784648026795.png"
-              alt="Shuziro Community Logo"
+              src={eyeLogoImg}
+              alt="Shuziro Astral Community Logo"
               className="w-full h-full object-cover rounded-xl"
-              referrerPolicy="no-referrer"
             />
-          </a>
+          </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-white">Servidor Oficial do Discord</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/40 text-indigo-300 font-semibold border border-indigo-500/30">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-900 text-zinc-300 font-mono font-bold border border-zinc-700">
                 discord.gg/VdnsPj8sA
               </span>
             </div>
@@ -121,9 +123,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
           href="https://discord.gg/VdnsPj8sA"
           target="_blank"
           rel="noreferrer"
-          className="w-full md:w-auto px-5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-lg shadow-indigo-600/20"
+          className="w-full md:w-auto px-5 py-3 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-lg"
         >
-          <MessageSquare className="w-4 h-4 fill-white" />
+          <DiscordLogo className="w-4 h-4 text-black" />
           Acessar Servidor Discord
         </motion.a>
       </motion.div>
@@ -131,15 +133,15 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
       {/* Donation Banner */}
       <motion.div 
         variants={itemVariants}
-        className="bg-[#121214] border border-[#27272a] hover:border-amber-500/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 transition-all"
+        className="bg-[#121214] border border-[#27272a] hover:border-zinc-700 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 transition-all"
       >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-white">
-            <Heart className="w-5 h-5 fill-amber-400 text-amber-400 animate-pulse" />
+          <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-white">
+            <Heart className="w-5 h-5 fill-red-500 text-red-500 animate-pulse" />
           </div>
           <div>
-            <div className="text-sm font-semibold text-zinc-200">Ajude a manter o projeto no ar</div>
-            <div className="text-xs text-zinc-400">Sua doação apoia a manutenção dos servidores e atualizações.</div>
+            <div className="text-sm font-bold text-white">Ajude a manter o projeto no ar</div>
+            <div className="text-xs text-zinc-400">Sua doação apoia a infraestrutura de servidores e desenvolvimento contínuo.</div>
           </div>
         </div>
         <motion.a
@@ -148,9 +150,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
           href="https://pixgg.com/Bakai"
           target="_blank"
           rel="noreferrer"
-          className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-300 hover:to-amber-200 text-black font-extrabold text-xs rounded-xl transition-all shadow-md shadow-amber-500/10"
+          className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-extrabold text-xs rounded-xl border border-zinc-700 hover:border-zinc-500 transition-all shadow-md flex items-center gap-2"
         >
-          Doar via Pix
+          <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500" /> Doar via Pix
         </motion.a>
       </motion.div>
 
@@ -160,14 +162,19 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
           whileHover={{ y: -3, scale: 1.01 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => onNavigate('tarefas')}
-          className="bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-emerald-500/40 rounded-2xl p-4 cursor-pointer transition-all flex items-center justify-between group shadow-lg"
+          className="bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-zinc-500 rounded-2xl p-4 cursor-pointer transition-all flex items-center justify-between group shadow-lg"
         >
           <div>
-            <div className="text-xs text-zinc-400">Tarefas Pendentes</div>
-            <div className="text-xl font-bold text-white mt-1">{taskCount} tarefas</div>
+            <div className="text-xs text-zinc-400 font-medium">Tarefas Pendentes</div>
+            <div className="text-xl font-black text-white mt-1">{taskCount} tarefas</div>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg group-hover:scale-110 transition-transform">
-            📝
+          <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-700 text-white flex items-center justify-center overflow-hidden group-hover:scale-110 transition-transform shadow-inner">
+            <img 
+              src="https://static.vecteezy.com/ti/vetor-gratis/p1/26587905-cuidadosamente-projetado-lista-de-controle-icone-representa-uma-lista-do-tarefas-ou-itens-para-estar-concluido-frequentemente-usava-dentro-produtividade-e-organizacao-apps-vetor.jpg" 
+              alt="Tarefas SP" 
+              className="w-full h-full object-cover rounded-lg" 
+              referrerPolicy="no-referrer" 
+            />
           </div>
         </motion.div>
 
@@ -175,31 +182,37 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
           whileHover={{ y: -3, scale: 1.01 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => onNavigate('redacoes')}
-          className="bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-purple-500/40 rounded-2xl p-4 cursor-pointer transition-all flex items-center justify-between group shadow-lg"
+          className="bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-zinc-500 rounded-2xl p-4 cursor-pointer transition-all flex items-center justify-between group shadow-lg"
         >
           <div>
-            <div className="text-xs text-zinc-400">Redações Pendentes</div>
-            <div className="text-xl font-bold text-white mt-1">{essayCount} redações</div>
+            <div className="text-xs text-zinc-400 font-medium">Redações Pendentes</div>
+            <div className="text-xl font-black text-white mt-1">{essayCount} redações</div>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center text-lg group-hover:scale-110 transition-transform">
-            ✍️
+          <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-700 text-white flex items-center justify-center overflow-hidden group-hover:scale-110 transition-transform shadow-inner">
+            <img 
+              src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQroFJxwJ0-n17TqNJJb0-qCsFoHNixRNwIXdaD4VNDBg&s=10" 
+              alt="Redação SP" 
+              className="w-full h-full object-cover rounded-lg" 
+              referrerPolicy="no-referrer" 
+            />
           </div>
         </motion.div>
       </motion.div>
 
+      {/* Platforms Grid */}
       <motion.div variants={itemVariants}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+            <div className="text-xs font-bold text-zinc-300 uppercase tracking-wider font-mono">
               Plataformas Recomendadas ({level === 'medio' ? 'Ensino Médio' : 'Ensino Fundamental'})
             </div>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-medium">
-              Série: {userData?.serie || 'Ativa'}
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 font-mono font-bold">
+              {userData?.serie || 'Ativa'}
             </span>
           </div>
           <button
             onClick={() => onNavigate('plataformas')}
-            className="text-xs text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer font-semibold"
+            className="text-xs text-zinc-300 hover:text-white hover:underline flex items-center gap-1 cursor-pointer font-bold"
           >
             Ver todas <ChevronRight className="w-3.5 h-3.5" />
           </button>
@@ -212,41 +225,50 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
               whileHover={{ y: -4, scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => onNavigate(p.slug)}
-              className="bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-emerald-500/30 rounded-2xl p-4 cursor-pointer transition-all group relative overflow-hidden shadow-lg"
+              className="bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-zinc-500 rounded-2xl p-4 cursor-pointer transition-all group relative overflow-hidden shadow-lg flex flex-col justify-between"
             >
               <div className="absolute top-2 right-2 flex items-center gap-1">
-                {p.emDesenvolvimento && (
-                  <span className="text-[8px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                    Em Dev
+                {p.emManutencao && (
+                  <span className="text-[8px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400">
+                    Manutenção
                   </span>
                 )}
-                <span className="text-[8px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                {p.emDesenvolvimento && (
+                  <span className="text-[8px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400">
+                    Dev
+                  </span>
+                )}
+                <span className="text-[8px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300">
                   {level === 'medio' ? 'EM' : 'EF'}
                 </span>
               </div>
 
-              <div className="text-2xl mb-2 group-hover:scale-110 transition-transform w-10 h-10 flex items-center justify-center overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b]">
-                {p.imageUrl ? (
-                  <img src={p.imageUrl} alt={p.nome} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  p.icon
-                )}
+              <div>
+                <div className="text-2xl mb-2.5 group-hover:scale-105 transition-transform w-11 h-11 flex items-center justify-center overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b] shadow-inner">
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} alt={p.nome} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    p.icon
+                  )}
+                </div>
+                <div className="text-sm font-bold text-white group-hover:text-zinc-200 transition-colors flex items-center justify-between">
+                  <span>{p.nome}</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+                <div className="text-xs text-zinc-400 mt-1 line-clamp-1">{p.desc}</div>
               </div>
-              <div className="text-sm font-bold text-zinc-100 group-hover:text-emerald-400 transition-colors flex items-center justify-between">
-                <span>{p.nome}</span>
-                <ArrowRight className="w-3.5 h-3.5 text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-              <div className="text-xs text-zinc-500 mt-0.5 line-clamp-1">{p.desc}</div>
-              <div className="flex items-center gap-1.5 mt-3 text-[10px] text-emerald-400 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Rota /{p.slug}
+
+              <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-zinc-800/80 text-[10px] text-zinc-400 font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> ShuziroAstral.lol/{p.slug}
               </div>
             </motion.div>
           ))}
         </div>
       </motion.div>
 
+      {/* Cadernos / Apostilas */}
       <motion.div variants={itemVariants}>
-        <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">
+        <div className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-3 font-mono">
           Apostilas e Cadernos Recomendados ({level === 'medio' ? 'Ensino Médio' : 'Fundamental'})
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -256,11 +278,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
               whileHover={{ y: -3, scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => onNavigate('apostilas')}
-              className="bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-emerald-500/30 rounded-2xl p-4 cursor-pointer transition-all group shadow-md"
+              className="bg-[#121214] hover:bg-[#18181b] border border-[#27272a] hover:border-zinc-500 rounded-2xl p-4 cursor-pointer transition-all group shadow-md"
             >
-              <div className="text-xl mb-2 text-emerald-400 group-hover:scale-110 transition-transform">📘</div>
-              <div className="text-sm font-semibold text-zinc-200">{a}</div>
-              <div className="text-[11px] text-zinc-500 mt-0.5">Caderno SP</div>
+              <div className="text-xl mb-2 text-white group-hover:scale-110 transition-transform">📘</div>
+              <div className="text-sm font-bold text-zinc-200">{a}</div>
+              <div className="text-[11px] text-zinc-400 mt-0.5">Caderno SP Oficial</div>
             </motion.div>
           ))}
         </div>

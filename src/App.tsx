@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import confetti from 'canvas-confetti';
 import { BackgroundStars } from './components/BackgroundStars';
 import { LoginView } from './components/LoginView';
 import { DashboardLayout } from './components/DashboardLayout';
@@ -15,6 +16,7 @@ import { EmojiModal } from './components/EmojiModal';
 import { SavedAccountsModal } from './components/SavedAccountsModal';
 import { DiscordModal } from './components/DiscordModal';
 import { DoacaoModal } from './components/DoacaoModal';
+import { BakaiProfileModal } from './components/BakaiProfileModal';
 import { ProgressWidget } from './components/ProgressWidget';
 import { UserData, TaskItem, SavedAccount } from './types';
 
@@ -41,6 +43,7 @@ export default function App() {
   const [showAccountsModal, setShowAccountsModal] = useState(false);
   const [showDiscordModal, setShowDiscordModal] = useState(false);
   const [showDoacaoModal, setShowDoacaoModal] = useState(false);
+  const [showBakaiModal, setShowBakaiModal] = useState(false);
 
   // CAPTCHA Modal state
   const [captchaModalOpen, setCaptchaModalOpen] = useState(false);
@@ -137,20 +140,20 @@ export default function App() {
     }
   };
 
-  // Auto-ping a cada 10 segundos globalmente
+  // Auto-ping a cada 30 segundos (disparado ao logar e a cada 30s)
   useEffect(() => {
-    if (tunnelUrl) {
-      runPing(tunnelUrl, true); // Ping inicial silencioso
-    }
+    const doPing = () => {
+      runPing(tunnelUrl, true);
+    };
+
+    doPing(); // Ping inicial / imediato pós alteração
 
     const interval = setInterval(() => {
-      if (tunnelUrl) {
-        runPing(tunnelUrl, true);
-      }
-    }, 10000);
+      doPing();
+    }, 30000); // 30 segundos
 
     return () => clearInterval(interval);
-  }, [tunnelUrl]);
+  }, [tunnelUrl, isLoggedIn]);
 
   // Route synchronization logic
   const handleNavigate = (page: string) => {
@@ -229,6 +232,7 @@ export default function App() {
       setShowDiscordModal(true);
       handleSaveAccount(ra, pass);
       showToast(`Bem-vindo, ${data.nome || data.nick || ra}!`, 'success');
+      runPing(tunnelUrl, true); // Ping imediato de 30s após o login
       fetchTasks(data.auth_token, data);
     } catch (err: any) {
       setErrorMessage(err.message || 'Erro ao conectar com a API');
@@ -620,8 +624,15 @@ export default function App() {
           }
         }
 
-        const questionId = applyData.questions?.[0]?.id || applyData.question_id || 1;
-        const answerId = applyData.answers?.[String(questionId)]?.answer_id;
+        const extractedQuestions = Array.isArray(applyData.questions) ? applyData.questions :
+          (Array.isArray(applyData.items) ? applyData.items :
+            (Array.isArray(applyData.data?.questions) ? applyData.data.questions :
+              (Array.isArray(applyData.data?.items) ? applyData.data.items :
+                (Array.isArray(applyData.question_list) ? applyData.question_list : []))));
+
+        const firstQ = extractedQuestions[0];
+        const questionId = firstQ?.id || firstQ?.question?.id || firstQ?.question_id || applyData.question_id || 1;
+        const answerId = applyData.answers?.[String(questionId)]?.answer_id || applyData.answer_id;
         const roomForApply = applyData.room_name || applyData.executed_on || applyData.publication_target || applyData.room_for_apply || roomTarget;
 
         // Complete / Submit task via Job Engine
@@ -631,78 +642,141 @@ export default function App() {
         };
         if (tunnelUrl) compHeaders['x-tunnel-url'] = tunnelUrl;
 
-        // 1. Criar Job em segundo plano via POST /api/tasks/run
-        const runRes = await fetch('/api/tasks/run', {
-          method: 'POST',
-          headers: compHeaders,
-          body: JSON.stringify({
-            task_id: tid,
-            publication_target: roomForApply,
-            min_time_ms: 1000,
-            max_time_ms: actualDelaySec * 1000,
-            auth_token: authToken,
-            room_for_apply: roomForApply,
-            is_essay: isEssay,
-            titulo: genTitle,
-            texto: genTexto,
-            questions: applyData.questions || [],
-            question_id: questionId,
-            answer_id: answerId,
-            status: mode,
-            duration: actualDelaySec,
-            token: applyData.token || applyData.task_token,
-            token_code: savedTokenCode,
-            apply_moment: applyData.apply_moment || taskItem?.apply_moment
-          })
-        });
+        // 1. Criar Job em segundo plano via POST /api/tasks/run com suporte a CAPTCHA na submissão
+        let submitSuccess = false;
+        let submitAttempts = 0;
 
-        if (!runRes.ok) {
-          const errData = await runRes.json().catch(() => ({}));
-          throw new Error(errData.error || `HTTP ${runRes.status} ao iniciar job da tarefa`);
-        }
+        while (!submitSuccess && submitAttempts < 3) {
+          submitAttempts++;
+          try {
+            const runRes = await fetch('/api/tasks/run', {
+              method: 'POST',
+              headers: compHeaders,
+              body: JSON.stringify({
+                task_id: tid,
+                publication_target: roomForApply,
+                min_time_ms: 1000,
+                max_time_ms: actualDelaySec * 1000,
+                auth_token: authToken,
+                room_for_apply: roomForApply,
+                is_essay: isEssay,
+                titulo: genTitle,
+                texto: genTexto,
+                questions: extractedQuestions,
+                question_id: questionId,
+                answer_id: answerId,
+                status: mode,
+                duration: actualDelaySec,
+                token: applyData.token || applyData.task_token,
+                token_code: savedTokenCode,
+                captcha_token: solvedCaptchaToken,
+                apply_moment: applyData.apply_moment || taskItem?.apply_moment
+              })
+            });
 
-        const runData = await runRes.json();
-        const jobId = runData.jobId;
+            if (!runRes.ok) {
+              const errData = await runRes.json().catch(() => ({}));
+              const errMsg = (errData.error || errData.message || JSON.stringify(errData)).toLowerCase();
+              if (errMsg.includes('captcha') || errMsg.includes('missing captcha token') || errMsg.includes('invalid') || errData.isCaptchaError) {
+                logs.unshift({ text: `🔑 Verificação de CAPTCHA exigida no envio da tarefa. Solicitando novo desafio...`, type: 'info' });
+                setProgressLogs([...logs]);
 
-        logs.unshift({ text: `🚀 Job #${jobId} iniciado para "${title}". Monitorando progresso...`, type: 'info' });
-        setProgressLogs([...logs]);
+                const challengeRes = await fetch('/api/captcha/challenge', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'x-api-key': authToken },
+                  body: JSON.stringify({ realm: 'edusp', type: 'image' })
+                });
 
-        // 2. Acompanhar status do Job via POST /api/tasks/jobstatus
-        let jobCompleted = false;
-        let lastMsg = '';
+                if (challengeRes.ok) {
+                  const challengeData = await challengeRes.json();
+                  const challengeId = challengeData.challengeId || challengeData.challenge_id || challengeData.id || challengeData.data?.challenge_id;
+                  const imageBase64 = challengeData.challenge?.image || challengeData.image || challengeData.data?.image;
 
-        while (!jobCompleted) {
-          await new Promise(r => setTimeout(r, 1500));
-          const statusRes = await fetch('/api/tasks/jobstatus', {
-            method: 'POST',
-            headers: compHeaders,
-            body: JSON.stringify({ jobId })
-          });
-
-          if (!statusRes.ok) {
-            throw new Error(`HTTP ${statusRes.status} ao consultar status do job ${jobId}`);
-          }
-
-          const jobInfo = await statusRes.json();
-
-          if (jobInfo.message && jobInfo.message !== lastMsg) {
-            lastMsg = jobInfo.message;
-            logs.unshift({ text: `[Job #${jobId}] ${jobInfo.progress}% - ${jobInfo.message}`, type: 'info' });
-            setProgressLogs([...logs]);
-          }
-
-          if (jobInfo.status === 'completed') {
-            jobCompleted = true;
-            if (jobInfo.confirmed) {
-              successCount++;
-              logs.unshift({ text: `✅ Confirmado pela plataforma: "${title}" ${mode === 'submitted' ? 'concluída' : 'salva'}!`, type: 'ok' });
-            } else {
-              successCount++;
-              logs.unshift({ text: `⚠️ Transmitido para "${title}" (confirmação pendente na plataforma).`, type: 'ok' });
+                  if (challengeId && imageBase64) {
+                    const token = await requestCaptchaSolving(challengeId, imageBase64);
+                    solvedCaptchaToken = token;
+                    setCaptchaToken(token);
+                    localStorage.setItem('edusp_captcha_token', token);
+                    logs.unshift({ text: `✅ CAPTCHA validado! Reenviando atividade...`, type: 'info' });
+                    setProgressLogs([...logs]);
+                    continue;
+                  }
+                }
+              }
+              throw new Error(errData.error || `HTTP ${runRes.status} ao iniciar job da tarefa`);
             }
-          } else if (jobInfo.status === 'failed' || jobInfo.status === 'error') {
-            jobCompleted = true;
-            throw new Error(jobInfo.error || 'Falha ao processar tarefa no job.');
+
+            const runData = await runRes.json();
+            const jobId = runData.jobId;
+
+            logs.unshift({ text: `🚀 Job #${jobId} iniciado para "${title}". Monitorando progresso...`, type: 'info' });
+            setProgressLogs([...logs]);
+
+            // 2. Acompanhar status do Job via POST /api/tasks/jobstatus
+            let jobCompleted = false;
+            let lastMsg = '';
+
+            while (!jobCompleted) {
+              await new Promise(r => setTimeout(r, 1200));
+              const statusRes = await fetch('/api/tasks/jobstatus', {
+                method: 'POST',
+                headers: compHeaders,
+                body: JSON.stringify({ jobId })
+              });
+
+              if (!statusRes.ok) {
+                throw new Error(`HTTP ${statusRes.status} ao consultar status do job ${jobId}`);
+              }
+
+              const jobInfo = await statusRes.json();
+
+              if (jobInfo.message && jobInfo.message !== lastMsg) {
+                lastMsg = jobInfo.message;
+                logs.unshift({ text: `[Job #${jobId}] ${jobInfo.progress}% - ${jobInfo.message}`, type: 'info' });
+                setProgressLogs([...logs]);
+              }
+
+              if (jobInfo.status === 'completed') {
+                jobCompleted = true;
+                submitSuccess = true;
+                if (jobInfo.confirmed) {
+                  successCount++;
+                  logs.unshift({ text: `✅ Confirmado pela plataforma: "${title}" ${mode === 'submitted' ? 'concluída' : 'salva'}!`, type: 'ok' });
+                } else {
+                  successCount++;
+                  logs.unshift({ text: `⚠️ Transmitido para "${title}" (confirmação registrada).`, type: 'ok' });
+                }
+              } else if (jobInfo.status === 'failed' || jobInfo.status === 'error') {
+                jobCompleted = true;
+                const errStr = (jobInfo.error || '').toLowerCase();
+                if (errStr.includes('captcha') && submitAttempts < 3) {
+                  logs.unshift({ text: `⚠️ Plataforma solicitou validação de CAPTCHA ao gravar resposta. Abrindo desafio...`, type: 'info' });
+                  setProgressLogs([...logs]);
+                  const challengeRes = await fetch('/api/captcha/challenge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': authToken },
+                    body: JSON.stringify({ realm: 'edusp', type: 'image' })
+                  });
+                  if (challengeRes.ok) {
+                    const cData = await challengeRes.json();
+                    const cId = cData.challengeId || cData.challenge_id || cData.id;
+                    const img = cData.challenge?.image || cData.image || cData.data?.image;
+                    if (cId && img) {
+                      const tok = await requestCaptchaSolving(cId, img);
+                      solvedCaptchaToken = tok;
+                      setCaptchaToken(tok);
+                      localStorage.setItem('edusp_captcha_token', tok);
+                      logs.unshift({ text: `✅ CAPTCHA resolvido! Tentando novamente...`, type: 'info' });
+                      setProgressLogs([...logs]);
+                      continue;
+                    }
+                  }
+                }
+                throw new Error(jobInfo.error || 'Falha ao processar tarefa no job.');
+              }
+            }
+          } catch (errSubmit: any) {
+            if (submitAttempts >= 3) throw errSubmit;
           }
         }
       } catch (err: any) {
@@ -720,6 +794,16 @@ export default function App() {
     }
 
     setIsCompleted(true);
+    if (successCount > 0) {
+      try {
+        confetti({
+          particleCount: 50,
+          spread: 60,
+          origin: { y: 0.8 },
+          colors: ['#ffffff', '#a1a1aa', '#71717a']
+        });
+      } catch (e) {}
+    }
     showToast(`Automação concluída: ${successCount}/${taskIds.length} processadas!`, 'success');
     fetchTasks(authToken, userData);
   };
@@ -750,6 +834,7 @@ export default function App() {
           onOpenEmojiChallenge={() => setShowEmojiModal(true)}
           isVerified={isVerified}
           selectedAccount={selectedAccountForLogin}
+          onOpenBakaiProfile={() => setShowBakaiModal(true)}
         />
       ) : (
         <DashboardLayout
@@ -773,6 +858,7 @@ export default function App() {
           onOpenAccounts={() => setShowAccountsModal(true)}
           onOpenDiscord={() => setShowDiscordModal(true)}
           onOpenDoacao={() => setShowDoacaoModal(true)}
+          onOpenBakaiProfile={() => setShowBakaiModal(true)}
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -841,6 +927,7 @@ export default function App() {
                   runPing={(silent) => runPing(tunnelUrl, silent)}
                   pingResponse={pingResponse}
                   latency={latency}
+                  onOpenBakaiProfile={() => setShowBakaiModal(true)}
                 />
               )}
             </motion.div>
@@ -853,6 +940,7 @@ export default function App() {
         isOpen={showEmojiModal}
         onClose={() => setShowEmojiModal(false)}
         onSuccess={() => setIsVerified(true)}
+        tunnelUrl={tunnelUrl}
       />
 
       <SavedAccountsModal
@@ -880,6 +968,13 @@ export default function App() {
       <DoacaoModal
         isOpen={showDoacaoModal}
         onClose={() => setShowDoacaoModal(false)}
+      />
+
+      <BakaiProfileModal
+        isOpen={showBakaiModal}
+        onClose={() => setShowBakaiModal(false)}
+        onOpenDiscord={() => setShowDiscordModal(true)}
+        onOpenDoacao={() => setShowDoacaoModal(true)}
       />
 
       <ProgressWidget
