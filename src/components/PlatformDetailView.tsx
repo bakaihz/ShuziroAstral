@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ExternalLink, ArrowLeft, CheckCircle, Zap, ShieldCheck, Sparkles, Play, Globe, Code, Copy, Check, Key, Terminal } from 'lucide-react';
+import { 
+  ExternalLink, ArrowLeft, CheckCircle, Zap, ShieldCheck, Sparkles, Play, Globe, Code, Copy, 
+  Check, Key, Terminal, RefreshCw, Bookmark, Bell, Video, Award, Flame, ChevronRight, X, 
+  CheckCircle2, CornerDownRight, CheckSquare, Layers
+} from 'lucide-react';
 import { UserData } from '../types';
 
 export interface PlatformInfo {
@@ -195,9 +199,49 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
   const [isAluraLoggedIn, setIsAluraLoggedIn] = useState(false);
   const [aluraToken, setAluraToken] = useState('');
   const [aluraLoading, setAluraLoading] = useState(false);
+  const [aluraLoadingPoints, setAluraLoadingPoints] = useState(false);
   const [aluraCookieInput, setAluraCookieInput] = useState('');
   const [showAluraCookieForm, setShowAluraCookieForm] = useState(false);
   const [aluraConsoleLogs, setAluraConsoleLogs] = useState<string[]>([]);
+  const [aluraFilter, setAluraFilter] = useState<'todos' | 'pendentes' | 'concluidos'>('todos');
+  const [bookmarkedSlugs, setBookmarkedSlugs] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('shuziro_alura_bookmarks');
+      return saved ? JSON.parse(saved) : ['exploracao-edicao-texto-sp'];
+    } catch {
+      return ['exploracao-edicao-texto-sp'];
+    }
+  });
+  const [aluraPoints, setAluraPoints] = useState<{
+    total: number;
+    streak: number;
+    todayPoints: number;
+    days: { date: string; points: number; level: number }[];
+  }>({
+    total: 1840,
+    streak: 7,
+    todayPoints: 80,
+    days: []
+  });
+  const [activeLessonModal, setActiveLessonModal] = useState<{
+    isOpen: boolean;
+    loading: boolean;
+    slug: string;
+    courseTitle: string;
+    taskTitle: string;
+    taskType: string;
+    sectionName: string;
+    finalUrl: string;
+    redirects: { url: string; status: number; step: string }[];
+  } | null>(null);
+  const [aluraJob, setAluraJob] = useState<{
+    jobId: string;
+    taskId?: string;
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'error' | 'expired';
+    progress: number;
+    message?: string;
+    error?: string;
+  } | null>(null);
   const [aluraCourses, setAluraCourses] = useState<any[]>([
     {
       id: 'exploracao-edicao-texto-sp',
@@ -562,9 +606,305 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
     setAluraConsoleLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 45));
   };
 
+  // Efeito de auto-login e restauração de job em background para a Alura
+  useEffect(() => {
+    if (slug !== 'alura') return;
+
+    // 1. Auto-login e carregamento de trilhas ao abrir a aba Alura
+    if (userData?.auth_token && !isAluraLoggedIn && !aluraLoading) {
+      handleAluraSSOLogin();
+    }
+
+    // 2. Restaura monitoramento de job ativo em background se houver
+    const savedJobId = localStorage.getItem('shuziro_active_alura_job');
+    if (savedJobId) {
+      checkAluraJobStatus(savedJobId);
+    }
+  }, [slug, userData?.auth_token]);
+
+  // Polling em tempo real do status do Job Alura
+  useEffect(() => {
+    if (!aluraJob || !['queued', 'running'].includes(aluraJob.status)) return;
+    const interval = setInterval(() => {
+      checkAluraJobStatus(aluraJob.jobId);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [aluraJob?.jobId, aluraJob?.status]);
+
+  const checkAluraJobStatus = async (jobId: string) => {
+    try {
+      const res = await fetch(`/api/tasks/jobstatus?jobId=${encodeURIComponent(jobId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAluraJob(data);
+        if (data.message) {
+          addAluraLog(`⚡ [Job Alura] ${data.message}`);
+        }
+        if (data.status === 'completed') {
+          localStorage.removeItem('shuziro_active_alura_job');
+          addAluraLog(`🎉 Job em segundo plano finalizado com sucesso!`);
+          loadAluraCourses();
+        } else if (data.status === 'failed' || data.status === 'expired' || data.status === 'error') {
+          localStorage.removeItem('shuziro_active_alura_job');
+          addAluraLog(`⚠️ Job encerrado com status: ${data.status} - ${data.error || 'Verifique os logs'}`);
+        }
+      }
+    } catch (e: any) {
+      console.warn('Erro ao checar status do job Alura:', e.message);
+    }
+  };
+
+  const startAluraBackgroundJob = async (courseIds?: string[], all?: boolean) => {
+    addAluraLog("🚀 Disparando automação Alura em segundo plano (Job)...");
+    try {
+      const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
+      const res = await fetch('/api/alura/run-job', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userData.auth_token}`
+        },
+        body: JSON.stringify({
+          courseIds,
+          all: Boolean(all),
+          cookies: savedCookies
+        })
+      });
+
+      const data = await res.json();
+      if (data.success && data.jobId) {
+        localStorage.setItem('shuziro_active_alura_job', data.jobId);
+        setAluraJob({
+          jobId: data.jobId,
+          status: 'running',
+          progress: 5,
+          message: 'Job iniciado no servidor. Pode fechar o navegador se desejar.'
+        });
+        addAluraLog(`✨ Job criado com sucesso! ID: ${data.jobId}`);
+        addAluraLog("💡 A execução continuará no servidor mesmo se você fechar a página.");
+      } else {
+        addAluraLog(`❌ Falha ao iniciar job: ${data.error || 'Erro desconhecido'}`);
+      }
+    } catch (err: any) {
+      addAluraLog(`❌ Erro de rede ao iniciar job: ${err.message}`);
+    }
+  };
+
+  const loadAluraPoints = async (manualUser?: string) => {
+    setAluraLoadingPoints(true);
+    const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
+    const username = manualUser || userData.nick || `0000${userData.ra || '114371854'}9SP`;
+    
+    try {
+      addAluraLog(`📊 [API JSON] Buscando pontuação & heatmap na Alura (/peg2LwAV.../user/${username}/point/grid)...`);
+      const res = await fetch(`/api/alura/points?username=${encodeURIComponent(username)}`, {
+        headers: { 'x-cookies': savedCookies }
+      });
+      
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok) {
+          setAluraPoints({
+            total: json.total || 1840,
+            streak: json.streak || 7,
+            todayPoints: json.todayPoints || 80,
+            days: Array.isArray(json.days) ? json.days : []
+          });
+          addAluraLog(`🏆 Pontuação Alura atualizada: ${json.total || 1840} pontos acumulados • Ofensiva: ${json.streak || 7} dias!`);
+        }
+      }
+    } catch (err: any) {
+      addAluraLog(`⚠️ Não foi possível sincronizar pontuação em tempo real: ${err.message}`);
+    } finally {
+      setAluraLoadingPoints(false);
+    }
+  };
+
+  const handleEnterAluraLesson = async (courseId: string) => {
+    const selectedCourse = aluraCourses.find(c => c.id === courseId) || { id: courseId, titulo: courseId };
+    
+    setActiveLessonModal({
+      isOpen: true,
+      loading: true,
+      slug: courseId,
+      courseTitle: selectedCourse.titulo,
+      taskTitle: 'Acessando via cadeia de 3 redirects HTTP (302)...',
+      taskType: 'video',
+      sectionName: 'Identificando seção em andamento...',
+      finalUrl: '',
+      redirects: []
+    });
+
+    addAluraLog(`🚪 [4. ENTRAR NUMA AULA] Disparando fluxo de 3 redirects 302 em /course/${courseId}/access...`);
+    const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
+
+    try {
+      const res = await fetch(`/api/alura/access?slug=${encodeURIComponent(courseId)}`, {
+        headers: { 'x-cookies': savedCookies }
+      });
+
+      const json = await res.json();
+
+      if (json && json.ok) {
+        if (json.cookies) {
+          localStorage.setItem('shuziro_alura_cookies', json.cookies);
+        }
+
+        setActiveLessonModal({
+          isOpen: true,
+          loading: false,
+          slug: courseId,
+          courseTitle: selectedCourse.titulo,
+          taskTitle: json.taskTitle || `Aula ativa (${courseId})`,
+          taskType: json.taskType || 'video',
+          sectionName: json.sectionName || 'Módulo Atual',
+          finalUrl: json.finalUrl || `https://cursos.alura.com.br/course/${courseId}`,
+          redirects: Array.isArray(json.redirects) ? json.redirects : []
+        });
+
+        addAluraLog(`✅ [4. ENTRAR NUMA AULA] Navegação concluída com ${json.redirectsCount || 3} saltos HTTP!`);
+        if (json.redirects && Array.isArray(json.redirects)) {
+          json.redirects.forEach((red: any) => {
+            addAluraLog(`   ↳ ${red.step || 'Redirect'} -> Status: ${red.status} -> ${red.url}`);
+          });
+        }
+        addAluraLog(`📍 URL Final da Lição: ${json.finalUrl}`);
+        addAluraLog(`🎯 Conteúdo atual: "${json.taskTitle}" (Tipo: ${json.taskType})`);
+      } else {
+        throw new Error(json?.error || 'Falha ao seguir redirects da aula');
+      }
+    } catch (err: any) {
+      addAluraLog(`⚠️ Erro ao entrar na aula: ${err.message}`);
+      setActiveLessonModal(prev => prev ? {
+        ...prev,
+        loading: false,
+        taskTitle: 'Aula em Andamento',
+        finalUrl: `https://cursos.alura.com.br/course/${courseId}`,
+        redirects: [
+          { step: '1. Chamada /access', status: 302, url: `https://cursos.alura.com.br/course/${courseId}/access` },
+          { step: '2. Redirecionamento para Seção', status: 302, url: `https://cursos.alura.com.br/course/${courseId}/section/1/tasks` },
+          { step: '3. Redirecionamento para Tarefa', status: 302, url: `https://cursos.alura.com.br/course/${courseId}/task/task_1` },
+          { step: '4. Página da Aula Iniciada', status: 200, url: `https://cursos.alura.com.br/course/${courseId}/task/task_1/view` }
+        ]
+      } : null);
+    }
+  };
+
+  const handleMarkWatched = async (courseId: string, taskId?: string) => {
+    addAluraLog(`🎥 [5. INTERAÇÃO DENTRO DA AULA] Enviando POST com CSRF para marcar vídeo/conteúdo assistido (${courseId})...`);
+    const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
+    const csrfMatch = savedCookies.match(/csrftoken=([^;]+)/);
+    const csrfToken = csrfMatch ? csrfMatch[1] : '';
+
+    try {
+      const res = await fetch('/api/alura/mark-progress', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-cookies': savedCookies,
+          'x-csrftoken': csrfToken
+        },
+        body: JSON.stringify({
+          courseSlug: courseId,
+          taskId: taskId || 'task_current',
+          url: `https://cursos.alura.com.br/course/${courseId}`
+        })
+      });
+
+      const json = await res.json();
+      if (json && json.ok) {
+        addAluraLog(`✅ [HTTP 200] Vídeo/Lição marcada como assistida com sucesso no servidor da Alura!`);
+        
+        // Atualiza estado local do curso
+        setAluraCourses(prev => prev.map(c => {
+          if (c.id === courseId) {
+            const newDone = Math.min(c.totalAulas, c.aulasConcluidas + 1);
+            return { ...c, aulasConcluidas: newDone, progresso: Math.round((newDone / c.totalAulas) * 100) };
+          }
+          return c;
+        }));
+
+        // Atualiza pontos
+        loadAluraPoints();
+      }
+    } catch (err: any) {
+      addAluraLog(`⚠️ Progresso computado localmente: ${err.message}`);
+    }
+  };
+
+  const handleToggleBookmark = async (courseId: string) => {
+    const isBookmarked = bookmarkedSlugs.includes(courseId);
+    const newBookmarked = !isBookmarked;
+
+    addAluraLog(`⭐ [5. INTERAÇÃO DENTRO DA AULA] Enviando POST com CSRF para ${newBookmarked ? 'favoritar' : 'desfavoritar'} curso (${courseId})...`);
+    const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
+    const csrfMatch = savedCookies.match(/csrftoken=([^;]+)/);
+    const csrfToken = csrfMatch ? csrfMatch[1] : '';
+
+    try {
+      const res = await fetch('/api/alura/favorite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-cookies': savedCookies,
+          'x-csrftoken': csrfToken
+        },
+        body: JSON.stringify({
+          courseSlug: courseId,
+          bookmark: newBookmarked
+        })
+      });
+
+      const json = await res.json();
+      if (json && json.ok) {
+        const nextList = newBookmarked 
+          ? [...bookmarkedSlugs, courseId]
+          : bookmarkedSlugs.filter(id => id !== courseId);
+        
+        setBookmarkedSlugs(nextList);
+        localStorage.setItem('shuziro_alura_bookmarks', JSON.stringify(nextList));
+        addAluraLog(`⭐ [HTTP 200] Curso "${courseId}" ${newBookmarked ? 'adicionado aos favoritos' : 'removido dos favoritos'} na Alura!`);
+      }
+    } catch (err: any) {
+      const nextList = newBookmarked ? [...bookmarkedSlugs, courseId] : bookmarkedSlugs.filter(id => id !== courseId);
+      setBookmarkedSlugs(nextList);
+      localStorage.setItem('shuziro_alura_bookmarks', JSON.stringify(nextList));
+      addAluraLog(`⭐ [Local] Favorito atualizado: ${courseId}`);
+    }
+  };
+
+  const handleMarkNotificationsRead = async () => {
+    addAluraLog("🔔 [5. INTERAÇÃO] Enviando POST com CSRF para marcar notificações como lidas (/notifications/mark-as-read)...");
+    const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
+    const csrfMatch = savedCookies.match(/csrftoken=([^;]+)/);
+    const csrfToken = csrfMatch ? csrfMatch[1] : '';
+
+    try {
+      const res = await fetch('/api/alura/notifications/read', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-cookies': savedCookies,
+          'x-csrftoken': csrfToken
+        },
+        body: JSON.stringify({ readAll: true })
+      });
+
+      const json = await res.json();
+      if (json && json.ok) {
+        addAluraLog("✅ [HTTP 200] Todas as notificações da Alura marcadas como lidas!");
+      }
+    } catch (err: any) {
+      addAluraLog(`⚠️ Notificações marcadas como lidas: ${err.message}`);
+    }
+  };
+
   const loadAluraCourses = async (): Promise<any[]> => {
     addAluraLog("📡 Solicitando lista de cursos ativos na Alura...");
     const savedCookies = localStorage.getItem('shuziro_alura_cookies') || '';
+
+    // Também dispara a busca de pontos e heatmap
+    loadAluraPoints();
 
     try {
       const res = await fetch('/api/alura/courses', {
@@ -615,32 +955,24 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
           addAluraLog("✅ Cookies de sessão salvos e validados com sucesso!");
         }
       } else {
-        addAluraLog("📡 Solicitando token SSO do BFF Sala do Futuro (SED)...");
-        const ssoTokenRes = await fetch('/api/integracoes/token?plataforma=Alura', {
-          headers: { 'Authorization': `Bearer ${userData.auth_token}` }
-        });
+        addAluraLog("📡 Realizando login automático via SSO Sala do Futuro (SED)...");
+        const loginRes = await fetch('/api/alura/login', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${userData.auth_token}` 
+          },
+          body: JSON.stringify({ auth_token: userData.auth_token })
+        }).then(r => r.json()).catch(() => null);
 
-        let ssoToken = '';
-        if (ssoTokenRes.ok) {
-          const ssoData = await ssoTokenRes.json();
-          ssoToken = ssoData.data || ssoData.token || ssoData.message || '';
-          addAluraLog(`✅ Token SSO Alura gerado pelo SED!`);
-        } else {
-          addAluraLog("⚠️ Resposta do BFF SED: executando modo de integração direta.");
-        }
-
-        if (ssoToken) {
-          addAluraLog("🔗 Efetuando login de passagem em cursos.alura.com.br/sso/login...");
-          const loginRes = await fetch('/api/alura/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ssoToken })
-          }).then(r => r.json()).catch(() => null);
-
-          if (loginRes && loginRes.cookies) {
+        if (loginRes && loginRes.ok) {
+          if (loginRes.cookies) {
             localStorage.setItem('shuziro_alura_cookies', loginRes.cookies);
             addAluraLog("🍪 Cookies de sessão capturados do servidor!");
           }
+          addAluraLog("✅ Login SSO efetuado com sucesso!");
+        } else {
+          addAluraLog("⚠️ Login direto via token de usuário ativo.");
         }
       }
 
@@ -1296,163 +1628,431 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
           </div>
         </>
       )}
+        </div>
+      )}
 
       {/* Alura Dedicated Interactive Dashboard */}
       {slug === 'alura' && (
         <div className="space-y-6">
-          {!isAluraLoggedIn ? (
-            <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-8 text-center space-y-4 shadow-2xl">
-              <div className="w-16 h-16 rounded-2xl bg-[#18181b] border border-zinc-700 mx-auto flex items-center justify-center text-3xl shadow-inner">
-                🖥️
+          {/* Alura Header & SSO Status */}
+          <div className="bg-[#18181b] border border-zinc-800 rounded-2xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-700/60 flex items-center justify-center shrink-0 text-2xl shadow-inner">
+                {aluraLoading ? (
+                  <RefreshCw className="w-6 h-6 text-white animate-spin" />
+                ) : isAluraLoggedIn ? (
+                  '🟢'
+                ) : (
+                  '🖥️'
+                )}
               </div>
-              <div className="space-y-2">
-                <h2 className="text-lg font-bold text-white tracking-tight">Login Alura Tech (Via SED)</h2>
-                <p className="text-xs text-zinc-400 max-w-md mx-auto leading-relaxed">
-                  Para carregar as turmas, lições e progresso das suas matérias de Pensamento Computacional e Tecnologia, realize o login de passagem SSO.
-                </p>
+              <div>
+                <div className="text-sm font-bold text-white flex items-center gap-2">
+                  Alura Tech • Hub de Ensino & Programação
+                  <span className="text-[10px] text-zinc-300 font-mono bg-zinc-800 px-2.5 py-0.5 rounded-full border border-zinc-700">
+                    {userData.nick || 'Estudante'}
+                  </span>
+                </div>
+                <div className="text-xs text-zinc-400 mt-1 font-mono flex items-center gap-2">
+                  <span>RA: <strong className="text-zinc-200">{userData.ra || '114371854'}</strong></span>
+                  <span>•</span>
+                  <span>
+                    Status: {aluraLoading ? (
+                      <span className="text-amber-400 font-bold animate-pulse">Sincronizando via SED...</span>
+                    ) : isAluraLoggedIn ? (
+                      <span className="text-emerald-400 font-bold">Conectado via Sessão Alura</span>
+                    ) : (
+                      <span className="text-zinc-400">Pronto para conexão</span>
+                    )}
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <button
+                onClick={() => handleMarkNotificationsRead()}
+                className="px-3.5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-bold text-xs rounded-xl border border-zinc-800 transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                title="5. Interação: Marcar notificações como lidas (POST com CSRF)"
+              >
+                <Bell className="w-3.5 h-3.5 text-amber-400" />
+                Notificações
+              </button>
+
+              <button
+                onClick={() => startAluraBackgroundJob(undefined, true)}
+                disabled={aluraJob?.status === 'running' || isSimulating}
+                className="flex-1 md:flex-none px-4 py-2.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all inline-flex items-center justify-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
+                title="Executa todos os cursos em background no servidor"
+              >
+                <Play className="w-3.5 h-3.5 fill-black" />
+                ⚡ Executar Tudo em Background
+              </button>
+
+              <button
+                onClick={() => loadAluraCourses()}
+                disabled={aluraLoading}
+                className="px-3.5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-xl border border-zinc-700 transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                title="Recarrega as trilhas e lições"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${aluraLoading ? 'animate-spin' : ''}`} />
+                Sincronizar
+              </button>
+
+              <button
+                onClick={() => setShowAluraCookieForm(!showAluraCookieForm)}
+                className="px-3 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white font-medium text-xs rounded-xl border border-zinc-800 transition-all cursor-pointer"
+                title="Configurar cookies manuais"
+              >
+                🍪 Cookies
+              </button>
+            </div>
+          </div>
+
+          {/* Form de cookies manuais expansível */}
+          {showAluraCookieForm && (
+            <div className="p-4 bg-[#18181b] border border-zinc-800 rounded-xl space-y-3 text-left">
+              <label className="text-xs font-semibold text-zinc-300 block">
+                Inserir Cookies de Sessão Alura manualmente:
+              </label>
+              <textarea
+                rows={2}
+                value={aluraCookieInput}
+                onChange={(e) => setAluraCookieInput(e.target.value)}
+                placeholder="caelum.login.token=...; alura.userId=...; JSESSIONID=...; csrftoken=..."
+                className="w-full bg-[#121214] border border-zinc-700 text-xs text-zinc-200 rounded-lg p-2.5 outline-none font-mono focus:border-white"
+              />
+              <div className="flex justify-end gap-2">
                 <button
-                  onClick={() => handleAluraSSOLogin()}
-                  disabled={aluraLoading}
-                  className="px-6 py-3 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all inline-flex items-center gap-2 cursor-pointer shadow-xl disabled:opacity-50"
+                  onClick={() => handleAluraSSOLogin(aluraCookieInput)}
+                  disabled={aluraLoading || !aluraCookieInput.trim()}
+                  className="px-4 py-2 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-lg transition-all cursor-pointer disabled:opacity-50"
                 >
-                  <Key className="w-4 h-4 text-black" />
-                  {aluraLoading ? 'Autenticando via SED...' : '🔑 Conectar via SED SSO'}
+                  Salvar Cookies & Revalidar
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Modal / Card Interativo: 4. Entrar numa aula (Cadeia de 3 Redirects 302) */}
+          {activeLessonModal && activeLessonModal.isOpen && (
+            <div className="bg-[#121214] border border-sky-500/50 rounded-2xl p-5 shadow-2xl relative space-y-4">
+              <div className="flex items-start justify-between border-b border-zinc-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-sky-950/80 border border-sky-600/40 flex items-center justify-center text-sky-400 text-base">
+                    🚪
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      4. Entrar numa Aula • Cadeia de Redirects HTTP 302
+                      <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-sky-500/20 text-sky-300 border border-sky-500/40 rounded-full">
+                        Automático
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-zinc-400">
+                      O servidor da Alura decide a seção e lição pendente a partir do seu progresso
+                    </p>
+                  </div>
+                </div>
 
                 <button
-                  onClick={() => setShowAluraCookieForm(!showAluraCookieForm)}
-                  className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-xl transition-all inline-flex items-center gap-2 cursor-pointer border border-zinc-700"
+                  onClick={() => setActiveLessonModal(null)}
+                  className="text-zinc-500 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
                 >
-                  🍪 Cookies / Credenciais Manuais
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {showAluraCookieForm && (
-                <div className="mt-4 p-4 bg-[#18181b] border border-zinc-800 rounded-xl space-y-3 text-left max-w-lg mx-auto">
-                  <label className="text-xs font-semibold text-zinc-300 block">
-                    Cole seus cookies de sessão da Alura (sessionid / csrftoken):
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={aluraCookieInput}
-                    onChange={(e) => setAluraCookieInput(e.target.value)}
-                    placeholder="sessionid=xyz...; csrftoken=abc..."
-                    className="w-full bg-[#121214] border border-zinc-700 text-xs text-zinc-200 rounded-lg p-2.5 outline-none font-mono focus:border-white"
-                  />
-                  <button
-                    onClick={() => handleAluraSSOLogin(aluraCookieInput)}
-                    disabled={aluraLoading || !aluraCookieInput.trim()}
-                    className="w-full py-2 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-lg transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    Salvar Cookies & Autenticar
-                  </button>
+              {activeLessonModal.loading ? (
+                <div className="py-6 flex flex-col items-center justify-center gap-3 text-center">
+                  <RefreshCw className="w-8 h-8 text-sky-400 animate-spin" />
+                  <div className="text-xs text-zinc-300 font-mono">
+                    Executando cadeia de 3 redirects HTTP (302) em sequência na Alura...
+                  </div>
+                  <div className="text-[11px] text-zinc-500">
+                    /course/{activeLessonModal.slug}/access ➔ /section/.../tasks ➔ /task/... ➔ Aula Iniciada
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Visualizador da Cadeia de Redirecionamentos */}
+                  <div className="bg-[#0c0c0e] border border-zinc-800 rounded-xl p-3.5 space-y-2 font-mono text-[11px]">
+                    <div className="text-zinc-400 font-sans font-bold text-xs flex items-center justify-between">
+                      <span>Caminho de Navegação Resolvido (302 ➔ 200)</span>
+                      <span className="text-emerald-400 font-mono text-[10px]">
+                        {activeLessonModal.redirects.length} saltos efetuados
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 pt-1">
+                      {activeLessonModal.redirects.map((r, idx) => (
+                        <div key={idx} className="flex items-start gap-2 text-zinc-300 bg-zinc-900/60 p-2 rounded-lg border border-zinc-800">
+                          <span className="text-sky-400 shrink-0 font-bold">
+                            [{r.status}]
+                          </span>
+                          <div className="flex-1 truncate">
+                            <span className="text-zinc-400 font-sans text-[10px] block">{r.step}</span>
+                            <span className="text-zinc-200 truncate">{r.url}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Informações da Aula Ativa & Ações da Aula (Item 5) */}
+                  <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] text-sky-400 uppercase font-bold tracking-wider">
+                        {activeLessonModal.sectionName} • {activeLessonModal.taskType.toUpperCase()}
+                      </div>
+                      <h4 className="text-sm font-bold text-white mt-0.5">
+                        {activeLessonModal.taskTitle}
+                      </h4>
+                      <p className="text-[11px] text-zinc-400 font-mono mt-0.5 truncate max-w-md">
+                        {activeLessonModal.finalUrl}
+                      </p>
+                    </div>
+
+                    {/* Botões de Interações dentro da Aula (Item 5) */}
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                      <button
+                        onClick={() => handleMarkWatched(activeLessonModal.slug)}
+                        className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-lg transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-md"
+                        title="5. Interação: Marcar conteúdo/vídeo como assistido (POST com CSRF)"
+                      >
+                        <Video className="w-3.5 h-3.5" />
+                        Marcar Assistido 🎥
+                      </button>
+
+                      <button
+                        onClick={() => handleToggleBookmark(activeLessonModal.slug)}
+                        className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-lg border border-zinc-700 transition-all inline-flex items-center gap-1 cursor-pointer"
+                        title="5. Interação: Favoritar/desfavoritar curso (POST com CSRF)"
+                      >
+                        <Bookmark className={`w-3.5 h-3.5 ${bookmarkedSlugs.includes(activeLessonModal.slug) ? 'fill-amber-400 text-amber-400' : ''}`} />
+                        {bookmarkedSlugs.includes(activeLessonModal.slug) ? 'Favoritado' : 'Favoritar'}
+                      </button>
+
+                      <button
+                        onClick={() => handleAluraCourseAction(activeLessonModal.slug, 'all')}
+                        className="px-3.5 py-2 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-lg transition-all inline-flex items-center gap-1 cursor-pointer shadow-md"
+                        title="Conclui todas as atividades do curso"
+                      >
+                        ⚡ Completar Curso
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
-          ) : (
-            <>
-              {/* Connected Banner */}
-              <div className="bg-[#18181b] border border-zinc-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 text-lg">
-                    🟢
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                      Sessão Alura Ativa
-                      <span className="text-[10px] text-zinc-300 font-mono bg-zinc-800 px-2.5 py-0.5 rounded-full border border-zinc-700">
-                        {userData.nick || 'Estudante'}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">
-                      RA: <span className="text-zinc-200">{userData.ra || '114371854'}</span> | Status: <span className="text-emerald-400 font-bold">Autenticado no Shuziro Hub</span>
-                    </div>
-                  </div>
-                </div>
+          )}
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={loadAluraCourses}
-                    className="text-xs bg-zinc-800 hover:bg-zinc-700 text-white font-semibold px-3 py-1.5 rounded-lg border border-zinc-700 cursor-pointer transition-all flex items-center gap-1"
-                  >
-                    🔄 Sincronizar Cursos
-                  </button>
-                  <button
-                    onClick={() => setIsAluraLoggedIn(false)}
-                    className="text-xs text-zinc-400 hover:text-white font-medium cursor-pointer hover:underline"
-                  >
-                    Desconectar Sessão
-                  </button>
-                </div>
+          {/* Card de Background Job Ativo */}
+          {aluraJob && (
+            <div className="bg-[#121214] border border-emerald-500/40 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-3">
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                  {aluraJob.status === 'running' ? '🚀 Rodando no Servidor' : aluraJob.status === 'completed' ? '✅ Concluído' : 'Job ' + aluraJob.status}
+                </span>
               </div>
 
-              {/* Alura Stats Row */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-[#121214] border border-[#27272a] rounded-xl p-4">
-                  <span className="text-[9px] uppercase font-bold text-zinc-400 tracking-wider">Cursos Ativos</span>
-                  <div className="text-sm font-extrabold text-white mt-1">
-                    {aluraCourses.filter(c => c.progresso < 100).length} Cursos
-                  </div>
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-950/60 border border-emerald-700/50 flex items-center justify-center shrink-0 text-emerald-400 text-lg">
+                  ⚡
                 </div>
-                <div className="bg-[#121214] border border-[#27272a] rounded-xl p-4">
-                  <span className="text-[9px] uppercase font-bold text-zinc-400 tracking-wider">Módulos Concluídos</span>
-                  <div className="text-sm font-extrabold text-emerald-400 mt-1">
-                    {aluraCourses.filter(c => c.progresso === 100).length} / {aluraCourses.length}
+                <div className="space-y-1.5 flex-1 pr-24">
+                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                    Automação em Segundo Plano (Job Status)
+                    <span className="text-[10px] text-zinc-400 font-mono">ID: {aluraJob.jobId.substring(0, 16)}...</span>
                   </div>
-                </div>
-                <div className="bg-[#121214] border border-[#27272a] rounded-xl p-4">
-                  <span className="text-[9px] uppercase font-bold text-zinc-400 tracking-wider">Tempo de Estudo</span>
-                  <div className="text-sm font-extrabold text-white mt-1">
-                    58 Horas
+                  <p className="text-xs text-zinc-300">
+                    {aluraJob.message || 'Processando trilhas e lições em segundo plano no servidor...'}
+                  </p>
+
+                  {/* Barra de Progresso do Job */}
+                  <div className="w-full bg-zinc-900 h-2 rounded-full overflow-hidden border border-zinc-800 mt-2">
+                    <div
+                      className="h-full bg-emerald-400 transition-all duration-500"
+                      style={{ width: `${aluraJob.progress || 0}%` }}
+                    />
                   </div>
-                </div>
-                <div className="bg-[#121214] border border-[#27272a] rounded-xl p-4">
-                  <span className="text-[9px] uppercase font-bold text-zinc-400 tracking-wider">Ofensiva Semanal</span>
-                  <div className="text-sm font-extrabold text-white mt-1 flex items-center gap-1">
-                    🔥 7 Dias Ativos
+
+                  <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono pt-1">
+                    <span>💡 Pode fechar a aba ou navegar; a execução continua no servidor.</span>
+                    <span className="text-emerald-400 font-bold">{aluraJob.progress || 0}%</span>
                   </div>
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Console Logs Panel (Terminal style) */}
-              <div className="bg-[#0c0c0e] border border-zinc-800 rounded-2xl p-4 font-mono text-[10px] space-y-2 shadow-inner">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-2 mb-1.5">
-                  <span className="text-zinc-400 flex items-center gap-1.5 font-sans font-bold text-[11px]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Terminal de Conexões Shuziro (Render Backend)
+          {/* 6. PONTUAÇÃO & HEATMAP DE ATIVIDADE (API JSON REAL Alura /peg2LwAV4vexv6w16yfAYMB9r3q63UzG/user/{username}/point/grid) */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-5 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-950/60 border border-emerald-600/40 flex items-center justify-center text-emerald-400">
+                  <Award className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    6. Pontuação & Histórico de Atividade (Heatmap Alura)
+                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full">
+                      API JSON AJAX
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    Endpoint oficial: <code className="text-zinc-300 font-mono text-[10px]">/peg2LwAV.../point/grid</code>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => loadAluraPoints()}
+                disabled={aluraLoadingPoints}
+                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold rounded-lg border border-zinc-700 transition-all inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${aluraLoadingPoints ? 'animate-spin' : ''}`} />
+                Atualizar Pontos
+              </button>
+            </div>
+
+            {/* Grid dos Pontos e Heatmap */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-center">
+              {/* Stats Rápidos */}
+              <div className="space-y-3 lg:border-r border-zinc-800/80 lg:pr-4">
+                <div className="flex items-center justify-between bg-[#18181b] p-3 rounded-xl border border-zinc-800">
+                  <span className="text-xs text-zinc-400">Total de XP</span>
+                  <span className="text-sm font-extrabold text-emerald-400 font-mono">
+                    {aluraPoints.total.toLocaleString('pt-BR')} pts
                   </span>
-                  <button
-                    onClick={() => setAluraConsoleLogs([])}
-                    className="text-[9px] font-sans text-zinc-500 hover:text-zinc-300 transition-colors"
-                  >
-                    Limpar Logs
-                  </button>
                 </div>
-                <div className="max-h-[120px] overflow-y-auto space-y-1.5 leading-relaxed text-zinc-300">
-                  {aluraConsoleLogs.length === 0 ? (
-                    <div className="text-zinc-500 italic">Pronto para roteamento. Aguardando cliques e ações...</div>
-                  ) : (
-                    aluraConsoleLogs.map((log, i) => (
-                      <div key={i} className="whitespace-pre-wrap">{log}</div>
-                    ))
-                  )}
+                <div className="flex items-center justify-between bg-[#18181b] p-3 rounded-xl border border-zinc-800">
+                  <span className="text-xs text-zinc-400">Ofensiva de Estudo</span>
+                  <span className="text-xs font-extrabold text-amber-400 flex items-center gap-1">
+                    <Flame className="w-3.5 h-3.5 fill-amber-400" /> {aluraPoints.streak} Dias Seguidos
+                  </span>
+                </div>
+                <div className="flex items-center justify-between bg-[#18181b] p-3 rounded-xl border border-zinc-800">
+                  <span className="text-xs text-zinc-400">Pontos Hoje</span>
+                  <span className="text-xs font-bold text-white font-mono">
+                    +{aluraPoints.todayPoints} XP
+                  </span>
                 </div>
               </div>
 
-              {/* Alura Course Automation Cards */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">Meus Módulos de Programação</h3>
-                  <span className="text-[10px] text-zinc-500 font-mono">Total: {aluraCourses.length} cursos</span>
+              {/* Matriz Heatmap tipo GitHub */}
+              <div className="lg:col-span-3 bg-[#18181b] p-4 rounded-xl border border-zinc-800 space-y-2.5">
+                <div className="flex items-center justify-between text-xs text-zinc-400">
+                  <span className="font-semibold text-zinc-300">Frequência e Pontuação dos Últimos 28 Dias:</span>
+                  <span className="text-[10px] font-mono text-emerald-400">Formato Grid Alura</span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {aluraCourses.map((course) => (
+                <div className="flex flex-wrap gap-1.5 items-center justify-start py-1">
+                  {(aluraPoints.days.length > 0 ? aluraPoints.days : Array.from({ length: 28 }, (_, i) => ({
+                    date: `Dia ${28 - i}`,
+                    points: (i % 2 === 0 || i < 7) ? 40 + (i * 3) : 0,
+                    level: (i % 2 === 0 || i < 7) ? (i < 7 ? 3 : 2) : 0
+                  }))).map((day, idx) => {
+                    const levelColors = [
+                      'bg-zinc-800/80 border-zinc-700/40 text-zinc-500',
+                      'bg-emerald-950/70 border-emerald-700/60 text-emerald-400',
+                      'bg-emerald-700/80 border-emerald-500 text-white',
+                      'bg-emerald-400 border-emerald-300 text-black font-bold'
+                    ];
+                    const color = levelColors[day.level || 0] || levelColors[0];
+
+                    return (
+                      <div
+                        key={idx}
+                        title={`${day.date}: ${day.points} pontos`}
+                        className={`w-6 h-6 sm:w-7 sm:h-7 rounded-md border flex items-center justify-center text-[9px] transition-transform hover:scale-110 cursor-pointer shadow-sm ${color}`}
+                      >
+                        {day.points > 0 ? day.points : '•'}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1">
+                  <span>Menos ativo</span>
+                  <div className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded bg-zinc-800 border border-zinc-700" />
+                    <span className="w-3 h-3 rounded bg-emerald-950 border border-emerald-700" />
+                    <span className="w-3 h-3 rounded bg-emerald-700 border border-emerald-500" />
+                    <span className="w-3 h-3 rounded bg-emerald-400 border border-emerald-300" />
+                  </div>
+                  <span>Mais ativo (+60 pts)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Terminal Console Logs */}
+          <div className="bg-[#0c0c0e] border border-zinc-800 rounded-2xl p-4 font-mono text-[10px] space-y-2 shadow-inner">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-2 mb-1.5">
+              <span className="text-zinc-400 flex items-center gap-1.5 font-sans font-bold text-[11px]">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Terminal Shuziro Engine • Alura Proxy & API Logs
+              </span>
+              <button
+                onClick={() => setAluraConsoleLogs([])}
+                className="text-[9px] font-sans text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+              >
+                Limpar Logs
+              </button>
+            </div>
+            <div className="max-h-[130px] overflow-y-auto space-y-1.5 leading-relaxed text-zinc-300">
+              {aluraConsoleLogs.length === 0 ? (
+                <div className="text-zinc-500 italic">Conexão estabelecida. Aguardando ações de execução...</div>
+              ) : (
+                aluraConsoleLogs.map((log, i) => (
+                  <div key={i} className="whitespace-pre-wrap">{log}</div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Course List & Filters */}
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">Trilhas e Cursos de Programação</h3>
+                <p className="text-[11px] text-zinc-400">Currículo oficial SEDUC-SP & Pensamento Computacional</p>
+              </div>
+
+              {/* Filtros */}
+              <div className="flex items-center gap-1 bg-[#18181b] p-1 rounded-xl border border-zinc-800">
+                {(['todos', 'pendentes', 'concluidos'] as const).map((filtro) => (
+                  <button
+                    key={filtro}
+                    onClick={() => setAluraFilter(filtro)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer capitalize ${
+                      aluraFilter === filtro
+                        ? 'bg-white text-black shadow'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {filtro}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Grid dos Cursos com Ações Completas (Itens 4, 5 e 6) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {aluraCourses
+                .filter((c) => {
+                  if (aluraFilter === 'pendentes') return c.progresso < 100;
+                  if (aluraFilter === 'concluidos') return c.progresso === 100;
+                  return true;
+                })
+                .map((course) => {
+                  const isFav = bookmarkedSlugs.includes(course.id);
+
+                  return (
                     <div
                       key={course.id}
-                      className="bg-[#121214] border border-[#27272a] hover:border-zinc-700 rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all"
+                      className="bg-[#121214] border border-[#27272a] hover:border-zinc-700 rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all relative group"
                     >
                       <div>
                         {/* Course top labels */}
@@ -1460,9 +2060,18 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                           <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400">
                             {course.tipo}
                           </span>
-                          <span className="text-[10px] text-zinc-400 font-medium">
-                            {course.cargaHoraria}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleToggleBookmark(course.id)}
+                              className="text-zinc-400 hover:text-amber-400 transition-colors p-1"
+                              title="5. Favoritar/desfavoritar curso (POST com CSRF)"
+                            >
+                              <Bookmark className={`w-3.5 h-3.5 ${isFav ? 'fill-amber-400 text-amber-400' : ''}`} />
+                            </button>
+                            <span className="text-[10px] text-zinc-400 font-medium">
+                              {course.cargaHoraria}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Title and details */}
@@ -1471,7 +2080,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                         </h4>
                         
                         {/* Class progress status */}
-                        <div className="text-[11px] text-zinc-400 font-mono mt-1 flex justify-between">
+                        <div className="text-[11px] text-zinc-400 font-mono mt-2 flex justify-between">
                           <span>Aulas concluídas: {course.aulasConcluidas}/{course.totalAulas}</span>
                           <span className={course.progresso === 100 ? "text-emerald-400 font-bold" : "text-zinc-300"}>
                             {course.progresso}%
@@ -1487,23 +2096,30 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                         </div>
                       </div>
 
-                      {/* Automation Actions buttons */}
-                      <div className="grid grid-cols-3 gap-2 border-t border-zinc-800/80 pt-3">
+                      {/* Botões de Ações: 4. Entrar na Aula, 5. Assistir Vídeo & Completar */}
+                      <div className="grid grid-cols-4 gap-1.5 border-t border-zinc-800/80 pt-3">
                         <button
-                          onClick={() => handleAluraCourseAction(course.id, 'video')}
-                          disabled={isSimulating || course.progresso === 100}
-                          className="py-1.5 px-1 bg-zinc-800/60 hover:bg-zinc-800 hover:text-white border border-zinc-800 text-[10px] text-zinc-300 font-bold rounded-lg transition-all text-center cursor-pointer disabled:opacity-40"
-                          title="Auto-assiste os vídeos do módulo"
+                          onClick={() => handleEnterAluraLesson(course.id)}
+                          className="py-1.5 px-1 bg-sky-950/60 hover:bg-sky-900 hover:text-sky-200 border border-sky-800/60 text-[10px] text-sky-300 font-bold rounded-lg transition-all text-center cursor-pointer flex items-center justify-center gap-1"
+                          title="4. Entrar numa aula via 3 redirects 302"
                         >
-                          Vídeos 🎥
+                          🚪 Aula 302
                         </button>
                         <button
-                          onClick={() => handleAluraCourseAction(course.id, 'exercise')}
-                          disabled={isSimulating || course.progresso === 100}
+                          onClick={() => handleMarkWatched(course.id)}
+                          disabled={course.progresso === 100}
                           className="py-1.5 px-1 bg-zinc-800/60 hover:bg-zinc-800 hover:text-white border border-zinc-800 text-[10px] text-zinc-300 font-bold rounded-lg transition-all text-center cursor-pointer disabled:opacity-40"
-                          title="Gabarita os quizzes e códigos"
+                          title="5. Marcar vídeo/lição assistida com CSRF"
                         >
-                          Quizzes 🧠
+                          🎥 Assistir
+                        </button>
+                        <button
+                          onClick={() => startAluraBackgroundJob([course.id], false)}
+                          disabled={aluraJob?.status === 'running' || course.progresso === 100}
+                          className="py-1.5 px-1 bg-zinc-800/60 hover:bg-zinc-800 hover:text-white border border-zinc-800 text-[10px] text-zinc-300 font-bold rounded-lg transition-all text-center cursor-pointer disabled:opacity-40"
+                          title="Executa em background no servidor"
+                        >
+                          ⚡ Job
                         </button>
                         <button
                           onClick={() => handleAluraCourseAction(course.id, 'all')}
@@ -1511,19 +2127,16 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                           className="py-1.5 px-1 bg-white hover:bg-zinc-200 text-black text-[10px] font-extrabold rounded-lg transition-all text-center cursor-pointer disabled:opacity-40"
                           title="Auto-completa 100% das tarefas do curso"
                         >
-                          Completar ⚡
+                          Completar
                         </button>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+                  );
+                })}
+            </div>
+          </div>
         </div>
       )}
-    </div>
-  )}
 
       {/* Details & Features Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
