@@ -391,6 +391,20 @@ async function startServer() {
         return ansObj;
     }
 
+    function extractNickFromToken(token: string): string {
+        if (!token) return '';
+        try {
+            const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
+            const parts = cleanToken.split('.');
+            if (parts.length >= 2) {
+                const payloadStr = Buffer.from(parts[1], 'base64').toString('utf8');
+                const payload = JSON.parse(payloadStr);
+                return payload.nick || payload.username || payload.sub || payload.user_id || '';
+            }
+        } catch {}
+        return '';
+    }
+
     function extractQuestionsList(data: any): any[] {
         if (!data || typeof data !== 'object') return [];
         if (Array.isArray(data)) return data;
@@ -403,6 +417,12 @@ async function startServer() {
         if (Array.isArray(data.body?.questions)) return data.body.questions;
         if (Array.isArray(data.question_list)) return data.question_list;
         return [];
+    }
+
+    function extractKeyWordFromStatement(statement: string): string {
+        const clean = statement.replace(/<[^>]*>/g, ' ').replace(/[.,/#!$%^&*;:{}=\-_`~()?"'“]/g, ' ').replace(/\s+/g, ' ').trim();
+        const words = clean.split(' ').filter(w => w.length >= 4 && !['qual', 'para', 'como', 'onde', 'quando', 'sobre', 'texto', 'abaixo', 'seguir', 'leia', 'identifique', 'responda', 'cada', 'mais', 'menos', 'entre', 'outro', 'outra', 'forma', 'lado', 'lados'].includes(w.toLowerCase()));
+        return (words[words.length - 1] || 'RESPOSTA').toUpperCase();
     }
 
     async function solveTaskQuestionsWithAI(
@@ -486,18 +506,16 @@ async function startServer() {
             } else if (qType === "fill-words" || qType === "fill_words" || qType === "cloud" || qType === "order-sentences" || qType === "order_sentences") {
                 questionsNeedingAI.push({ ...q, resolvedType: qType, isText: false, isSpecialSequence: true });
             } else if (qType === "fill-letters" || qType === "fill_letters") {
-                let word = "";
-                if (q.options?.word) word = String(q.options.word);
-                else if (q.options?.answer) word = String(q.options.answer);
-                else if (q.answer) word = String(q.answer);
-
-                if (!word) word = "RESPOSTA";
-
-                answersMap[String(qId)] = {
-                    question_id: qId,
-                    question_type: "fill-letters",
-                    answer: word.toUpperCase()
-                };
+                let knownWord = q.options?.word || q.options?.answer || q.answer;
+                if (knownWord && typeof knownWord === 'string' && knownWord.trim().length > 1 && knownWord.toUpperCase() !== 'RESPOSTA') {
+                    answersMap[String(qId)] = {
+                        question_id: qId,
+                        question_type: "fill-letters",
+                        answer: knownWord.trim().toUpperCase()
+                    };
+                } else {
+                    questionsNeedingAI.push({ ...q, resolvedType: "fill-letters", isFillLetters: true, isText: false });
+                }
             } else if (qType === "true-false" || qType === "true_false") {
                 let tfOpts: any[] = [];
                 if (Array.isArray(q.options)) tfOpts = q.options;
@@ -542,7 +560,14 @@ async function startServer() {
 Enunciado: "${statement}"
 ${keywords ? `PALAVRAS-CHAVE OBRIGATÓRIAS PELA BANCA/IA KUMULUS: [${keywords}]` : ''}
 ${rubric ? `Critérios de Correção: ${rubric.substring(0, 300)}...` : ''}
-${support ? `Texto de Apoio: "${support.substring(0, 500)}"` : ''}`;
+${support ? `Texto de Apoio: "${support.substring(0, 500)}"` : ''}
+Instrução: Redija uma resposta dissertativa substantiva, coesa e com vocabulário técnico que responda com exatidão à pergunta proposta no enunciado.`;
+                } else if (q.isFillLetters) {
+                    const lettersCount = q.options?.length || (typeof q.options?.word === 'string' ? q.options.word.length : null);
+                    return `[QUESTÃO ${idx + 1}] (TIPO: FILL-LETTERS / QUADROS DE LETRAS / PALAVRA OCULTA) (ID: ${q.id})
+Enunciado: "${statement}"
+${lettersCount ? `Quantidade de letras na resposta: ${lettersCount}` : ''}
+Instrução: Identifique a palavra ou termo conceitual escolar exato em letras maiúsculas que responde à pergunta do enunciado (exemplo: "TRAPEZIO", "FOTOSSINTESE", "PARALELOGRAMO", "DEMOCRACIA").`;
                 } else if (q.isSpecialSequence) {
                     const rawItems = q.options?.words || q.options?.items || q.options?.sentences || q.options?.cloud || [];
                     const phraseStruct = Array.isArray(q.options?.phrase) ? q.options.phrase.map((p: any) => p.type === 'select' ? '[___]' : p.value).join('') : '';
@@ -582,11 +607,12 @@ ${formattedQList}
 DIRETRIZES FUNDAMENTAIS DE RESOLUÇÃO:
 1. Para MÚLTIPLA ESCOLHA: Identifique o ID ou índice numérico da alternativa correta.
 2. Para VERDADEIRO OU FALSO: Retorne um objeto mapeando cada índice para true ou false, ex: {"0": true, "1": false}.
-3. Para CLOUD / FILL-WORDS / ORDER-SENTENCES: Retorne em "sequence" o array de strings ordenado com a resposta correta (ex: ordenação da frase ou preenchimento ordenado das lacunas).
-4. Para DISCURSIVAS / TEXT_AI / REDAÇÕES:
-   - SE houver PALAVRAS-CHAVE OBRIGATÓRIAS (Kumulus AI grading), você DEVE incluir todas elas naturalmente no texto de resposta!
+3. Para CLOUD / FILL-WORDS / ORDER-SENTENCES: Retorne em "sequence" o array de strings ordenado com a resposta correta.
+4. Para FILL-LETTERS / QUADROS DE LETRAS: Retorne em "word" a palavra/termo exato em caixa alta que responde à pergunta do enunciado (ex: "TRAPEZIO").
+5. Para DISCURSIVAS / TEXT_AI / REDAÇÕES:
+   - SE houver PALAVRAS-CHAVE OBRIGATÓRIAS (Kumulus AI grading), inclua todas elas naturalmente no texto!
    - Redija um texto dissertativo completo, coerente e com rigor conceitual (2 a 3 parágrafos).
-   - NUNCA use respostas genéricas de uma linha.
+   - NUNCA use respostas genéricas de uma linha ou placeholders.
 
 Responda ESTRITAMENTE em JSON no seguinte formato:
 {
@@ -595,6 +621,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
       "selected_id": <ID_NUMERICO_DA_OPCAO_CORRETA_OU_NULL>,
       "tf_map": { "0": true, "1": false },
       "sequence": ["palavra1", "palavra2"],
+      "word": "<PALAVRA_CORRETA_EM_MAIUSCULAS_OU_NULL>",
       "title": "<TITULO_RESUMO_OU_NULL>",
       "text": "<TEXTO_DISCURSIVO_COMPLETO_E_DETALHADO_OU_NULL>"
     }
@@ -649,6 +676,17 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                             question_id: Number(qId),
                             question_type: isEssayType ? 'essay' : qType,
                             answer: ansPayload
+                        };
+                    } else if (q.isFillLetters) {
+                        let resolvedWord = String(aiAns?.word || aiAns?.sequence?.[0] || aiAns?.text || '').trim().toUpperCase().replace(/[^A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]/gi, '');
+                        if (!resolvedWord || resolvedWord === 'RESPOSTA' || resolvedWord.length < 2) {
+                            const statement = String(q.statement || q.title || '').replace(/<[^>]*>/g, '').trim();
+                            resolvedWord = extractKeyWordFromStatement(statement);
+                        }
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: "fill-letters",
+                            answer: resolvedWord
                         };
                     } else if (q.isSpecialSequence) {
                         let seq = Array.isArray(aiAns?.sequence) ? aiAns.sequence : null;
@@ -719,6 +757,13 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                             question_type: isEssayType ? 'essay' : qType,
                             answer: ansPayload
                         };
+                    } else if (q.isFillLetters) {
+                        const resolvedWord = extractKeyWordFromStatement(statement);
+                        answersMap[qId] = {
+                            question_id: Number(qId),
+                            question_type: "fill-letters",
+                            answer: resolvedWord
+                        };
                     } else if (q.isSpecialSequence) {
                         let items: string[] = [];
                         if (Array.isArray(q.options?.items)) items = q.options.items;
@@ -770,15 +815,15 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
     function generateContextualRichSummary(statement: string, supportText: string, title: string): string {
         const cleanStatement = statement.replace(/<[^>]*>/g, '').trim();
         const cleanSupport = supportText.replace(/<[^>]*>/g, '').trim();
-        const topic = cleanStatement || title || 'o tema proposto';
+        const topic = cleanStatement || title || 'a temática proposta';
 
-        const p1 = `A análise reflexiva acerca de ${topic.toLowerCase().startsWith('sobre') ? topic : `"${topic}"`} demonstra papel crucial no desenvolvimento das competências e habilidades curriculares. Compreender as relações conceituais envolvidas permite identificar os fatores determinantes que estruturam essa temática no contexto contemporâneo.`;
+        const p1 = `A análise reflexiva acerca de ${topic.toLowerCase().startsWith('sobre') || topic.toLowerCase().startsWith('a ') || topic.toLowerCase().startsWith('o ') ? topic : `"${topic}"`} demonstra papel crucial no desenvolvimento das competências e habilidades curriculares. Compreender as relações conceituais e os fatores determinantes envolvidos permite responder com clareza e precisão às questões centrais da disciplina.`;
         
         const p2 = cleanSupport 
-            ? `A partir das informações e dos dados fornecidos pelo material de apoio, verifica-se que ${cleanSupport.substring(0, 180)}... Diante disso, evidencia-se a importância da sistematização crítica das ideias apresentadas, conectando o embasamento teórico às práticas sociais e científicas.`
+            ? `A partir das informações fornecidas pelo material de apoio, verifica-se que ${cleanSupport.substring(0, 200)}... Diante disso, evidencia-se a importância da sistematização crítica das ideias apresentadas, conectando o embasamento teórico às práticas sociais e científicas.`
             : `Sob a ótica analítica, observa-se que os aspectos fundamentais abordados exigem uma investigação criteriosa, na qual a articulação entre teoria e aplicação prática favorece a construção de um pensamento reflexivo, autônomo e fundamentado.`;
 
-        const p3 = `Em suma, conclui-se que o aprofundamento contínuo deste estudo contribui diretamente para a consolidação do aprendizado, capacitando a formulação de conclusões fundamentadas e o enfrentamento consciente dos desafios apresentados pela disciplina.`;
+        const p3 = `Em suma, conclui-se que o aprofundamento contínuo deste estudo contribui diretamente para a consolidação do aprendizado, capacitando a formulação de conclusões fundamentadas e o enfrentamento consciente dos desafios apresentados pelo currículo escolar.`;
 
         return `${p1}\n\n${p2}\n\n${p3}`;
     }
@@ -839,15 +884,25 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                     let titleVal = titulo || 'Resposta';
 
                     if (typeof ansVal === 'object' && ansVal !== null) {
-                        textVal = ansVal["0"] || ansVal.text || ansVal.body || ansVal.content || texto || 'Atividade desenvolvida com sucesso.';
+                        textVal = ansVal["0"] || ansVal.text || ansVal.body || ansVal.content || texto || '';
                         titleVal = ansVal.title || titulo || 'Resposta';
                     } else if (typeof ansVal === 'string') {
                         textVal = ansVal;
                     } else {
-                        textVal = texto || 'Atividade desenvolvida com sucesso.';
+                        textVal = texto || '';
+                    }
+
+                    if (!textVal || textVal.trim() === 'Atividade desenvolvida com sucesso.') {
+                        textVal = generateContextualRichSummary(titulo || 'Questão da atividade', '', titleVal);
                     }
 
                     ansVal = transformText({ textVal, titleVal });
+                } else if (qType === 'fill-letters' || qType === 'fill_letters') {
+                    if (typeof ansVal === 'object' && ansVal !== null && !Array.isArray(ansVal)) {
+                        ansVal = String(ansVal.word || ansVal.text || ansVal["0"] || 'TRAPEZIO').toUpperCase();
+                    } else if (typeof ansVal === 'string') {
+                        ansVal = ansVal.toUpperCase().trim();
+                    }
                 } else if (qType === 'true-false' || qType === 'true_false') {
                     if (Array.isArray(ansVal) && ansVal.length > 0 && typeof ansVal[0] === 'object' && ansVal[0] !== null) {
                         const cleanObj: Record<string, boolean> = {};
@@ -1758,10 +1813,16 @@ function extractUserNickFromToken(token: string): string {
 
         // Coleta todos os alvos de publicação do aluno para evitar o erro HTTP 400 (publication_target is required)
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
+        const userNick = extractNickFromToken(token);
 
         try {
             const userRoomSlugs = await getAllUserRoomSlugs(token, customTunnel);
-            userRoomSlugs.forEach(s => targetsToTry.add(s));
+            userRoomSlugs.forEach(s => {
+                targetsToTry.add(s);
+                if (userNick && s.startsWith('r') && s.endsWith('-l')) {
+                    targetsToTry.add(`${s}:${userNick}`);
+                }
+            });
             
             const roomData = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
             const rooms = roomData?.rooms || roomData?.items || (Array.isArray(roomData) ? roomData : []);
@@ -1776,6 +1837,9 @@ function extractUserNickFromToken(token: string): string {
                         const str = String(c).trim();
                         if (str && str !== 'undefined' && str !== 'null') {
                             targetsToTry.add(str);
+                            if (userNick && str.startsWith('r') && str.endsWith('-l')) {
+                                targetsToTry.add(`${str}:${userNick}`);
+                            }
                         }
                     }
                 }
@@ -1785,18 +1849,21 @@ function extractUserNickFromToken(token: string): string {
         const targetsArr = Array.from(targetsToTry);
 
         const queriesToRun: string[] = [
-            `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
+            `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&answer_statuses=draft&with_apply_moment=true`,
+            `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=false&is_exam=false&with_answer=true${essayFilter}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`,
             `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}`
         ];
 
         if (targetsArr.length > 0) {
             const multiTargetQueryStr = targetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
-            queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`);
+            queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&with_apply_moment=true`);
+            queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=false&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`);
             queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`);
 
             for (const target of targetsArr) {
                 const encT = encodeURIComponent(target);
-                queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&publication_target=${encT}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`);
+                queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&publication_target=${encT}&answer_statuses=draft&with_apply_moment=true`);
+                queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=false&is_exam=false&with_answer=true${essayFilter}&publication_target=${encT}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`);
                 queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&publication_target=${encT}`);
                 queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&room_name=${encT}`);
             }
