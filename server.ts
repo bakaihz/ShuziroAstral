@@ -95,6 +95,23 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
         cleanHeaders['Accept'] = 'application/json, text/plain, */*';
     }
 
+    const userAgentToUse = cleanHeaders['user-agent'] || cleanHeaders['User-Agent'] || activeBrowserSession.userAgent || USER_AGENT;
+    const secChUaToUse = activeBrowserSession.secChUa || '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"';
+    const isMobile = activeBrowserSession.platform?.toLowerCase().includes('android') || activeBrowserSession.platform?.toLowerCase().includes('iphone');
+    const platformToUse = activeBrowserSession.platform?.toLowerCase().includes('win') ? '"Windows"' : isMobile ? '"Android"' : activeBrowserSession.platform?.toLowerCase().includes('mac') ? '"macOS"' : '"Linux"';
+
+    cleanHeaders['user-agent'] = userAgentToUse;
+    cleanHeaders['sec-ch-ua'] = secChUaToUse;
+    cleanHeaders['sec-ch-ua-mobile'] = isMobile ? '?1' : '?0';
+    cleanHeaders['sec-ch-ua-platform'] = platformToUse;
+    cleanHeaders['sec-fetch-dest'] = 'empty';
+    cleanHeaders['sec-fetch-mode'] = 'cors';
+    cleanHeaders['sec-fetch-site'] = 'cross-site';
+
+    if (activeBrowserSession.cookies && !cleanHeaders['cookie'] && !cleanHeaders['Cookie']) {
+        cleanHeaders['cookie'] = activeBrowserSession.cookies;
+    }
+
     const isJsonBody = body && typeof body === 'object';
     const isStringBody = body && typeof body === 'string';
 
@@ -103,7 +120,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
     let lastText = '';
 
     while (attempt <= maxRetries) {
-        // 1. Tenta gotScraping se forceHttp1 não estiver ativo
+        // 1. Tenta gotScraping (HTTP/2 + TLS Fingerprint de navegador real) preservando os headers da SEDUC/EduSP
         if (!forceHttp1) {
             try {
                 const res = await gotScraping({
@@ -115,13 +132,8 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                     timeout: { request: timeoutMs },
                     throwHttpErrors: false,
                     retry: { limit: 0 },
-                    useHeaderGenerator: true,
-                    headerGeneratorOptions: {
-                        browsers: [{ name: 'chrome', minVersion: 120 }, { name: 'edge', minVersion: 120 }],
-                        devices: ['desktop'],
-                        locales: ['pt-BR', 'pt', 'en-US'],
-                        operatingSystems: ['windows', 'linux', 'macos']
-                    }
+                    useHeaderGenerator: false, // Mantém intactos os headers customizados (x-api-key, x-api-realm, etc)
+                    http2: true
                 });
 
                 lastStatus = res.statusCode;
@@ -131,8 +143,8 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                     return { ok: true, status: res.statusCode, text: lastText };
                 }
 
-                // Se não foi 403 / 502 / 530, retorna a resposta da API (ex: 400 ou 401 que são respostas válidas de negócio)
-                if (res.statusCode < 400 || (res.statusCode !== 403 && res.statusCode !== 530 && res.statusCode !== 520)) {
+                // Se não foi 403 / 502 / 530 / 520, retorna a resposta da API (ex: 400 ou 401 que são respostas de negócio)
+                if (res.statusCode < 400 || (res.statusCode !== 403 && res.statusCode !== 530 && res.statusCode !== 520 && res.statusCode !== 525)) {
                     return { ok: false, status: res.statusCode, text: lastText };
                 }
             } catch (err: any) {
@@ -142,20 +154,9 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
 
         // 2. Fallback: Got com HTTP/1.1 puro e headers do cliente
         try {
-            const http1Headers = {
-                ...cleanHeaders,
-                'user-agent': cleanHeaders['user-agent'] || cleanHeaders['User-Agent'] || activeBrowserSession.userAgent,
-                'sec-ch-ua': activeBrowserSession.secChUa,
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"Windows"',
-                'sec-fetch-dest': 'empty',
-                'sec-fetch-mode': 'cors',
-                'sec-fetch-site': 'cross-site'
-            };
-
             const fallbackRes = await got(targetUrl, {
                 method: method.toUpperCase() as any,
-                headers: http1Headers,
+                headers: cleanHeaders,
                 json: isJsonBody ? body : undefined,
                 body: isStringBody ? body : undefined,
                 http2: false, // Força HTTP/1.1
@@ -171,7 +172,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                 return { ok: true, status: fallbackRes.statusCode, text: lastText };
             }
 
-            if (fallbackRes.statusCode < 400 || (fallbackRes.statusCode !== 403 && fallbackRes.statusCode !== 530)) {
+            if (fallbackRes.statusCode < 400 || (fallbackRes.statusCode !== 403 && fallbackRes.statusCode !== 530 && fallbackRes.statusCode !== 520)) {
                 return { ok: false, status: fallbackRes.statusCode, text: lastText };
             }
         } catch (err: any) {
@@ -180,7 +181,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
 
         attempt++;
         if (attempt <= maxRetries) {
-            await new Promise(r => setTimeout(r, 200 * attempt));
+            await new Promise(r => setTimeout(r, 150 * attempt));
         }
     }
 
@@ -1010,11 +1011,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
             if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
 
             let urlsToTry: string[] = [];
-            if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org')) {
-                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
-            } else if (domain.includes('allorigins')) {
-                urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
-            } else if (domain.includes('codetabs')) {
+            if (domain.includes('corsproxy.io') || domain.includes('corsproxy.org') || domain.includes('allorigins') || domain.includes('codetabs')) {
                 urlsToTry.push(`${domain}${encodeURIComponent('https://edusp-api.ip.tv' + cleanPath)}`);
             } else if (domain.includes('thingproxy')) {
                 urlsToTry.push(`${domain}${'https://edusp-api.ip.tv' + cleanPath}`);
@@ -1022,20 +1019,29 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                 urlsToTry.push(`https://edusp-api.ip.tv${cleanPath}`);
             } else {
                 urlsToTry.push(`${domain}${cleanPath}`);
+                if (!cleanPath.startsWith('/api')) {
+                    urlsToTry.push(`${domain}/api${cleanPath}`);
+                }
             }
+
+            const currentUa = clientUserAgent || activeBrowserSession.userAgent || USER_AGENT;
+            const currentPlatform = activeBrowserSession.platform?.toLowerCase().includes('win') ? '"Windows"' :
+                (activeBrowserSession.platform?.toLowerCase().includes('android') || activeBrowserSession.platform?.toLowerCase().includes('iphone')) ? '"Android"' :
+                activeBrowserSession.platform?.toLowerCase().includes('mac') ? '"macOS"' : '"Linux"';
+            const isMobile = currentPlatform === '"Android"';
 
             let headers: Record<string, string> = {
                 'accept': 'application/json, text/plain, */*',
-                'accept-language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                'accept-language': activeBrowserSession.language || 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
                 'content-type': 'application/json',
                 'x-api-platform': 'webclient',
                 'x-api-realm': 'edusp',
                 'origin': 'https://saladofuturo.educacao.sp.gov.br',
                 'referer': 'https://saladofuturo.educacao.sp.gov.br/',
-                'user-agent': clientUserAgent || USER_AGENT,
-                'sec-ch-ua': '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"Windows"',
+                'user-agent': currentUa,
+                'sec-ch-ua': activeBrowserSession.secChUa || '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"',
+                'sec-ch-ua-mobile': isMobile ? '?1' : '?0',
+                'sec-ch-ua-platform': currentPlatform,
                 'sec-fetch-dest': 'empty',
                 'sec-fetch-mode': 'cors',
                 'sec-fetch-site': 'cross-site'

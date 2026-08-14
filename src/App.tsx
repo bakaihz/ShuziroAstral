@@ -177,6 +177,35 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Sincronização automática em background do fingerprint do navegador com o backend (got-scraping)
+    const syncBrowser = async () => {
+      try {
+        const payload = {
+          userAgent: navigator.userAgent,
+          platform: navigator.platform,
+          language: navigator.language || 'pt-BR',
+          screenWidth: window.screen?.width,
+          screenHeight: window.screen?.height,
+          hardwareConcurrency: navigator.hardwareConcurrency || 4,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          cookies: document.cookie || '',
+          verifiedAt: new Date().toISOString()
+        };
+        await fetch('/api/verify-antibot', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-client-user-agent': navigator.userAgent,
+            ...(tunnelUrl ? { 'x-tunnel-url': tunnelUrl } : {})
+          },
+          body: JSON.stringify(payload)
+        });
+      } catch (e) {}
+    };
+    syncBrowser();
+  }, [tunnelUrl]);
+
+  useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('shuziro_contas') || '[]');
       setAccounts(saved);
@@ -612,6 +641,12 @@ export default function App() {
 
                 // Decrement attempts so this captcha try doesn't count as a failed apply attempt
                 applyAttempts--;
+              } else if (applyRes.status === 403 || errMsg.includes('bloqueio') || errMsg.includes('cloudflare') || errMsg.includes('proxy')) {
+                logs.unshift({ text: `🛡️ Proteção Cloudflare detectada. Abrindo verificação de emojis para sincronizar seu navegador com o servidor...`, type: 'info' });
+                setProgressLogs([...logs]);
+                setShowEmojiModal(true);
+                showToast('Resolva o desafio do emoji para sincronizar seu navegador com o servidor!', 'info');
+                throw new Error(errMsg || 'Bloqueio de proteção de rede detectado (Cloudflare). Verifique os emojis para prosseguir.');
               } else {
                 throw new Error(errMsg || `HTTP ${applyRes.status} ao aplicar tarefa`);
               }
@@ -939,7 +974,13 @@ export default function App() {
       <EmojiModal
         isOpen={showEmojiModal}
         onClose={() => setShowEmojiModal(false)}
-        onSuccess={() => setIsVerified(true)}
+        onSuccess={() => {
+          setIsVerified(true);
+          showToast('Navegador verificado e sincronizado com sucesso!', 'success');
+          if (isLoggedIn && authToken && userData) {
+            fetchTasks(authToken, userData);
+          }
+        }}
         tunnelUrl={tunnelUrl}
       />
 
