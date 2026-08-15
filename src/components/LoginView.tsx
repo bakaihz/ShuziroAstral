@@ -58,20 +58,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
     }
   };
 
-  // Pre-computed particle list for smooth, hardware-accelerated background
-  const particles = useMemo(() => {
-    return Array.from({ length: 20 }).map((_, i) => ({
-      id: i,
-      size: Math.random() * 2.5 + 1.5,
-      left: `${Math.random() * 100}%`,
-      top: `${Math.random() * 100}%`,
-      delay: Math.random() * 4,
-      duration: Math.random() * 6 + 6,
-    }));
-  }, []);
-
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center p-3 sm:p-4 bg-transparent relative z-10 overflow-hidden select-none">
+    <div className="min-h-screen w-full flex flex-col items-center justify-center p-3 sm:p-6 bg-transparent relative z-10 overflow-y-auto">
       {/* Welcome Entrance Toast Banner */}
       <AnimatePresence>
         {showWelcome && (
@@ -80,7 +68,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -30, scale: 0.95 }}
             transition={{ type: 'spring', damping: 22, stiffness: 300 }}
-            className="fixed top-5 z-50 bg-[#09090b]/90 border border-white/20 backdrop-blur-2xl px-5 py-3 rounded-2xl shadow-[0_15px_50px_rgba(0,0,0,0.9)] flex items-center gap-3 text-white max-w-sm sm:max-w-md"
+            className="fixed top-5 z-50 bg-[#09090b]/95 border border-white/20 backdrop-blur-2xl px-5 py-3 rounded-2xl shadow-[0_15px_50px_rgba(0,0,0,0.9)] flex items-center gap-3 text-white max-w-sm sm:max-w-md"
           >
             <div className="w-9 h-9 rounded-xl overflow-hidden border border-white/30 shadow-md shrink-0 bg-black relative group">
               <img src={eyeLogoImg} alt="Astral Eye" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -104,42 +92,12 @@ export const LoginView: React.FC<LoginViewProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Subtle floating particles */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 transform-gpu">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:40px_40px] opacity-25 [mask-image:radial-gradient(ellipse_70%_70%_at_50%_50%,#000_60%,transparent_100%)]" />
-
-        {particles.map((p) => (
-          <motion.div
-            key={p.id}
-            initial={{ opacity: 0.1, y: 0 }}
-            animate={{
-              opacity: [0.15, 0.75, 0.15],
-              y: [-15, -60, -15],
-            }}
-            transition={{
-              duration: p.duration,
-              delay: p.delay,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-            className="absolute bg-white rounded-full transform-gpu"
-            style={{
-              width: p.size,
-              height: p.size,
-              left: p.left,
-              top: p.top,
-              willChange: 'transform, opacity',
-            }}
-          />
-        ))}
-      </div>
-
       {/* Main Glassmorphism Login Modal */}
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 16 }}
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: 'easeOut' }}
-        className="bg-[#09090b]/85 backdrop-blur-3xl border border-white/15 hover:border-white/30 rounded-3xl p-5 sm:p-7 max-w-sm sm:max-w-md w-full shadow-[0_25px_80px_rgba(0,0,0,0.85)] relative overflow-hidden my-auto transform-gpu transition-all"
+        transition={{ duration: 0.25, ease: 'easeOut' }}
+        className="bg-[#09090b]/90 backdrop-blur-2xl border border-white/15 hover:border-white/30 rounded-3xl p-5 sm:p-7 max-w-sm sm:max-w-md w-full shadow-[0_20px_60px_rgba(0,0,0,0.85)] relative overflow-hidden my-auto transform-gpu transition-all"
       >
         {/* Top Metallic Rainbow Shimmer Bar */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-amber-400 via-emerald-400 to-indigo-500" />

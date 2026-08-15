@@ -125,22 +125,25 @@ export default function App() {
     if (!activeBatchId) return;
 
     let isSubscribed = true;
-    const interval = setInterval(async () => {
+    let isFinished = false;
+
+    const pollBatch = async () => {
+      if (!isSubscribed || isFinished) return;
       try {
         const res = await fetch(`/api/tasks/batch-status?batchId=${encodeURIComponent(activeBatchId)}`);
         if (!res.ok) {
-          if (res.status === 404) {
+          if (res.status === 404 || res.status >= 500) {
             localStorage.removeItem('shuziro_active_batch_id');
             if (isSubscribed) {
+              isFinished = true;
               setActiveBatchId('');
-              setActiveBatchData(null);
             }
           }
           return;
         }
 
         const data = await res.json();
-        if (!isSubscribed) return;
+        if (!isSubscribed || isFinished) return;
 
         setActiveBatchData(data);
         setIsBatchPaused(data.status === 'paused');
@@ -149,30 +152,41 @@ export default function App() {
         if (Array.isArray(data.logs)) {
           setProgressLogs(data.logs);
         }
-        setProgressTitle(`Multi-Tarefas em Segundo Plano (${data.completedCount || 0}/${data.total || 0})`);
+        setProgressTitle(`Multi-Tarefas (${data.completedCount || 0}/${data.total || 0})`);
 
         if (data.status === 'completed' || data.status === 'cancelled' || data.status === 'failed') {
+          isFinished = true;
           setIsCompleted(true);
           localStorage.removeItem('shuziro_active_batch_id');
+          setActiveBatchId(''); // Stops the polling effect immediately
 
           if (data.status === 'completed') {
             try {
               confetti({
-                particleCount: 50,
-                spread: 60,
+                particleCount: 40,
+                spread: 50,
                 origin: { y: 0.8 },
                 colors: ['#ffffff', '#a1a1aa', '#71717a']
               });
             } catch (e) {}
             showToast(`Multi-Tarefas concluído no servidor! ${data.completedCount}/${data.total} finalizadas.`, 'success');
             if (authToken) fetchTasks(authToken, userData);
+          } else if (data.status === 'failed') {
+            showToast(`Multi-Tarefas finalizado com erros (${data.failedCount || 0} falha(s)).`, 'error');
           }
         }
       } catch (e) {}
-    }, 1800);
+    };
+
+    // Initial check
+    pollBatch();
+
+    // Controlled interval (3.5s) to avoid network flooding
+    const interval = setInterval(pollBatch, 3500);
 
     return () => {
       isSubscribed = false;
+      isFinished = true;
       clearInterval(interval);
     };
   }, [activeBatchId, authToken, userData]);

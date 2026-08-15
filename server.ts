@@ -987,18 +987,22 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
 
                 if (isTextType(qType) || isEssay || (ansVal && typeof ansVal === 'object' && !Array.isArray(ansVal) && (ansVal.body || ansVal.text || ansVal.title || ansVal["0"]))) {
                     let textVal = '';
-                    let titleVal = titulo || 'Resposta';
+                    let titleVal = String(titulo || 'Resposta');
 
                     if (typeof ansVal === 'object' && ansVal !== null) {
-                        textVal = ansVal["0"] || ansVal.text || ansVal.body || ansVal.content || texto || '';
-                        titleVal = ansVal.title || titulo || 'Resposta';
+                        const rawVal = ansVal["0"] ?? ansVal.text ?? ansVal.body ?? ansVal.content ?? texto ?? '';
+                        textVal = typeof rawVal === 'string' ? rawVal : (typeof rawVal === 'object' ? JSON.stringify(rawVal) : String(rawVal || ''));
+                        titleVal = String(ansVal.title || titulo || 'Resposta');
                     } else if (typeof ansVal === 'string') {
                         textVal = ansVal;
+                    } else if (ansVal !== undefined && ansVal !== null) {
+                        textVal = String(ansVal);
                     } else {
-                        textVal = texto || '';
+                        textVal = typeof texto === 'string' ? texto : (texto ? String(texto) : '');
                     }
 
-                    if (!textVal || textVal.trim() === 'Atividade desenvolvida com sucesso.') {
+                    textVal = String(textVal || '').trim();
+                    if (!textVal || textVal === 'Atividade desenvolvida com sucesso.') {
                         textVal = generateContextualRichSummary(titulo || 'Questão da atividade', '', titleVal);
                     }
 
