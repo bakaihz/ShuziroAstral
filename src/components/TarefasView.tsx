@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckSquare, Search, Filter, AlertCircle, RefreshCw, Play, Sparkles, Check, X, Clock, ShieldCheck, Zap, ChevronDown } from 'lucide-react';
+import { CheckSquare, Search, Filter, AlertCircle, RefreshCw, Play, Sparkles, Check, X, Clock, ShieldCheck, Zap, ChevronDown, Cloud, Layers, CheckCheck, ListFilter } from 'lucide-react';
 import { TaskItem } from '../types';
 import { CaptchaWidget } from './CaptchaWidget';
 
@@ -25,9 +25,19 @@ interface TarefasViewProps {
   onRefresh?: () => void;
   onStartAutomation?: (
     selectedTaskIds: string[],
-    optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted' },
+    optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted'; concurrency?: number },
     mode?: 'draft' | 'submitted'
   ) => void;
+  activeBatch?: {
+    batchId: string;
+    progress: number;
+    total: number;
+    completedCount: number;
+    failedCount: number;
+    status: string;
+    currentTaskTitle?: string;
+  } | null;
+  onOpenBatchProgress?: () => void;
 }
 
 export const TarefasView: React.FC<TarefasViewProps> = ({ 
@@ -36,21 +46,35 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
   captchaToken,
   onCaptchaVerified,
   onRefresh, 
-  onStartAutomation 
+  onStartAutomation,
+  activeBatch,
+  onOpenBatchProgress
 }) => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'draft' | 'expired'>('all');
+  const [selectedRoom, setSelectedRoom] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
-  const [visibleLimit, setVisibleLimit] = useState(30);
+  const [visibleLimit, setVisibleLimit] = useState(40);
   
   // Time configuration state (Min and Max)
-  const [minTimeSec, setMinTimeSec] = useState<number>(60); // Default 1 min
-  const [maxTimeSec, setMaxTimeSec] = useState<number>(180); // Default 3 min
-  const [preset, setPreset] = useState<'rapido' | 'normal' | 'seguro' | 'custom'>('rapido');
+  const [minTimeSec, setMinTimeSec] = useState<number>(30);
+  const [maxTimeSec, setMaxTimeSec] = useState<number>(90);
+  const [preset, setPreset] = useState<'turbo' | 'rapido' | 'normal' | 'seguro' | 'custom'>('rapido');
   const [mode, setMode] = useState<'draft' | 'submitted'>('submitted');
+  const [concurrency, setConcurrency] = useState<number>(1);
 
   const tarefas = useMemo(() => tasks.filter(t => !t.is_essay), [tasks]);
+
+  // Extract all unique rooms/salas for filtering
+  const availableRooms = useMemo(() => {
+    const rooms = new Set<string>();
+    for (const t of tarefas) {
+      const r = t.publication_target || (t as any).room_name || '';
+      if (r) rooms.add(r);
+    }
+    return Array.from(rooms);
+  }, [tarefas]);
 
   const { pendingCount, draftCount, expiredCount } = useMemo(() => {
     let pending = 0;
@@ -75,12 +99,17 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
 
       if (!matchesSearch) return false;
 
+      if (selectedRoom !== 'all') {
+        const r = t.publication_target || (t as any).room_name || '';
+        if (r !== selectedRoom) return false;
+      }
+
       if (statusFilter === 'draft') return t.answer_status === 'draft';
       if (statusFilter === 'pending') return !isTaskExpired(t) && t.answer_status !== 'draft';
       if (statusFilter === 'expired') return isTaskExpired(t);
       return true;
     });
-  }, [tarefas, search, statusFilter]);
+  }, [tarefas, search, statusFilter, selectedRoom]);
 
   const visibleTarefas = useMemo(() => {
     return filteredTarefas.slice(0, visibleLimit);
@@ -93,9 +122,35 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
     setSelectedIds(next);
   };
 
-  const handleSelectAll = () => {
-    const next = new Set<string>();
+  // Multi-Tarefas selection handlers
+  const handleSelectAllFiltered = () => {
+    const next = new Set(selectedIds);
     filteredTarefas.forEach(t => next.add(String(t.id || t.task_id)));
+    setSelectedIds(next);
+  };
+
+  const handleSelectPending = () => {
+    const next = new Set(selectedIds);
+    tarefas.filter(t => !isTaskExpired(t) && t.answer_status !== 'draft').forEach(t => {
+      next.add(String(t.id || t.task_id));
+    });
+    setSelectedIds(next);
+  };
+
+  const handleSelectDrafts = () => {
+    const next = new Set(selectedIds);
+    tarefas.filter(t => t.answer_status === 'draft').forEach(t => {
+      next.add(String(t.id || t.task_id));
+    });
+    setSelectedIds(next);
+  };
+
+  const handleInvertSelection = () => {
+    const next = new Set<string>();
+    filteredTarefas.forEach(t => {
+      const id = String(t.id || t.task_id);
+      if (!selectedIds.has(id)) next.add(id);
+    });
     setSelectedIds(next);
   };
 
@@ -105,21 +160,24 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
 
   const handleDoSingleTask = (id: string) => {
     if (onStartAutomation) {
-      onStartAutomation([id], { minTimeSec, maxTimeSec, mode: 'submitted' }, 'submitted');
+      onStartAutomation([id], { minTimeSec, maxTimeSec, mode: 'submitted', concurrency: 1 }, 'submitted');
     }
   };
 
-  const handlePresetChange = (p: 'rapido' | 'normal' | 'seguro' | 'custom') => {
+  const handlePresetChange = (p: 'turbo' | 'rapido' | 'normal' | 'seguro' | 'custom') => {
     setPreset(p);
-    if (p === 'rapido') {
-      setMinTimeSec(60);
-      setMaxTimeSec(180);
+    if (p === 'turbo') {
+      setMinTimeSec(15);
+      setMaxTimeSec(30);
+    } else if (p === 'rapido') {
+      setMinTimeSec(30);
+      setMaxTimeSec(90);
     } else if (p === 'normal') {
-      setMinTimeSec(180);
-      setMaxTimeSec(360);
+      setMinTimeSec(120);
+      setMaxTimeSec(240);
     } else if (p === 'seguro') {
-      setMinTimeSec(480);
-      setMaxTimeSec(720);
+      setMinTimeSec(300);
+      setMaxTimeSec(600);
     }
   };
 
@@ -137,6 +195,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
       transition={{ duration: 0.3 }}
       className="space-y-4"
     >
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#27272a] pb-4">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2.5">
@@ -148,41 +207,49 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                 referrerPolicy="no-referrer" 
               />
             </div>
-            <span>Tarefas SP & CMSP</span>
+            <span>Tarefas SP & Multi-Tarefas</span>
           </h2>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Gerencie, selecione e resolva tarefas e lições de casa das suas salas.
+            Selecione várias lições e resolva em segundo plano no servidor (continua rodando mesmo com o site fechado).
           </p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
-          {filteredTarefas.length > 0 && (
-            <>
-              <button
-                onClick={handleSelectAll}
-                className="px-3 py-2 bg-[#18181b] hover:bg-[#222226] active:scale-[0.98] border border-[#27272a] text-zinc-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
-              >
-                Selecionar Todas
-              </button>
-              <button
-                onClick={handleDeselectAll}
-                className="px-3 py-2 bg-[#18181b] hover:bg-[#222226] active:scale-[0.98] border border-[#27272a] text-zinc-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
-              >
-                Limpar
-              </button>
-            </>
-          )}
-
           {onRefresh && (
             <button
               onClick={onRefresh}
-              className="px-3.5 py-2 bg-[#18181b] hover:bg-[#222226] active:scale-[0.98] border border-[#27272a] text-zinc-200 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all cursor-pointer"
+              className="px-3.5 py-2 bg-[#18181b] hover:bg-[#222226] active:scale-[0.98] border border-[#27272a] text-zinc-200 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm"
             >
               <RefreshCw className="w-3.5 h-3.5 text-white" /> Atualizar
             </button>
           )}
         </div>
       </div>
+
+      {/* Active Background Batch Status Alert (if running) */}
+      {activeBatch && activeBatch.status === 'running' && (
+        <div className="bg-gradient-to-r from-red-950/40 via-zinc-900 to-zinc-950 border border-red-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-red-500 animate-ping shrink-0" />
+            <div>
+              <div className="text-xs font-bold text-white flex items-center gap-2">
+                <Cloud className="w-3.5 h-3.5 text-emerald-400" /> Multi-Tarefas em Execução no Servidor
+              </div>
+              <div className="text-[11px] text-zinc-400 mt-0.5">
+                Progresso: <strong className="text-white">{activeBatch.completedCount}</strong> de <strong className="text-white">{activeBatch.total}</strong> ({activeBatch.progress}%) • {activeBatch.currentTaskTitle || 'Processando...'}
+              </div>
+            </div>
+          </div>
+          {onOpenBatchProgress && (
+            <button
+              onClick={onOpenBatchProgress}
+              className="px-3 py-1.5 bg-white hover:bg-zinc-200 text-black text-xs font-extrabold rounded-xl transition-all shadow-md cursor-pointer self-end sm:self-auto"
+            >
+              Ver Detalhes / Logs
+            </button>
+          )}
+        </div>
+      )}
 
       {/* CAPTCHA Widget Panel */}
       <CaptchaWidget
@@ -191,7 +258,58 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
         onTokenVerified={onCaptchaVerified}
       />
 
-      {/* Search and Filters Bar with Expired Tab */}
+      {/* Multi-Selection Action Toolbar */}
+      <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 shadow-inner">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] font-mono text-zinc-400 uppercase font-bold flex items-center gap-1 mr-1">
+            <Layers className="w-3.5 h-3.5 text-red-500" /> Multi-Seleção:
+          </span>
+          <button
+            onClick={handleSelectAllFiltered}
+            className="px-2.5 py-1.5 bg-[#18181b] hover:bg-[#27272a] text-zinc-200 text-xs font-medium rounded-lg border border-[#27272a] transition-all cursor-pointer"
+          >
+            Todas ({filteredTarefas.length})
+          </button>
+          <button
+            onClick={handleSelectPending}
+            className="px-2.5 py-1.5 bg-[#18181b] hover:bg-[#27272a] text-zinc-200 text-xs font-medium rounded-lg border border-[#27272a] transition-all cursor-pointer"
+          >
+            Pendentes ({pendingCount})
+          </button>
+          <button
+            onClick={handleSelectDrafts}
+            className="px-2.5 py-1.5 bg-[#18181b] hover:bg-[#27272a] text-zinc-200 text-xs font-medium rounded-lg border border-[#27272a] transition-all cursor-pointer"
+          >
+            Rascunhos ({draftCount})
+          </button>
+          <button
+            onClick={handleInvertSelection}
+            className="px-2.5 py-1.5 bg-[#18181b] hover:bg-[#27272a] text-zinc-400 hover:text-zinc-200 text-xs font-medium rounded-lg border border-[#27272a] transition-all cursor-pointer"
+          >
+            Inverter
+          </button>
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleDeselectAll}
+              className="px-2.5 py-1.5 bg-red-950/30 hover:bg-red-950/50 text-red-400 text-xs font-medium rounded-lg border border-red-500/20 transition-all cursor-pointer"
+            >
+              Desmarcar ({selectedIds.size})
+            </button>
+          )}
+        </div>
+
+        {selectedIds.size > 0 && (
+          <button
+            onClick={() => setShowModal(true)}
+            className="px-3.5 py-1.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer ml-auto"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-red-600 fill-red-600" />
+            Executar {selectedIds.size} Selecionada(s)
+          </button>
+        )}
+      </div>
+
+      {/* Search and Filters Bar with Room Selector */}
       <div className="flex flex-col sm:flex-row items-center gap-3">
         <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -203,6 +321,23 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
             className="w-full bg-[#121214] border border-[#27272a] focus:border-zinc-500 text-zinc-200 text-xs rounded-xl pl-9 pr-3 py-2.5 outline-none transition-all shadow-inner"
           />
         </div>
+
+        {availableRooms.length > 0 && (
+          <div className="w-full sm:w-auto">
+            <select
+              value={selectedRoom}
+              onChange={(e) => setSelectedRoom(e.target.value)}
+              className="w-full sm:w-auto bg-[#121214] border border-[#27272a] text-zinc-300 text-xs rounded-xl px-3 py-2.5 outline-none cursor-pointer"
+            >
+              <option value="all">Todas as Salas ({availableRooms.length})</option>
+              {availableRooms.map((room) => (
+                <option key={room} value={room}>
+                  Sala: {room}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="flex items-center gap-1 w-full sm:w-auto bg-[#121214] border border-[#27272a] p-1 rounded-xl overflow-x-auto">
           <button
@@ -248,6 +383,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
         </div>
       </div>
 
+      {/* Task List */}
       {filteredTarefas.length === 0 ? (
         <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-12 text-center text-zinc-500 text-xs space-y-2 shadow-xl">
           <AlertCircle className="w-6 h-6 mx-auto text-zinc-600 mb-1" />
@@ -310,7 +446,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                       onClick={() => handleDoSingleTask(id)}
                       className="px-3.5 py-1.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                     >
-                      <Play className="w-3.5 h-3.5 fill-black" /> Fazer Agora
+                      <Play className="w-3.5 h-3.5 fill-black" /> Fazer
                     </button>
                   )}
                 </div>
@@ -349,96 +485,108 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
               onClick={() => setShowModal(true)}
               className="px-5 py-2.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all flex items-center gap-2 shadow-lg cursor-pointer"
             >
-              <Sparkles className="w-4 h-4" /> Configurar e Resolver Tarefas
+              <Sparkles className="w-4 h-4" /> Configurar e Iniciar Multi-Tarefas
             </motion.button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Modal Configuration with Min/Max Time controls */}
+      {/* Modal Configuration with Multi-Tarefas & Background Server Engine controls */}
       <AnimatePresence>
         {showModal && (
-          <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-y-auto">
             <motion.div 
               initial={{ opacity: 0, scale: 0.92, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.92, y: 15 }}
-              className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 max-w-md w-full shadow-2xl relative overflow-hidden space-y-5"
+              className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 max-w-lg w-full shadow-2xl relative overflow-hidden space-y-5 my-8"
             >
               <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-zinc-400 to-white" />
+              
               <div>
                 <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-red-500" /> Configuração do Envio das Tarefas
+                  <Sparkles className="w-5 h-5 text-red-500" /> Configuração do Multi-Tarefas
                 </h3>
                 <p className="text-xs text-zinc-400">
-                  Resolver automaticamente <strong className="text-white font-bold">{selectedIds.size}</strong> tarefa(s) selecionada(s).
+                  Executar <strong className="text-white font-bold">{selectedIds.size}</strong> tarefa(s) selecionada(s) simultaneamente.
                 </p>
+              </div>
+
+              {/* Background Execution Feature Badge */}
+              <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-3 flex items-start gap-3">
+                <Cloud className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="text-xs">
+                  <div className="text-emerald-300 font-bold">Execução Contínua em Segundo Plano</div>
+                  <div className="text-zinc-400 text-[11px] mt-0.5 leading-relaxed">
+                    O servidor continuará resolvendo e enviando as tarefas <strong>mesmo se você fechar a aba, desligar a tela ou sair do site</strong>. Ao retornar, o progresso estará atualizado!
+                  </div>
+                </div>
               </div>
 
               {/* Preset selection */}
               <div className="space-y-2">
                 <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider font-mono">
-                  Presets de Velocidade (Anti-Ban)
+                  Velocidade / Intervalo Anti-Ban
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePresetChange('turbo')}
+                    className={`p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                      preset === 'turbo'
+                        ? 'border-white bg-zinc-800 text-white font-bold shadow-md'
+                        : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1 font-bold text-white text-[11px]">
+                      <Zap className="w-3 h-3 text-amber-400 fill-amber-400" /> Turbo
+                    </div>
+                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">15s — 30s</div>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => handlePresetChange('rapido')}
-                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                    className={`p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
                       preset === 'rapido'
                         ? 'border-white bg-zinc-800 text-white font-bold shadow-md'
                         : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
                     }`}
                   >
-                    <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      <Zap className="w-3.5 h-3.5 text-red-500 fill-red-500" /> Rápido
+                    <div className="flex items-center gap-1 font-bold text-white text-[11px]">
+                      <Zap className="w-3 h-3 text-red-500 fill-red-500" /> Rápido
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 1 min • Máx 3 min</div>
+                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">30s — 1.5m</div>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handlePresetChange('normal')}
-                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                    className={`p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
                       preset === 'normal'
                         ? 'border-white bg-zinc-800 text-white font-bold shadow-md'
                         : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
                     }`}
                   >
-                    <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      <Clock className="w-3.5 h-3.5 text-zinc-300" /> Normal
+                    <div className="flex items-center gap-1 font-bold text-white text-[11px]">
+                      <Clock className="w-3 h-3 text-zinc-300" /> Normal
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 3 min • Máx 6 min</div>
+                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">2m — 4m</div>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handlePresetChange('seguro')}
-                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                    className={`p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
                       preset === 'seguro'
                         ? 'border-white bg-zinc-800 text-white font-bold shadow-md'
                         : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
                     }`}
                   >
-                    <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      <ShieldCheck className="w-3.5 h-3.5 text-zinc-300" /> Seguro
+                    <div className="flex items-center gap-1 font-bold text-white text-[11px]">
+                      <ShieldCheck className="w-3 h-3 text-emerald-400" /> Seguro
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 8 min • Máx 12 min</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handlePresetChange('custom')}
-                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
-                      preset === 'custom'
-                        ? 'border-white bg-zinc-800 text-white font-bold shadow-md'
-                        : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      ⚙️ Personalizado
-                    </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">Definir tempos manuais</div>
+                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">5m — 10m</div>
                   </button>
                 </div>
               </div>
@@ -446,7 +594,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
               {/* Custom Min / Max time inputs */}
               <div className="space-y-3 p-3 bg-[#18181b] border border-[#27272a] rounded-xl">
                 <div className="text-[11px] font-semibold text-zinc-300 flex items-center justify-between">
-                  <span>Ajuste Manual de Tempo</span>
+                  <span>Ajuste Fino de Tempo</span>
                   <span className="text-[10px] text-zinc-400 font-mono">
                     Intervalo: {formatTimeLabel(minTimeSec)} — {formatTimeLabel(maxTimeSec)}
                   </span>
@@ -459,19 +607,16 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     </label>
                     <input
                       type="number"
-                      min={1}
+                      min={5}
                       value={minTimeSec}
                       onChange={(e) => {
-                        const val = Math.max(1, Number(e.target.value) || 1);
+                        const val = Math.max(5, Number(e.target.value) || 5);
                         setMinTimeSec(val);
                         if (val > maxTimeSec) setMaxTimeSec(val);
                         setPreset('custom');
                       }}
                       className="w-full bg-[#121214] border border-[#27272a] focus:border-white text-white font-mono text-xs rounded-xl px-3 py-2 outline-none transition-all"
                     />
-                    <div className="text-[10px] text-zinc-500 mt-1 font-mono">
-                      ≈ {formatTimeLabel(minTimeSec)}
-                    </div>
                   </div>
 
                   <div>
@@ -489,10 +634,35 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                       }}
                       className="w-full bg-[#121214] border border-[#27272a] focus:border-white text-white font-mono text-xs rounded-xl px-3 py-2 outline-none transition-all"
                     />
-                    <div className="text-[10px] text-zinc-500 mt-1 font-mono">
-                      ≈ {formatTimeLabel(maxTimeSec)}
-                    </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Concurrency Selection */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                    Velocidade de Processamento
+                  </label>
+                  <span className="text-[10px] text-zinc-400 font-mono">
+                    {concurrency === 1 ? '1 tarefa por vez (Padrão)' : `${concurrency} tarefas simultâneas (Ultra Rápido)`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[1, 2, 3, 4].map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setConcurrency(c)}
+                      className={`py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        concurrency === c
+                          ? 'border-white bg-zinc-800 text-white shadow-md'
+                          : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
+                      }`}
+                    >
+                      {c}x {c === 1 ? 'Normal' : c === 2 ? 'Rápido' : c === 3 ? 'Turbo' : 'Max'}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -511,7 +681,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                         : 'border-[#27272a] bg-[#18181b] text-zinc-300 hover:border-zinc-700'
                     }`}
                   >
-                    Entregar Direto (100%)
+                    Entregar Direto (100% Acerto)
                   </button>
                   <button
                     type="button"
@@ -542,12 +712,12 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                   onClick={() => {
                     setShowModal(false);
                     if (onStartAutomation) {
-                      onStartAutomation([...selectedIds], { minTimeSec, maxTimeSec, mode }, mode);
+                      onStartAutomation([...selectedIds], { minTimeSec, maxTimeSec, mode, concurrency }, mode);
                     }
                   }}
-                  className="flex-1 py-2.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all shadow-md cursor-pointer"
+                  className="flex-1 py-2.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  Iniciar Resolutor 🚀
+                  <Cloud className="w-4 h-4 text-black" /> Iniciar no Servidor 🚀
                 </motion.button>
               </div>
             </motion.div>
@@ -557,5 +727,3 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
     </motion.div>
   );
 };
-
-

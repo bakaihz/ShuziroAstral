@@ -1,10 +1,11 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, CheckCircle2, AlertCircle, Loader2, Sparkles } from 'lucide-react';
+import { X, CheckCircle2, Loader2, Sparkles, Cloud, Pause, Play, StopCircle, Check, AlertTriangle } from 'lucide-react';
 
-interface LogItem {
+export interface LogItem {
   text: string;
   type: 'ok' | 'err' | 'info';
+  time?: string;
 }
 
 interface ProgressWidgetProps {
@@ -15,6 +16,11 @@ interface ProgressWidgetProps {
   total: number;
   logs: LogItem[];
   isCompleted: boolean;
+  isPaused?: boolean;
+  onPause?: () => void;
+  onResume?: () => void;
+  onCancel?: () => void;
+  isBackgroundServer?: boolean;
 }
 
 export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
@@ -24,9 +30,14 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
   progress,
   total,
   logs,
-  isCompleted
+  isCompleted,
+  isPaused = false,
+  onPause,
+  onResume,
+  onCancel,
+  isBackgroundServer = true
 }) => {
-  const percentage = total > 0 ? Math.round((progress / total) * 100) : 0;
+  const percentage = total > 0 ? Math.min(100, Math.round((progress / total) * 100)) : 0;
 
   return (
     <AnimatePresence>
@@ -42,27 +53,78 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-zinc-400 to-white" />
           
           <div className="max-w-4xl mx-auto">
-            <div className="flex items-center justify-between mb-2.5">
-              <div className="flex items-center gap-2.5">
+            {/* Header with Title and Badges */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
                 {!isCompleted ? (
-                  <Loader2 className="w-4 h-4 text-red-500 animate-spin" />
+                  isPaused ? (
+                    <span className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center shrink-0">
+                      <Pause className="w-2.5 h-2.5 text-black" />
+                    </span>
+                  ) : (
+                    <Loader2 className="w-4 h-4 text-red-500 animate-spin shrink-0" />
+                  )
                 ) : (
-                  <CheckCircle2 className="w-4 h-4 text-white" />
+                  <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
                 )}
-                <span className="text-sm font-bold text-white flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-red-500" />
-                  {title}
-                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-white flex items-center gap-1.5 truncate">
+                    <Sparkles className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                    <span className="truncate">{title}</span>
+                  </div>
+                  {isBackgroundServer && (
+                    <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
+                      <Cloud className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <span className="text-emerald-400 font-medium">Executando no Servidor</span>
+                      <span className="text-zinc-500">• Você pode fechar o site ou sair a qualquer momento</span>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-3">
+
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                {/* Control Buttons */}
+                {!isCompleted && (
+                  <div className="flex items-center gap-1.5 mr-1">
+                    {isPaused ? (
+                      <button
+                        onClick={onResume}
+                        className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                        title="Retomar execução das tarefas"
+                      >
+                        <Play className="w-3 h-3 fill-emerald-400" /> Retomar
+                      </button>
+                    ) : (
+                      <button
+                        onClick={onPause}
+                        className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                        title="Pausar execução"
+                      >
+                        <Pause className="w-3 h-3" /> Pausar
+                      </button>
+                    )}
+
+                    {onCancel && (
+                      <button
+                        onClick={onCancel}
+                        className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                        title="Cancelar fila de tarefas"
+                      >
+                        <StopCircle className="w-3 h-3" /> Cancelar
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <span className="text-xs font-mono text-white font-bold bg-zinc-900 px-3 py-1 rounded-full border border-zinc-700 flex items-center gap-1.5 shadow-inner">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                  <span className={`w-1.5 h-1.5 rounded-full ${isCompleted ? 'bg-emerald-400' : (isPaused ? 'bg-amber-400' : 'bg-red-500 animate-pulse')}`} />
                   {progress} / {total} ({percentage}%)
                 </span>
+
                 <button 
                   onClick={onClose} 
                   className="p-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg border border-zinc-800 transition-colors cursor-pointer"
-                  title="Fechar"
+                  title="Minimizar (o robô continua executando em segundo plano no servidor)"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -70,7 +132,7 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
             </div>
 
             {/* Progress track */}
-            <div className="w-full bg-zinc-900 h-2.5 rounded-full overflow-hidden mb-3.5 border border-zinc-800 relative">
+            <div className="w-full bg-zinc-900 h-2.5 rounded-full overflow-hidden mb-3 border border-zinc-800 relative">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${percentage}%` }}
@@ -80,16 +142,20 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
             </div>
 
             {/* Terminal logs */}
-            <div className="max-h-28 overflow-y-auto space-y-1 font-mono text-xs text-zinc-400 pr-2 custom-scrollbar bg-black/40 p-2.5 rounded-xl border border-zinc-800/80">
+            <div className="max-h-32 overflow-y-auto space-y-1 font-mono text-xs text-zinc-400 pr-2 custom-scrollbar bg-black/50 p-2.5 rounded-xl border border-zinc-800/80 shadow-inner">
               {logs.length === 0 ? (
-                <div className="text-zinc-500 italic text-[11px]">Aguardando início das tarefas...</div>
+                <div className="text-zinc-500 italic text-[11px] flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+                  Iniciando executor multi-tarefas no servidor...
+                </div>
               ) : (
                 logs.map((log, idx) => (
-                  <div key={idx} className="flex items-center gap-2 leading-relaxed">
-                    {log.type === 'ok' && <span className="text-white font-bold">✓</span>}
-                    {log.type === 'err' && <span className="text-red-500 font-bold">✕</span>}
-                    {log.type === 'info' && <span className="text-zinc-400 font-bold">ℹ</span>}
-                    <span className={`truncate text-[11px] ${log.type === 'err' ? 'text-red-400' : 'text-zinc-300'}`}>
+                  <div key={idx} className="flex items-start gap-2 leading-relaxed">
+                    {log.time && <span className="text-zinc-500 text-[10px] shrink-0 mt-0.5">[{log.time}]</span>}
+                    {log.type === 'ok' && <span className="text-emerald-400 font-bold shrink-0">✓</span>}
+                    {log.type === 'err' && <span className="text-red-500 font-bold shrink-0">✕</span>}
+                    {log.type === 'info' && <span className="text-zinc-400 font-bold shrink-0">ℹ</span>}
+                    <span className={`text-[11px] break-words ${log.type === 'err' ? 'text-red-400' : (log.type === 'ok' ? 'text-zinc-200' : 'text-zinc-300')}`}>
                       {log.text}
                     </span>
                   </div>
@@ -102,4 +168,3 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
     </AnimatePresence>
   );
 };
-

@@ -49,7 +49,9 @@ const PROXY_TUNNELS = [
     "https://api.davilucas99kk.workers.dev",
     "https://bakaiwaf.shuziroastral.lol",
     "https://proxy.shuziroastral.lol",
-    "https://edusp-api.ip.tv"
+    "https://edusp-api.ip.tv",
+    "https://corsproxy.io/?",
+    "https://api.allorigins.win/raw?url="
 ];
 
 // Cache em memória de respostas rápidas de GET (15 segundos para sucesso, 2 segundos para respostas vazias)
@@ -132,7 +134,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                     timeout: { request: timeoutMs },
                     throwHttpErrors: false,
                     retry: { limit: 0 },
-                    useHeaderGenerator: false, // Mantém intactos os headers customizados (x-api-key, x-api-realm, etc)
+                    useHeaderGenerator: false,
                     http2: true
                 });
 
@@ -143,7 +145,6 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                     return { ok: true, status: res.statusCode, text: lastText };
                 }
 
-                // Se não foi 403 / 502 / 530 / 520, retorna a resposta da API (ex: 400 ou 401 que são respostas de negócio)
                 if (res.statusCode < 400 || (res.statusCode !== 403 && res.statusCode !== 530 && res.statusCode !== 520 && res.statusCode !== 525)) {
                     return { ok: false, status: res.statusCode, text: lastText };
                 }
@@ -159,7 +160,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                 headers: cleanHeaders,
                 json: isJsonBody ? body : undefined,
                 body: isStringBody ? body : undefined,
-                http2: false, // Força HTTP/1.1
+                http2: false,
                 timeout: { request: timeoutMs },
                 throwHttpErrors: false,
                 retry: { limit: 0 }
@@ -177,6 +178,40 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
             }
         } catch (err: any) {
             lastText = err.message || 'Fallback HTTP/1.1 error';
+        }
+
+        // 3. Fallback adicional: Undici Fetch direto com headers gerados por browser real
+        try {
+            const generatedHeaders = serverHeaderGenerator.getHeaders({
+                browsers: [{ name: 'chrome', minVersion: 120 }],
+                operatingSystems: ['windows']
+            });
+            const mergedHeaders: Record<string, string> = { ...generatedHeaders };
+            for (const [k, v] of Object.entries(cleanHeaders)) {
+                if (k.toLowerCase().startsWith('x-') || k.toLowerCase() === 'authorization' || k.toLowerCase() === 'cookie') {
+                    mergedHeaders[k] = v;
+                }
+            }
+
+            const fetchOpts: any = {
+                method: method.toUpperCase(),
+                headers: mergedHeaders,
+                signal: AbortSignal.timeout(timeoutMs)
+            };
+            if (isJsonBody || isStringBody) {
+                fetchOpts.body = isStringBody ? body : JSON.stringify(body);
+            }
+
+            const uRes = await undiciFetch(targetUrl, fetchOpts);
+            const uText = await uRes.text();
+            lastStatus = uRes.status;
+            lastText = uText;
+
+            if (uRes.status >= 200 && uRes.status < 300) {
+                return { ok: true, status: uRes.status, text: uText };
+            }
+        } catch (e: any) {
+            // Segue retentativa
         }
 
         attempt++;
@@ -205,7 +240,38 @@ async function startServer() {
     app.use(express.json({ limit: '50mb' }));
     app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-    const agent = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
+    const agent = new Agent({
+        keepAliveTimeout: 60_000,
+        keepAliveMaxTimeout: 120_000,
+        connections: 100,
+        pipelining: 1
+    });
+
+    // Cache Global de Questões Resolvidas (compartilhado entre todos os usuários para 0ms de latência)
+    const globalSolvedQuestionCache = new Map<string, any>();
+    const MAX_SOLVED_CACHE = 10000;
+
+    function getQuestionCacheKey(q: any): string {
+        const qId = q?.id || q?.question_id || q?.code || '';
+        const statement = String(q?.statement || q?.title || q?.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+        const type = String(q?.type || q?.question_type || q?.resolvedType || '').toLowerCase();
+        return `${qId}_${type}_${statement.substring(0, 100)}`;
+    }
+
+    function saveSolvedQuestionCache(key: string, ans: any) {
+        if (!key || ans === undefined || ans === null) return;
+        if (globalSolvedQuestionCache.size >= MAX_SOLVED_CACHE) {
+            const firstKey = globalSolvedQuestionCache.keys().next().value;
+            if (firstKey) globalSolvedQuestionCache.delete(firstKey);
+        }
+        globalSolvedQuestionCache.set(key, ans);
+    }
+
+    // Cache Global de Redações Geradas por IA
+    const globalEssayCache = new Map<string, { titulo: string; texto: string }>();
+
+    // Cache de Salas/Turmas por Token (10 minutos de retenção)
+    const userRoomSlugsCache = new Map<string, { slugs: string[]; expiresAt: number }>();
 
     function getCustomTunnel(req?: express.Request): { tunnel?: string; userAgent?: string; cookies?: string } | undefined {
         if (!req) return undefined;
@@ -279,13 +345,32 @@ async function startServer() {
     let cachedWorkingTunnel: string | null = null;
 
     async function askAI(prompt: string): Promise<string> {
-        // 1. Rochwxs AI Endpoint (Primary AI requested)
+        // 1. Gemini API (Se chave presente, Gemini 2.5 Flash é ultra rápido e aguenta alta concorrência)
+        if (process.env.GEMINI_API_KEY) {
+            try {
+                const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+                const response = await Promise.race([
+                    ai.models.generateContent({
+                        model: 'gemini-2.5-flash',
+                        contents: prompt,
+                    }),
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini Timeout')), 5000))
+                ]);
+                if (response && response.text) {
+                    return response.text.trim();
+                }
+            } catch (e: any) {
+                console.warn('[AI] Gemini API falhou/timeout, tentando fallback rápido:', e.message);
+            }
+        }
+
+        // 2. Rochwxs AI Endpoint (com timeout reduzido de 3.5s para não prender a fila)
         try {
             const response = await undiciFetch('https://api.rochwxs.lol/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: prompt }),
-                signal: AbortSignal.timeout(10000)
+                signal: AbortSignal.timeout(3500)
             });
             if (response.ok) {
                 const data: any = await response.json();
@@ -293,26 +378,10 @@ async function startServer() {
                 if (text) return String(text).trim();
             }
         } catch (e: any) {
-            console.warn('[AI] Rochwxs AI falhou, tentando fallback Gemini:', e.message);
+            console.warn('[AI] Rochwxs AI falhou, tentando fallback OpenRouter:', e.message);
         }
 
-        // 2. Gemini API (@google/genai)
-        if (process.env.GEMINI_API_KEY) {
-            try {
-                const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-                const response = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: prompt,
-                });
-                if (response && response.text) {
-                    return response.text.trim();
-                }
-            } catch (e: any) {
-                console.warn('[AI] Gemini API falhou, tentando fallback OpenRouter:', e.message);
-            }
-        }
-
-        // 3. OpenRouter AI
+        // 3. OpenRouter AI (Fallback com 4s timeout)
         try {
             const openRouterRes = await undiciFetch('https://openrouter.ai/api/v1/chat/completions', {
                 method: 'POST',
@@ -324,7 +393,7 @@ async function startServer() {
                     model: 'openai/gpt-oss-20b:free',
                     messages: [{ role: 'user', content: prompt }]
                 }),
-                signal: AbortSignal.timeout(10000)
+                signal: AbortSignal.timeout(4000)
             });
             if (openRouterRes.ok) {
                 const openRouterData: any = await openRouterRes.json();
@@ -445,6 +514,14 @@ async function startServer() {
             const qId = Number(q.id || q.question_id || q.code) || 0;
             if (!qId) continue;
 
+            // 1. Verificar Cache Global primeiro (para estudantes respondendo às mesmas questões)
+            const cacheKey = getQuestionCacheKey(q);
+            const cachedAnswer = globalSolvedQuestionCache.get(cacheKey);
+            if (cachedAnswer && !userText) {
+                answersMap[String(qId)] = cachedAnswer;
+                continue;
+            }
+
             let rawQType = String(q.type || q.question_type || "").toLowerCase();
             if (rawQType === 'info') continue;
 
@@ -496,33 +573,37 @@ async function startServer() {
                     const ansVal = qType === 'text_ai' 
                         ? { "0": userText.trim() }
                         : (isEssayType ? { title: userTitle || q.title || 'Redação', body: userText.trim() } : userText.trim());
-                    answersMap[String(qId)] = {
+                    const finalAns = {
                         question_id: qId,
                         question_type: isEssayType ? 'essay' : qType,
                         answer: ansVal
                     };
+                    answersMap[String(qId)] = finalAns;
+                    saveSolvedQuestionCache(cacheKey, finalAns);
                 } else {
-                    questionsNeedingAI.push({ ...q, resolvedType: qType, isText: true });
+                    questionsNeedingAI.push({ ...q, resolvedType: qType, isText: true, cacheKey });
                 }
             } else if (qType === "fill-words" || qType === "fill_words" || qType === "cloud" || qType === "order-sentences" || qType === "order_sentences") {
-                questionsNeedingAI.push({ ...q, resolvedType: qType, isText: false, isSpecialSequence: true });
+                questionsNeedingAI.push({ ...q, resolvedType: qType, isText: false, isSpecialSequence: true, cacheKey });
             } else if (qType === "fill-letters" || qType === "fill_letters") {
                 let knownWord = q.options?.word || q.options?.answer || q.answer;
                 if (knownWord && typeof knownWord === 'string' && knownWord.trim().length > 1 && knownWord.toUpperCase() !== 'RESPOSTA') {
-                    answersMap[String(qId)] = {
+                    const finalAns = {
                         question_id: qId,
                         question_type: "fill-letters",
                         answer: knownWord.trim().toUpperCase()
                     };
+                    answersMap[String(qId)] = finalAns;
+                    saveSolvedQuestionCache(cacheKey, finalAns);
                 } else {
-                    questionsNeedingAI.push({ ...q, resolvedType: "fill-letters", isFillLetters: true, isText: false });
+                    questionsNeedingAI.push({ ...q, resolvedType: "fill-letters", isFillLetters: true, isText: false, cacheKey });
                 }
             } else if (qType === "true-false" || qType === "true_false") {
                 let tfOpts: any[] = [];
                 if (Array.isArray(q.options)) tfOpts = q.options;
                 else if (q.options && typeof q.options === 'object') tfOpts = Object.values(q.options);
 
-                questionsNeedingAI.push({ ...q, resolvedType: "true-false", isText: false, isTrueFalse: true, parsedOpts: tfOpts });
+                questionsNeedingAI.push({ ...q, resolvedType: "true-false", isText: false, isTrueFalse: true, parsedOpts: tfOpts, cacheKey });
             } else {
                 let opts: any[] = [];
                 if (Array.isArray(q.options)) opts = q.options;
@@ -538,13 +619,15 @@ async function startServer() {
 
                 if (explicitCorrect) {
                     const cand = explicitCorrect.id ?? explicitCorrect.option_id ?? explicitCorrect.value ?? explicitCorrect.key ?? explicitCorrect.code;
-                    answersMap[String(qId)] = {
+                    const finalAns = {
                         question_id: qId,
                         question_type: qType,
                         answer: buildChoiceAnswer(q, cand)
                     };
+                    answersMap[String(qId)] = finalAns;
+                    saveSolvedQuestionCache(cacheKey, finalAns);
                 } else {
-                    questionsNeedingAI.push({ ...q, resolvedType: qType, isText: false, parsedOpts: opts });
+                    questionsNeedingAI.push({ ...q, resolvedType: qType, isText: false, parsedOpts: opts, cacheKey });
                 }
             }
         }
@@ -651,6 +734,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                     const qId = String(q.id || q.question_id);
                     const aiAns = aiMap[qId] || aiMap[Number(qId)];
                     const qType = q.resolvedType;
+                    const cacheKey = q.cacheKey || getQuestionCacheKey(q);
 
                     if (q.isText) {
                         const statement = String(q.statement || q.title || '').replace(/<[^>]*>/g, '').trim();
@@ -673,22 +757,26 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                             ? { "0": text }
                             : (isEssayType ? { title, body: text } : text);
 
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: isEssayType ? 'essay' : qType,
                             answer: ansPayload
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     } else if (q.isFillLetters) {
                         let resolvedWord = String(aiAns?.word || aiAns?.sequence?.[0] || aiAns?.text || '').trim().toUpperCase().replace(/[^A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]/gi, '');
                         if (!resolvedWord || resolvedWord === 'RESPOSTA' || resolvedWord.length < 2) {
                             const statement = String(q.statement || q.title || '').replace(/<[^>]*>/g, '').trim();
                             resolvedWord = extractKeyWordFromStatement(statement);
                         }
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: "fill-letters",
                             answer: resolvedWord
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     } else if (q.isSpecialSequence) {
                         let seq = Array.isArray(aiAns?.sequence) ? aiAns.sequence : null;
                         if (!seq) {
@@ -707,11 +795,13 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                             if (seq.length === 0) seq = ["resposta"];
                         }
 
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: qType,
                             answer: seq
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     } else if (q.isTrueFalse) {
                         let tfObj = aiAns?.tf_map;
                         if (!tfObj || typeof tfObj !== 'object') {
@@ -723,18 +813,22 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                                 tfObj = { "0": true, "1": false };
                             }
                         }
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: "true-false",
                             answer: tfObj
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     } else {
                         let selId = aiAns?.selected_id ?? aiAns?.selected_option_id ?? aiAns?.id ?? aiAns?.answer;
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: qType,
                             answer: buildChoiceAnswer(q, selId)
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     }
                 }
             } catch (aiErr: any) {
@@ -742,6 +836,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                 for (const q of questionsNeedingAI) {
                     const qId = String(q.id || q.question_id);
                     const qType = q.resolvedType;
+                    const cacheKey = q.cacheKey || getQuestionCacheKey(q);
                     const statement = String(q.statement || q.title || '').replace(/<[^>]*>/g, '').trim();
 
                     if (q.isText) {
@@ -753,18 +848,22 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                             ? { "0": richText }
                             : (isEssayType ? { title: fallbackTitle, body: richText } : richText);
 
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: isEssayType ? 'essay' : qType,
                             answer: ansPayload
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     } else if (q.isFillLetters) {
                         const resolvedWord = extractKeyWordFromStatement(statement);
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: "fill-letters",
                             answer: resolvedWord
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     } else if (q.isSpecialSequence) {
                         let items: string[] = [];
                         if (Array.isArray(q.options?.items)) items = q.options.items;
@@ -778,11 +877,13 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                         let seq = items.slice(0, selectCount);
                         if (seq.length === 0) seq = ["resposta"];
 
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: qType,
                             answer: seq
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     } else if (q.isTrueFalse) {
                         const tfAnsObj: Record<string, boolean> = {};
                         (q.parsedOpts || []).forEach((_: any, idx: number) => {
@@ -792,19 +893,23 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                             tfAnsObj["0"] = true;
                             tfAnsObj["1"] = false;
                         }
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: "true-false",
                             answer: tfAnsObj
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     } else {
                         const firstOpt = q.parsedOpts?.[0];
                         const cand = firstOpt?.id ?? firstOpt?.option_id ?? firstOpt?.value ?? firstOpt?.key ?? firstOpt?.code;
-                        answersMap[qId] = {
+                        const finalAns = {
                             question_id: Number(qId),
                             question_type: qType,
                             answer: buildChoiceAnswer(q, cand)
                         };
+                        answersMap[qId] = finalAns;
+                        saveSolvedQuestionCache(cacheKey, finalAns);
                     }
                 }
             }
@@ -1882,6 +1987,13 @@ function extractUserNickFromToken(token: string): string {
     });
 
 async function getAllUserRoomSlugs(token: string, customTunnel?: string | { tunnel?: string; userAgent?: string; cookies?: string }): Promise<string[]> {
+    const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
+    const tokenKey = cleanToken.slice(-30);
+    const cached = userRoomSlugsCache.get(tokenKey);
+    if (cached && cached.expiresAt > Date.now() && cached.slugs.length > 0) {
+        return cached.slugs;
+    }
+
     const slugs = new Set<string>();
     try {
         const data = await callOfficialApi('/room/user?list_all=true&with_cards=true', 'GET', token, undefined, customTunnel);
@@ -1917,7 +2029,14 @@ async function getAllUserRoomSlugs(token: string, customTunnel?: string | { tunn
     } catch (e: any) {
         console.warn('[getAllUserRoomSlugs] Erro ao buscar rooms:', e.message);
     }
-    return Array.from(slugs);
+    const result = Array.from(slugs);
+    if (result.length > 0) {
+        userRoomSlugsCache.set(tokenKey, {
+            slugs: result,
+            expiresAt: Date.now() + 10 * 60 * 1000 // 10 minutos
+        });
+    }
+    return result;
 }
 
 async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunnel?: string; userAgent?: string; cookies?: string }): Promise<string> {
@@ -2405,7 +2524,466 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         });
     });
 
-    // Endpoint 5: Status do Job -> POST /api/tasks/jobstatus & GET /api/tasks/jobstatus
+    // ==========================================
+    // SISTEMA DE MULTI-TAREFAS EM SEGUNDO PLANO (BACKGROUND BATCH RUNNER)
+    // Continua executando no servidor mesmo se o usuário fechar a aba ou sair do site!
+    // ==========================================
+    interface BatchTaskItemMeta {
+        id: string;
+        title?: string;
+        publication_target?: string;
+        room_for_apply?: string;
+        is_essay?: boolean;
+        apply_moment?: string;
+        questions?: any[];
+        answer_id?: any;
+    }
+
+    interface BatchTaskJob {
+        batchId: string;
+        userId?: string;
+        authToken: string;
+        taskIds: string[];
+        tasksMeta: Record<string, BatchTaskItemMeta>;
+        status: 'queued' | 'running' | 'completed' | 'paused' | 'cancelled' | 'failed';
+        currentIndex: number;
+        currentTaskId: string;
+        currentTaskTitle: string;
+        completedCount: number;
+        failedCount: number;
+        total: number;
+        progress: number;
+        minTimeSec: number;
+        maxTimeSec: number;
+        mode: 'draft' | 'submitted';
+        concurrency: number;
+        logs: { time: string; text: string; type: 'ok' | 'err' | 'info' }[];
+        results: Record<string, { status: 'completed' | 'failed'; error?: string; timeSec?: number; title?: string }>;
+        createdAt: number;
+        updatedAt: number;
+        completedAt?: number;
+    }
+
+    const batchJobsMap = new Map<string, BatchTaskJob>();
+
+    // Limpeza de batches antigos (mais de 2 horas)
+    setInterval(() => {
+        const now = Date.now();
+        for (const [id, job] of batchJobsMap.entries()) {
+            if (now - job.createdAt > 7200000) {
+                batchJobsMap.delete(id);
+            }
+        }
+    }, 600000);
+
+    async function processBatchJobWorker(batchId: string, customTunnel?: any) {
+        const job = batchJobsMap.get(batchId);
+        if (!job) return;
+
+        job.status = 'running';
+        job.updatedAt = Date.now();
+        const startTime = new Date().toLocaleTimeString('pt-BR');
+        
+        // Define concorrência segura (entre 1 e 4 threads simultâneas)
+        const concurrency = Math.min(Math.max(Number(job.concurrency) || 2, 1), 4);
+
+        job.logs.unshift({
+            time: startTime,
+            text: `🚀 Multi-Tarefas iniciado no servidor (${job.total} atividades, ${concurrency} worker(s) simultâneos). Modo: ${job.mode === 'submitted' ? 'Entrega 100%' : 'Rascunho'}.`,
+            type: 'info'
+        });
+
+        const addLog = (text: string, type: 'ok' | 'err' | 'info' = 'info') => {
+            const time = new Date().toLocaleTimeString('pt-BR');
+            job.logs.unshift({ time, text, type });
+            if (job.logs.length > 300) job.logs.pop();
+            job.updatedAt = Date.now();
+        };
+
+        const authToken = job.authToken;
+        const isCancelled = () => (job.status as string) === 'cancelled';
+        const isPaused = () => (job.status as string) === 'paused';
+
+        try {
+            // Pre-carrega as salas do usuário UMA única vez para o batch inteiro (otimização de latência)
+            const userSlugs = authToken ? await getAllUserRoomSlugs(authToken, customTunnel) : [];
+
+            let nextTaskIndex = 0;
+
+            async function runWorker(workerId: number) {
+                while (true) {
+                    if (isCancelled()) break;
+                    while (isPaused()) {
+                        await new Promise(r => setTimeout(r, 1000));
+                        if (isCancelled()) break;
+                    }
+                    if (isCancelled()) break;
+
+                    const i = nextTaskIndex++;
+                    if (i >= job.taskIds.length) break;
+
+                    const tid = job.taskIds[i];
+                    job.currentIndex = i;
+                    job.currentTaskId = tid;
+
+                    const meta = job.tasksMeta[tid] || { id: tid };
+                    const taskTitle = meta.title || `Atividade #${tid}`;
+                    job.currentTaskTitle = taskTitle;
+
+                    // Calcular atraso anti-ban aleatório
+                    const delayRange = Math.max(0, job.maxTimeSec - job.minTimeSec);
+                    const actualDelaySec = Math.floor(Math.random() * (delayRange + 1)) + job.minTimeSec;
+
+                    addLog(`[Worker ${workerId + 1}] [${i + 1}/${job.total}] Iniciando "${taskTitle}" (${actualDelaySec}s)...`, 'info');
+
+                    try {
+                        let rawRoomTarget = meta.publication_target || meta.room_for_apply || '';
+                        if (typeof rawRoomTarget !== 'string' || !(/^r[0-9a-f]+-l$/i.test(rawRoomTarget) || (rawRoomTarget.startsWith('r') && rawRoomTarget.length >= 10))) {
+                            rawRoomTarget = '';
+                        }
+
+                        const roomCandidates = new Set<string>();
+                        if (rawRoomTarget) roomCandidates.add(rawRoomTarget);
+                        userSlugs.forEach(s => roomCandidates.add(s));
+                        roomCandidates.add('');
+
+                        // 1. Obter estrutura da tarefa (Apply)
+                        let applyData: any = null;
+                        for (const slug of roomCandidates) {
+                            try {
+                                const applyUrl = slug 
+                                    ? `/tms/task/${tid}/apply?room_name=${encodeURIComponent(slug)}`
+                                    : `/tms/task/${tid}/apply`;
+                                
+                                const applyRes = await callOfficialApi(applyUrl, 'GET', authToken, undefined, customTunnel);
+                                if (applyRes && (applyRes.questions || applyRes.items || applyRes.question_list || applyRes.data)) {
+                                    applyData = applyRes;
+                                    break;
+                                }
+                            } catch (e: any) {
+                                // tenta próximo slug
+                            }
+                        }
+
+                        if (!applyData) {
+                            try {
+                                applyData = await callOfficialApi(`/tms/task/${tid}`, 'GET', authToken, undefined, customTunnel);
+                            } catch (e) {}
+                        }
+
+                        const extractedQuestions = extractQuestionsList(applyData?.questions || applyData?.items || applyData?.data?.questions || applyData || meta.questions || []);
+                        const isEssay = Boolean(meta.is_essay);
+                        let genTitle = taskTitle;
+                        let genTexto = '';
+
+                        // 2. Se for redação, verificar cache ou gerar texto com IA
+                        if (isEssay) {
+                            const cachedEssay = globalEssayCache.get(taskTitle);
+                            if (cachedEssay) {
+                                genTitle = cachedEssay.titulo;
+                                genTexto = cachedEssay.texto;
+                            } else {
+                                try {
+                                    const prompt = `Você é um especialista em redação escolar da plataforma SEDUC-SP. Escreva uma redação de alta qualidade no gênero dissertativo-argumentativo. Tema: ${taskTitle}. Responda exclusivamente em JSON com as chaves "titulo" e "texto".`;
+                                    const aiContent = await askAI(prompt);
+                                    if (aiContent) {
+                                        const clean = aiContent.replace(/```json/g, '').replace(/```/g, '').trim();
+                                        try {
+                                            const parsed = JSON.parse(clean);
+                                            genTitle = parsed.titulo || taskTitle;
+                                            genTexto = parsed.texto || aiContent;
+                                        } catch {
+                                            genTexto = aiContent;
+                                        }
+                                    }
+                                    if (genTexto) {
+                                        globalEssayCache.set(taskTitle, { titulo: genTitle, texto: genTexto });
+                                    }
+                                } catch (e: any) {
+                                    genTexto = 'A temática apresentada exige reflexão aprofundada acerca dos desafios sociais contemporâneos e suas implicações.';
+                                }
+                            }
+                        }
+
+                        // 3. Resolver questões com IA ou Cache Instantâneo
+                        let answersMap: Record<string, any> = {};
+                        if (extractedQuestions.length > 0) {
+                            answersMap = await solveTaskQuestionsWithAI(extractedQuestions, isEssay, genTitle, genTexto);
+                        } else {
+                            const fallbackQId = Number(applyData?.question_id) || 1;
+                            answersMap = await solveTaskQuestionsWithAI([{ id: fallbackQId }], isEssay, genTitle, genTexto);
+                        }
+
+                        // 4. Submeter resposta para a plataforma
+                        const applyToken = applyData?.token || applyData?.task_token;
+                        let sendSuccess = false;
+                        let lastErr: any = null;
+
+                        for (const slug of roomCandidates) {
+                            const sendAnswerRequest = async (payload: any) => {
+                                if (meta.answer_id || applyData?.answer_id) {
+                                    const ansId = meta.answer_id || applyData?.answer_id;
+                                    try {
+                                        return await callOfficialApi(`/tms/task/${tid}/answer/${ansId}`, 'PUT', authToken, payload, customTunnel);
+                                    } catch (e: any) {
+                                        return await callOfficialApi(`/tms/task/${tid}/answer`, 'POST', authToken, payload, customTunnel);
+                                    }
+                                }
+                                return await callOfficialApi(`/tms/task/${tid}/answer`, 'POST', authToken, payload, customTunnel);
+                            };
+
+                            const payloadVariants = createPayloadVariants(
+                                answersMap,
+                                job.mode === 'submitted' ? 'submitted' : 'draft',
+                                slug || undefined,
+                                actualDelaySec,
+                                applyToken,
+                                isEssay,
+                                genTitle,
+                                genTexto
+                            );
+
+                            for (const variant of payloadVariants) {
+                                try {
+                                    const data = await sendAnswerRequest(variant);
+                                    if (data) {
+                                        sendSuccess = true;
+                                        break;
+                                    }
+                                } catch (err: any) {
+                                    lastErr = err;
+                                }
+                            }
+                            if (sendSuccess) break;
+                        }
+
+                        if (!sendSuccess && lastErr) {
+                            throw new Error(lastErr.message || 'Falha ao enviar resposta para a plataforma.');
+                        }
+
+                        // 5. Delay anti-ban opcional sem travar outros workers
+                        if (actualDelaySec > 0) {
+                            const waitStep = Math.min(actualDelaySec, 3);
+                            let waited = 0;
+                            while (waited < actualDelaySec && !isCancelled()) {
+                                await new Promise(r => setTimeout(r, waitStep * 1000));
+                                waited += waitStep;
+                            }
+                        }
+
+                        job.completedCount++;
+                        job.results[tid] = { status: 'completed', title: taskTitle, timeSec: actualDelaySec };
+                        addLog(`✅ [Worker ${workerId + 1}] Concluída: "${taskTitle}"`, 'ok');
+
+                    } catch (taskErr: any) {
+                        job.failedCount++;
+                        job.results[tid] = { status: 'failed', error: taskErr.message, title: taskTitle };
+                        addLog(`❌ [Worker ${workerId + 1}] Erro em "${taskTitle}": ${taskErr.message || 'Falha na submissão'}`, 'err');
+                    }
+
+                    const processed = job.completedCount + job.failedCount;
+                    job.progress = Math.min(100, Math.round((processed / job.total) * 100));
+                    job.updatedAt = Date.now();
+                }
+            }
+
+            // Executa os workers em paralelo
+            const workers = [];
+            for (let w = 0; w < concurrency; w++) {
+                workers.push(runWorker(w));
+            }
+            await Promise.all(workers);
+
+            if (!isCancelled()) {
+                job.status = 'completed';
+                job.completedAt = Date.now();
+                job.progress = 100;
+                addLog(`🎉 Multi-Tarefas concluído! ${job.completedCount} finalizada(s), ${job.failedCount} falha(s) de ${job.total} total.`, 'ok');
+            }
+        } catch (err: any) {
+            job.status = 'failed';
+            addLog(`⚠️ Erro fatal no executor de tarefas em segundo plano: ${err.message}`, 'err');
+        } finally {
+            job.updatedAt = Date.now();
+        }
+    }
+
+    // Endpoint: Iniciar Multi-Tarefas em Segundo Plano -> POST /api/tasks/batch-run
+    app.post("/api/tasks/batch-run", async (req, res) => {
+        const body = req.body || {};
+        const taskIds: string[] = Array.isArray(body.taskIds) ? body.taskIds : (Array.isArray(body.task_ids) ? body.task_ids : []);
+        
+        if (taskIds.length === 0) {
+            return res.status(400).json({ success: false, error: "Nenhuma tarefa fornecida no lote (taskIds vazio)." });
+        }
+
+        const authToken = body.auth_token || (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string)?.replace('Bearer ', '') || '';
+        if (!authToken) {
+            return res.status(401).json({ success: false, error: "Token de autenticação ausente." });
+        }
+
+        const customTunnel = getCustomTunnel(req);
+        const minTimeSec = Math.max(1, Number(body.minTimeSec || body.min_time_sec) || 10);
+        const maxTimeSec = Math.max(minTimeSec, Number(body.maxTimeSec || body.max_time_sec) || minTimeSec);
+        const mode = (body.mode === 'draft' ? 'draft' : 'submitted') as 'draft' | 'submitted';
+        const concurrency = Math.min(4, Math.max(1, Number(body.concurrency) || 2));
+        const tasksMeta: Record<string, BatchTaskItemMeta> = body.tasksMeta || body.tasks_meta || {};
+
+        const batchId = "batch_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 6);
+
+        const newBatchJob: BatchTaskJob = {
+            batchId,
+            authToken,
+            taskIds,
+            tasksMeta,
+            status: 'queued',
+            currentIndex: 0,
+            currentTaskId: taskIds[0] || '',
+            currentTaskTitle: tasksMeta[taskIds[0]]?.title || `Atividade #${taskIds[0]}`,
+            completedCount: 0,
+            failedCount: 0,
+            total: taskIds.length,
+            progress: 0,
+            minTimeSec,
+            maxTimeSec,
+            mode,
+            concurrency,
+            logs: [{
+                time: new Date().toLocaleTimeString('pt-BR'),
+                text: `Lote ${batchId} enfileirado com ${taskIds.length} tarefa(s). Execução iniciará em background.`,
+                type: 'info'
+            }],
+            results: {},
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        };
+
+        batchJobsMap.set(batchId, newBatchJob);
+
+        // Dispara o processamento em background independente do HTTP request
+        processBatchJobWorker(batchId, customTunnel);
+
+        return res.json({
+            success: true,
+            batchId,
+            total: taskIds.length,
+            mode,
+            message: "Multi-Tarefas iniciado em segundo plano com sucesso no servidor."
+        });
+    });
+
+    // Endpoint: Status do Multi-Tarefas -> GET /api/tasks/batch-status
+    const handleBatchStatus = (req: any, res: any) => {
+        const batchId = String(req.query.batchId || req.query.batch_id || req.body?.batchId || req.body?.batch_id || '').trim();
+        if (!batchId) {
+            return res.status(400).json({ error: "batchId não fornecido." });
+        }
+
+        const job = batchJobsMap.get(batchId);
+        if (!job) {
+            return res.status(404).json({
+                batchId,
+                status: 'expired',
+                error: 'Multi-Tarefas não encontrado ou expirado no servidor.'
+            });
+        }
+
+        return res.json({
+            batchId: job.batchId,
+            status: job.status,
+            currentIndex: job.currentIndex,
+            currentTaskId: job.currentTaskId,
+            currentTaskTitle: job.currentTaskTitle,
+            completedCount: job.completedCount,
+            failedCount: job.failedCount,
+            total: job.total,
+            progress: job.progress,
+            minTimeSec: job.minTimeSec,
+            maxTimeSec: job.maxTimeSec,
+            mode: job.mode,
+            logs: job.logs.slice(0, 50), // Retorna até 50 logs mais recentes
+            results: job.results,
+            createdAt: job.createdAt,
+            updatedAt: job.updatedAt,
+            completedAt: job.completedAt
+        });
+    };
+
+    app.get("/api/tasks/batch-status", handleBatchStatus);
+    app.post("/api/tasks/batch-status", handleBatchStatus);
+
+    // Endpoint: Listar Batches Ativos -> GET /api/tasks/active-batches
+    app.get("/api/tasks/active-batches", (req, res) => {
+        const active: any[] = [];
+        for (const job of batchJobsMap.values()) {
+            active.push({
+                batchId: job.batchId,
+                status: job.status,
+                total: job.total,
+                completedCount: job.completedCount,
+                failedCount: job.failedCount,
+                progress: job.progress,
+                currentTaskTitle: job.currentTaskTitle,
+                createdAt: job.createdAt,
+                updatedAt: job.updatedAt
+            });
+        }
+        return res.json({ activeBatches: active });
+    });
+
+    // Endpoint: Pausar Multi-Tarefas -> POST /api/tasks/batch-pause
+    app.post("/api/tasks/batch-pause", (req, res) => {
+        const batchId = String(req.body?.batchId || req.body?.batch_id || '').trim();
+        const job = batchJobsMap.get(batchId);
+        if (!job) return res.status(404).json({ error: "Batch não encontrado." });
+
+        if (job.status === 'running' || job.status === 'queued') {
+            job.status = 'paused';
+            job.updatedAt = Date.now();
+            job.logs.unshift({
+                time: new Date().toLocaleTimeString('pt-BR'),
+                text: '⏸️ Execução pausada pelo usuário.',
+                type: 'info'
+            });
+        }
+        return res.json({ success: true, status: job.status });
+    });
+
+    // Endpoint: Retomar Multi-Tarefas -> POST /api/tasks/batch-resume
+    app.post("/api/tasks/batch-resume", (req, res) => {
+        const batchId = String(req.body?.batchId || req.body?.batch_id || '').trim();
+        const job = batchJobsMap.get(batchId);
+        if (!job) return res.status(404).json({ error: "Batch não encontrado." });
+
+        if (job.status === 'paused') {
+            job.status = 'running';
+            job.updatedAt = Date.now();
+            job.logs.unshift({
+                time: new Date().toLocaleTimeString('pt-BR'),
+                text: '▶️ Execução retomada pelo usuário.',
+                type: 'info'
+            });
+        }
+        return res.json({ success: true, status: job.status });
+    });
+
+    // Endpoint: Cancelar Multi-Tarefas -> POST /api/tasks/batch-cancel
+    app.post("/api/tasks/batch-cancel", (req, res) => {
+        const batchId = String(req.body?.batchId || req.body?.batch_id || '').trim();
+        const job = batchJobsMap.get(batchId);
+        if (!job) return res.status(404).json({ error: "Batch não encontrado." });
+
+        job.status = 'cancelled';
+        job.updatedAt = Date.now();
+        job.logs.unshift({
+            time: new Date().toLocaleTimeString('pt-BR'),
+            text: '🛑 Execução cancelada pelo usuário.',
+            type: 'info'
+        });
+        return res.json({ success: true, status: job.status });
+    });
+
+    // Endpoint 5: Status do Job Individual -> POST /api/tasks/jobstatus & GET /api/tasks/jobstatus
     const handleJobStatus = (req: any, res: any) => {
         const jobId = String(req.body?.jobId || req.body?.job_id || req.query?.jobId || req.query?.job_id || '').trim();
 
@@ -5132,6 +5710,29 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             const data = await callOfficialApi(fullPath, req.method, token, req.body, customTunnel);
             res.json(data);
         } catch (err: any) {
+            // Se o erro for 403 / Bloqueio de proteção de rede em rota /tms/task/:id/apply, tenta URLs de fallback automáticas
+            if (req.method === 'GET' && targetPath.includes('tms/task/') && targetPath.includes('apply')) {
+                const match = targetPath.match(/tms\/task\/(\d+)\/apply/);
+                if (match) {
+                    const taskId = match[1];
+                    const tokenCodeParam = (req.query.token_code && req.query.token_code !== 'null') ? `&token_code=${encodeURIComponent(String(req.query.token_code))}` : '';
+                    const fallbackPaths = [
+                        `/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}`,
+                        `/tms/task/${taskId}/apply?preview_mode=true${tokenCodeParam}`,
+                        `/tms/task/${taskId}/apply`,
+                        `/tms/task/${taskId}`
+                    ];
+                    for (const fbPath of fallbackPaths) {
+                        try {
+                            const fbData = await callOfficialApi(fbPath, 'GET', token, undefined, customTunnel);
+                            if (fbData && (fbData.questions || fbData.items || fbData.question_list || fbData.data || fbData.id)) {
+                                return res.json(fbData);
+                            }
+                        } catch (e: any) {}
+                    }
+                }
+            }
+
             console.error('[ProxyEduSP] Erro ao retransmitir:', err.message);
             res.status(err.status || 500).json({ error: err.message });
         }

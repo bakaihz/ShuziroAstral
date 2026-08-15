@@ -76,8 +76,15 @@ export default function App() {
   const [progressTitle, setProgressTitle] = useState('');
   const [progressCurrent, setProgressCurrent] = useState(0);
   const [progressTotal, setProgressTotal] = useState(0);
-  const [progressLogs, setProgressLogs] = useState<{ text: string; type: 'ok' | 'err' | 'info' }[]>([]);
+  const [progressLogs, setProgressLogs] = useState<{ text: string; type: 'ok' | 'err' | 'info'; time?: string }[]>([]);
   const [isCompleted, setIsCompleted] = useState(false);
+
+  // Background Batch Multi-Tarefas state (Persistente no Servidor)
+  const [activeBatchId, setActiveBatchId] = useState<string>(() => {
+    return typeof window !== 'undefined' ? (localStorage.getItem('shuziro_active_batch_id') || '') : '';
+  });
+  const [activeBatchData, setActiveBatchData] = useState<any>(null);
+  const [isBatchPaused, setIsBatchPaused] = useState(false);
 
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -92,6 +99,83 @@ export default function App() {
   const [pingStatus, setPingStatus] = useState<'idle' | 'pinging' | 'success' | 'failed'>('idle');
   const [pingResponse, setPingResponse] = useState<any>(null);
   const [latency, setLatency] = useState<number | null>(null);
+
+  // Auto-reconnect to running batch on server
+  useEffect(() => {
+    fetch('/api/tasks/active-batches')
+      .then(r => r.json())
+      .then(data => {
+        if (data?.activeBatches && data.activeBatches.length > 0) {
+          const running = data.activeBatches.find((b: any) => b.status === 'running' || b.status === 'queued' || b.status === 'paused');
+          if (running) {
+            setActiveBatchId(running.batchId);
+            localStorage.setItem('shuziro_active_batch_id', running.batchId);
+            setActiveBatchData(running);
+            setIsBatchPaused(running.status === 'paused');
+            setProgressOpen(true);
+            setProgressTitle(`Multi-Tarefas em Segundo Plano (${running.completedCount}/${running.total})`);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Polling loop for active background batch
+  useEffect(() => {
+    if (!activeBatchId) return;
+
+    let isSubscribed = true;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/tasks/batch-status?batchId=${encodeURIComponent(activeBatchId)}`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            localStorage.removeItem('shuziro_active_batch_id');
+            if (isSubscribed) {
+              setActiveBatchId('');
+              setActiveBatchData(null);
+            }
+          }
+          return;
+        }
+
+        const data = await res.json();
+        if (!isSubscribed) return;
+
+        setActiveBatchData(data);
+        setIsBatchPaused(data.status === 'paused');
+        setProgressTotal(data.total || 0);
+        setProgressCurrent((data.completedCount || 0) + (data.failedCount || 0));
+        if (Array.isArray(data.logs)) {
+          setProgressLogs(data.logs);
+        }
+        setProgressTitle(`Multi-Tarefas em Segundo Plano (${data.completedCount || 0}/${data.total || 0})`);
+
+        if (data.status === 'completed' || data.status === 'cancelled' || data.status === 'failed') {
+          setIsCompleted(true);
+          localStorage.removeItem('shuziro_active_batch_id');
+
+          if (data.status === 'completed') {
+            try {
+              confetti({
+                particleCount: 50,
+                spread: 60,
+                origin: { y: 0.8 },
+                colors: ['#ffffff', '#a1a1aa', '#71717a']
+              });
+            } catch (e) {}
+            showToast(`Multi-Tarefas concluído no servidor! ${data.completedCount}/${data.total} finalizadas.`, 'success');
+            if (authToken) fetchTasks(authToken, userData);
+          }
+        }
+      } catch (e) {}
+    }, 1800);
+
+    return () => {
+      isSubscribed = false;
+      clearInterval(interval);
+    };
+  }, [activeBatchId, authToken, userData]);
 
   // Load saved backend URL on mount
   useEffect(() => {
@@ -487,360 +571,128 @@ export default function App() {
     }
   };
 
+  const handlePauseBatch = async () => {
+    if (!activeBatchId) return;
+    try {
+      await fetch('/api/tasks/batch-pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: activeBatchId })
+      });
+      setIsBatchPaused(true);
+      showToast('Multi-Tarefas pausado no servidor.', 'info');
+    } catch (e) {}
+  };
+
+  const handleResumeBatch = async () => {
+    if (!activeBatchId) return;
+    try {
+      await fetch('/api/tasks/batch-resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: activeBatchId })
+      });
+      setIsBatchPaused(false);
+      showToast('Multi-Tarefas retomado no servidor.', 'info');
+    } catch (e) {}
+  };
+
+  const handleCancelBatch = async () => {
+    if (!activeBatchId) return;
+    try {
+      await fetch('/api/tasks/batch-cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: activeBatchId })
+      });
+      showToast('Multi-Tarefas cancelado.', 'info');
+    } catch (e) {}
+  };
+
   const handleStartAutomation = async (
     taskIds: string[],
-    optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted' },
+    optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted'; concurrency?: number },
     defaultMode: 'draft' | 'submitted' = 'draft'
   ) => {
-    let minTimeSec = 10;
-    let maxTimeSec = 30;
+    if (taskIds.length === 0) return;
+
+    let minTimeSec = 30;
+    let maxTimeSec = 90;
     let mode: 'draft' | 'submitted' = defaultMode;
+    let concurrency = 1;
 
     if (typeof optionsOrTimeSec === 'object' && optionsOrTimeSec !== null) {
-      minTimeSec = optionsOrTimeSec.minTimeSec || 10;
+      minTimeSec = optionsOrTimeSec.minTimeSec || 30;
       maxTimeSec = optionsOrTimeSec.maxTimeSec || minTimeSec;
       if (optionsOrTimeSec.mode) mode = optionsOrTimeSec.mode;
+      if (optionsOrTimeSec.concurrency) concurrency = optionsOrTimeSec.concurrency;
     } else if (typeof optionsOrTimeSec === 'number') {
       minTimeSec = optionsOrTimeSec;
       maxTimeSec = optionsOrTimeSec;
     }
 
     setProgressOpen(true);
-    const firstTask = tasks.find(t => String(t.id || t.task_id) === taskIds[0]);
-    const isEssayAutomation = firstTask?.is_essay !== false;
-
-    setProgressTitle(isEssayAutomation ? 'Gerando e enviando redações via IA...' : 'Resolvendo e enviando tarefas SP...');
+    setProgressTitle(`Multi-Tarefas no Servidor (${taskIds.length} tarefas)...`);
     setProgressCurrent(0);
     setProgressTotal(taskIds.length);
-    setProgressLogs([]);
+    setProgressLogs([{
+      time: new Date().toLocaleTimeString('pt-BR'),
+      text: `Iniciando lote de ${taskIds.length} tarefas no servidor...`,
+      type: 'info'
+    }]);
     setIsCompleted(false);
+    setIsBatchPaused(false);
 
-    let successCount = 0;
-    const logs: { text: string; type: 'ok' | 'err' | 'info' }[] = [];
-
-    for (let i = 0; i < taskIds.length; i++) {
-      const tid = taskIds[i];
+    // Constrói metadata das tarefas
+    const tasksMeta: Record<string, any> = {};
+    for (const tid of taskIds) {
       const taskItem = tasks.find(t => String(t.id || t.task_id) === tid);
-      const title = taskItem?.title || `Atividade #${tid}`;
-      const isEssay = taskItem?.is_essay !== false;
+      if (taskItem) {
+        tasksMeta[tid] = {
+          id: tid,
+          title: taskItem.title,
+          publication_target: taskItem.publication_target || (taskItem as any).room_name || (taskItem as any).room_for_apply,
+          is_essay: taskItem.is_essay,
+          apply_moment: (taskItem as any).apply_moment
+        };
+      }
+    }
 
-      // Calculate a random time delay within [minTimeSec, maxTimeSec]
-      const delayRange = Math.max(0, maxTimeSec - minTimeSec);
-      const actualDelaySec = Math.floor(Math.random() * (delayRange + 1)) + minTimeSec;
-
-      try {
-        let genTitle = title;
-        let genTexto = '';
-
-        if (isEssay) {
-          logs.unshift({ text: `Gerando redação com IA: "${title}"...`, type: 'info' });
-          setProgressLogs([...logs]);
-
-          const genRes = await fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ genero: 'dissertativo-argumentativo', contexto: title })
-          });
-          const genData = await genRes.json();
-          genTitle = genData.titulo || title;
-          genTexto = genData.texto || 'Redação desenvolvida com sucesso.';
-        } else {
-          logs.unshift({ text: `Resolvendo tarefa: "${title}"... (Tempo estipulado: ${actualDelaySec}s)`, type: 'info' });
-          setProgressLogs([...logs]);
-        }
-
-        // Apply task details
-        let rawRoomTarget = taskItem?.publication_target || taskItem?.room_name || taskItem?.room_for_apply || '';
-        if (typeof rawRoomTarget !== 'string' || !(/^r[0-9a-f]+-l$/i.test(rawRoomTarget) || (rawRoomTarget.startsWith('r') && rawRoomTarget.length >= 10))) {
-          rawRoomTarget = '';
-        }
-        const roomTarget = rawRoomTarget;
-        let applyData: any = {};
-
-        const applyHeaders: Record<string, string> = { 'x-api-key': authToken };
-        if (tunnelUrl) applyHeaders['x-tunnel-url'] = tunnelUrl;
-
-        const savedTokenCode = localStorage.getItem('shuziro_token_code') || '';
-        const tokenCodeQuery = savedTokenCode ? `&token_code=${encodeURIComponent(savedTokenCode)}` : '';
-
-        let solvedCaptchaToken = captchaToken || (typeof window !== 'undefined' ? (localStorage.getItem('edusp_captcha_token') || '') : '');
-        let applySuccess = false;
-        let applyAttempts = 0;
-
-        while (!applySuccess && applyAttempts < 3) {
-          applyAttempts++;
-          try {
-            const captchaQuery = solvedCaptchaToken ? `&captcha_token=${encodeURIComponent(solvedCaptchaToken)}` : '';
-            const applyRes = await fetch(`/api/tms/task/${tid}/apply?room_name=${encodeURIComponent(roomTarget)}${tokenCodeQuery}${captchaQuery}`, {
-              headers: applyHeaders
-            });
-            if (applyRes.ok) {
-              applyData = await applyRes.json();
-              applySuccess = true;
-            } else {
-              const errData = await applyRes.json().catch(() => ({}));
-              const errMsg = (errData.error || JSON.stringify(errData) || '').toLowerCase();
-              if (errMsg.includes('captcha') || errMsg.includes('missing captcha token') || errMsg.includes('invalid') || errMsg.includes('already used') || errMsg.includes('not found')) {
-                // Clear any stale/already-used captcha token
-                setCaptchaToken('');
-                solvedCaptchaToken = '';
-                localStorage.removeItem('edusp_captcha_token');
-
-                // Fetch a captcha challenge from the proxied API
-                logs.unshift({ text: `⚠️ CAPTCHA detectado ao iniciar tarefa. Buscando desafio de imagem...`, type: 'info' });
-                setProgressLogs([...logs]);
-
-                let challengeRes = await fetch('/api/captcha/challenge', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': authToken
-                  },
-                  body: JSON.stringify({ realm: 'edusp', type: 'image' })
-                });
-
-                if (!challengeRes.ok) {
-                  challengeRes = await fetch('/api/captcha/challenge', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'x-api-key': authToken
-                    },
-                    body: JSON.stringify({ realm: 'edusp' })
-                  });
-                }
-
-                if (!challengeRes.ok) {
-                  challengeRes = await fetch('/api/captcha/challenge?realm=edusp', {
-                    headers: { 'x-api-key': authToken }
-                  });
-                }
-
-                if (!challengeRes.ok) {
-                  throw new Error('Falha ao obter desafio de CAPTCHA do servidor.');
-                }
-
-                const challengeData = await challengeRes.json();
-                const challengeId = challengeData.challengeId || challengeData.challenge_id || challengeData.id || challengeData.data?.challenge_id || challengeData.data?.id;
-                const imageBase64 = challengeData.challenge?.image || challengeData.image || challengeData.data?.image || challengeData.data?.challenge?.image;
-
-                if (!challengeId || !imageBase64) {
-                  throw new Error('O servidor não retornou um desafio de CAPTCHA válido.');
-                }
-
-                logs.unshift({ text: `🔑 Por favor, resolva o CAPTCHA exibido na tela...`, type: 'info' });
-                setProgressLogs([...logs]);
-
-                // Prompt user to solve CAPTCHA in the UI
-                const token = await requestCaptchaSolving(challengeId, imageBase64);
-                solvedCaptchaToken = token;
-                setCaptchaToken(token);
-                localStorage.setItem('edusp_captcha_token', token);
-                logs.unshift({ text: `✅ CAPTCHA resolvido! Retomando tarefa...`, type: 'info' });
-                setProgressLogs([...logs]);
-
-                // Decrement attempts so this captcha try doesn't count as a failed apply attempt
-                applyAttempts--;
-              } else if (applyRes.status === 403 || errMsg.includes('bloqueio') || errMsg.includes('cloudflare') || errMsg.includes('proxy')) {
-                logs.unshift({ text: `🛡️ Proteção Cloudflare detectada. Abrindo verificação de emojis para sincronizar seu navegador com o servidor...`, type: 'info' });
-                setProgressLogs([...logs]);
-                setShowEmojiModal(true);
-                showToast('Resolva o desafio do emoji para sincronizar seu navegador com o servidor!', 'info');
-                throw new Error(errMsg || 'Bloqueio de proteção de rede detectado (Cloudflare). Verifique os emojis para prosseguir.');
-              } else {
-                throw new Error(errMsg || `HTTP ${applyRes.status} ao aplicar tarefa`);
-              }
-            }
-          } catch (e: any) {
-            console.warn(`[Apply] Tentativa ${applyAttempts} ao aplicar task ${tid}:`, e.message);
-            if (applyAttempts >= 3) {
-              throw e;
-            }
-          }
-        }
-
-        const extractedQuestions = Array.isArray(applyData.questions) ? applyData.questions :
-          (Array.isArray(applyData.items) ? applyData.items :
-            (Array.isArray(applyData.data?.questions) ? applyData.data.questions :
-              (Array.isArray(applyData.data?.items) ? applyData.data.items :
-                (Array.isArray(applyData.question_list) ? applyData.question_list : []))));
-
-        const firstQ = extractedQuestions[0];
-        const questionId = firstQ?.id || firstQ?.question?.id || firstQ?.question_id || applyData.question_id || 1;
-        const answerId = applyData.answers?.[String(questionId)]?.answer_id || applyData.answer_id;
-        const roomForApply = applyData.room_name || applyData.executed_on || applyData.publication_target || applyData.room_for_apply || roomTarget;
-
-        // Complete / Submit task via Job Engine
-        const compHeaders: Record<string, string> = {
+    try {
+      const res = await fetch('/api/tasks/batch-run', {
+        method: 'POST',
+        headers: {
           'Content-Type': 'application/json',
           'x-api-key': authToken
-        };
-        if (tunnelUrl) compHeaders['x-tunnel-url'] = tunnelUrl;
+        },
+        body: JSON.stringify({
+          taskIds,
+          tasksMeta,
+          minTimeSec,
+          maxTimeSec,
+          mode,
+          concurrency,
+          auth_token: authToken
+        })
+      });
 
-        // 1. Criar Job em segundo plano via POST /api/tasks/run com suporte a CAPTCHA na submissão
-        let submitSuccess = false;
-        let submitAttempts = 0;
-
-        while (!submitSuccess && submitAttempts < 3) {
-          submitAttempts++;
-          try {
-            const runRes = await fetch('/api/tasks/run', {
-              method: 'POST',
-              headers: compHeaders,
-              body: JSON.stringify({
-                task_id: tid,
-                publication_target: roomForApply,
-                min_time_ms: 1000,
-                max_time_ms: actualDelaySec * 1000,
-                auth_token: authToken,
-                room_for_apply: roomForApply,
-                is_essay: isEssay,
-                titulo: genTitle,
-                texto: genTexto,
-                questions: extractedQuestions,
-                question_id: questionId,
-                answer_id: answerId,
-                status: mode,
-                duration: actualDelaySec,
-                token: applyData.token || applyData.task_token,
-                token_code: savedTokenCode,
-                captcha_token: solvedCaptchaToken,
-                apply_moment: applyData.apply_moment || taskItem?.apply_moment
-              })
-            });
-
-            if (!runRes.ok) {
-              const errData = await runRes.json().catch(() => ({}));
-              const errMsg = (errData.error || errData.message || JSON.stringify(errData)).toLowerCase();
-              if (errMsg.includes('captcha') || errMsg.includes('missing captcha token') || errMsg.includes('invalid') || errData.isCaptchaError) {
-                logs.unshift({ text: `🔑 Verificação de CAPTCHA exigida no envio da tarefa. Solicitando novo desafio...`, type: 'info' });
-                setProgressLogs([...logs]);
-
-                const challengeRes = await fetch('/api/captcha/challenge', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-api-key': authToken },
-                  body: JSON.stringify({ realm: 'edusp', type: 'image' })
-                });
-
-                if (challengeRes.ok) {
-                  const challengeData = await challengeRes.json();
-                  const challengeId = challengeData.challengeId || challengeData.challenge_id || challengeData.id || challengeData.data?.challenge_id;
-                  const imageBase64 = challengeData.challenge?.image || challengeData.image || challengeData.data?.image;
-
-                  if (challengeId && imageBase64) {
-                    const token = await requestCaptchaSolving(challengeId, imageBase64);
-                    solvedCaptchaToken = token;
-                    setCaptchaToken(token);
-                    localStorage.setItem('edusp_captcha_token', token);
-                    logs.unshift({ text: `✅ CAPTCHA validado! Reenviando atividade...`, type: 'info' });
-                    setProgressLogs([...logs]);
-                    continue;
-                  }
-                }
-              }
-              throw new Error(errData.error || `HTTP ${runRes.status} ao iniciar job da tarefa`);
-            }
-
-            const runData = await runRes.json();
-            const jobId = runData.jobId;
-
-            logs.unshift({ text: `🚀 Job #${jobId} iniciado para "${title}". Monitorando progresso...`, type: 'info' });
-            setProgressLogs([...logs]);
-
-            // 2. Acompanhar status do Job via POST /api/tasks/jobstatus
-            let jobCompleted = false;
-            let lastMsg = '';
-
-            while (!jobCompleted) {
-              await new Promise(r => setTimeout(r, 1200));
-              const statusRes = await fetch('/api/tasks/jobstatus', {
-                method: 'POST',
-                headers: compHeaders,
-                body: JSON.stringify({ jobId })
-              });
-
-              if (!statusRes.ok) {
-                throw new Error(`HTTP ${statusRes.status} ao consultar status do job ${jobId}`);
-              }
-
-              const jobInfo = await statusRes.json();
-
-              if (jobInfo.message && jobInfo.message !== lastMsg) {
-                lastMsg = jobInfo.message;
-                logs.unshift({ text: `[Job #${jobId}] ${jobInfo.progress}% - ${jobInfo.message}`, type: 'info' });
-                setProgressLogs([...logs]);
-              }
-
-              if (jobInfo.status === 'completed') {
-                jobCompleted = true;
-                submitSuccess = true;
-                if (jobInfo.confirmed) {
-                  successCount++;
-                  logs.unshift({ text: `✅ Confirmado pela plataforma: "${title}" ${mode === 'submitted' ? 'concluída' : 'salva'}!`, type: 'ok' });
-                } else {
-                  successCount++;
-                  logs.unshift({ text: `⚠️ Transmitido para "${title}" (confirmação registrada).`, type: 'ok' });
-                }
-              } else if (jobInfo.status === 'failed' || jobInfo.status === 'error') {
-                jobCompleted = true;
-                const errStr = (jobInfo.error || '').toLowerCase();
-                if (errStr.includes('captcha') && submitAttempts < 3) {
-                  logs.unshift({ text: `⚠️ Plataforma solicitou validação de CAPTCHA ao gravar resposta. Abrindo desafio...`, type: 'info' });
-                  setProgressLogs([...logs]);
-                  const challengeRes = await fetch('/api/captcha/challenge', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-api-key': authToken },
-                    body: JSON.stringify({ realm: 'edusp', type: 'image' })
-                  });
-                  if (challengeRes.ok) {
-                    const cData = await challengeRes.json();
-                    const cId = cData.challengeId || cData.challenge_id || cData.id;
-                    const img = cData.challenge?.image || cData.image || cData.data?.image;
-                    if (cId && img) {
-                      const tok = await requestCaptchaSolving(cId, img);
-                      solvedCaptchaToken = tok;
-                      setCaptchaToken(tok);
-                      localStorage.setItem('edusp_captcha_token', tok);
-                      logs.unshift({ text: `✅ CAPTCHA resolvido! Tentando novamente...`, type: 'info' });
-                      setProgressLogs([...logs]);
-                      continue;
-                    }
-                  }
-                }
-                throw new Error(jobInfo.error || 'Falha ao processar tarefa no job.');
-              }
-            }
-          } catch (errSubmit: any) {
-            if (submitAttempts >= 3) throw errSubmit;
-          }
-        }
-      } catch (err: any) {
-        logs.unshift({ text: `Erro em "${title}": ${err.message}`, type: 'err' });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status} ao iniciar lote no servidor`);
       }
 
-      setProgressCurrent(i + 1);
-      setProgressLogs([...logs]);
-
-      if (i < taskIds.length - 1 && actualDelaySec > 0) {
-        logs.unshift({ text: `Aguardando intervalo anti-ban (${actualDelaySec}s)...`, type: 'info' });
-        setProgressLogs([...logs]);
-        await new Promise(r => setTimeout(r, actualDelaySec * 1000));
-      }
+      const data = await res.json();
+      setActiveBatchId(data.batchId);
+      localStorage.setItem('shuziro_active_batch_id', data.batchId);
+      showToast(`Multi-Tarefas iniciado no servidor (${taskIds.length} tarefas)! Você pode fechar o site ou sair a qualquer momento.`, 'info');
+    } catch (err: any) {
+      showToast(`Erro ao iniciar multi-tarefas: ${err.message}`, 'error');
+      setProgressLogs(prev => [{
+        time: new Date().toLocaleTimeString('pt-BR'),
+        text: `Erro: ${err.message}`,
+        type: 'err'
+      }, ...prev]);
     }
-
-    setIsCompleted(true);
-    if (successCount > 0) {
-      try {
-        confetti({
-          particleCount: 50,
-          spread: 60,
-          origin: { y: 0.8 },
-          colors: ['#ffffff', '#a1a1aa', '#71717a']
-        });
-      } catch (e) {}
-    }
-    showToast(`Automação concluída: ${successCount}/${taskIds.length} processadas!`, 'success');
-    fetchTasks(authToken, userData);
   };
 
   const isPlatformSlug = currentPage in PLATFORMS_DATA;
@@ -937,6 +789,8 @@ export default function App() {
                   }}
                   onRefresh={() => fetchTasks(authToken, userData)} 
                   onStartAutomation={handleStartAutomation}
+                  activeBatch={activeBatchData}
+                  onOpenBatchProgress={() => setProgressOpen(true)}
                 />
               )}
               {currentPage === 'redacoes' && (
@@ -1026,6 +880,11 @@ export default function App() {
         total={progressTotal}
         logs={progressLogs}
         isCompleted={isCompleted}
+        isPaused={isBatchPaused}
+        onPause={handlePauseBatch}
+        onResume={handleResumeBatch}
+        onCancel={handleCancelBatch}
+        isBackgroundServer={Boolean(activeBatchId || (activeBatchData && activeBatchData.status === 'running'))}
       />
 
       {/* CAPTCHA Modal */}
