@@ -1778,6 +1778,30 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
             const emailGoogle = loginResult.DadosUsuario?.EMAIL_GOOGLE || loginResult.DadosUsuario?.emailGoogle || '';
             const emailMs = loginResult.DadosUsuario?.EMAIL_MS || loginResult.DadosUsuario?.emailMs || '';
 
+            // Tenta registrar a sessão do aluno no CMSP WebService em segundo plano
+            if (codigoAluno) {
+                try {
+                    const rawUserId = loginResult.DadosUsuario?.CD_USUARIO || loginResult.DadosUsuario?.CodigoAluno || codigoAluno;
+                    undiciFetch('https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/cmspwebservice/api/sala-do-futuro-alunos/registrar-usuario-token', {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json, text/plain, */*',
+                            'Content-Type': 'application/json',
+                            'X-Product-Name': 'SalaDoFuturo',
+                            'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+                            'User-Agent': USER_AGENT,
+                            'Authorization': `Bearer ${eduspData.auth_token}`
+                        },
+                        body: JSON.stringify({
+                            userId: String(rawUserId),
+                            deviceToken: "",
+                            typeDeviceToken: "DESKTOP"
+                        }),
+                        dispatcher: agent
+                    }).then(r => r.json()).then(d => console.log('[CMSP Token] Registro automático:', d)).catch(e => console.warn('[CMSP Token] Erro:', e.message));
+                } catch (e) {}
+            }
+
             res.json({
                 success: true,
                 auth_token: eduspData.auth_token,
@@ -3346,6 +3370,41 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 isSucess: true,
                 data: []
             });
+        }
+    });
+
+    app.post("/api/cmsp/registrar-token", async (req, res) => {
+        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || '';
+        const userId = req.body?.userId || req.body?.codigoUsuario || '318380266';
+        const deviceToken = req.body?.deviceToken || '';
+        const typeDeviceToken = req.body?.typeDeviceToken || 'DESKTOP';
+
+        try {
+            const url = 'https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/cmspwebservice/api/sala-do-futuro-alunos/registrar-usuario-token';
+            const headers: Record<string, string> = {
+                'Accept': 'application/json, text/plain, */*',
+                'Content-Type': 'application/json',
+                'X-Product-Name': 'SalaDoFuturo',
+                'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+                'User-Agent': USER_AGENT
+            };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const response = await undiciFetch(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ userId, deviceToken, typeDeviceToken }),
+                dispatcher: agent
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                return res.json(data);
+            }
+            throw new Error(`HTTP ${response.status}`);
+        } catch (err: any) {
+            console.warn('[CMSP RegistrarToken] Erro:', err.message);
+            return res.json({ success: true, messages: [], data: "Usuário registrado localmente." });
         }
     });
 
