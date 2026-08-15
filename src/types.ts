@@ -7,6 +7,9 @@ export interface UserData {
   serie: string;
   codigoAluno?: number | string;
   codigoTurma?: number | string;
+  email?: string;
+  emailGoogle?: string;
+  emailMs?: string;
 }
 
 export interface TaskItem {
@@ -35,23 +38,84 @@ export interface FrequenciaItem {
   turmaId?: number;
   disciplinaId?: number;
   nomeDisciplina: string;
-  numeroPresencasBimestre: number;
-  numeroFaltasBimestre: number;
+  numeroPresencasBimestre?: number;
+  numeroFaltasBimestre?: number;
+  faltasBimestreAtual?: number;
+  porcentagemPresenca?: number;
+  porcentagemPresencaBimestreAtual?: number;
   numeroFaltasCompensadas?: number;
-  porcentagemPresenca: number;
   nivelPorcentagemPresenca?: number;
   bimestre?: number;
   nota?: number | string;
 }
 
+export interface ResumoFaltasItem {
+  alunoId?: number;
+  totalFaltasBimestre: number;
+  totalAulasRealizadas: number;
+  porcentagemFaltas: number;
+  nivelPorcentagemFaltas?: number;
+  porcentagemFrequencia: number;
+  nivelPorcentagemFrequencia?: number;
+}
+
+export interface MotivoFaltaItem {
+  motivoFaltaId: number;
+  descricaoMotivo: string;
+  descricaoCategoria: string;
+  flagOrientacao?: number;
+  descricaoOrientacao?: string;
+  flagAtivo?: number;
+}
+
 export interface BoletimItem {
-  disciplina?: string;
+  alunoId?: number;
+  matriculaAlunoId?: number;
+  turmaId?: number;
+  disciplinaId?: number;
   nomeDisciplina?: string;
-  mediaFinal?: number;
+  disciplina?: string;
+  quantidadeAulasPlanejadas?: number;
+  quantidadeAulasRealizadas?: number;
+  notaAtribuida?: number | string;
+  notaAtribuidaMediaFinal?: number | string;
   numeroFaltas?: number;
+  numeroFaltasAcumuladas?: number;
+  numeroFaltasCompensadas?: number;
+  nomeAluno?: string;
+  numeroRa?: string;
+  numeroDigitoRa?: string;
+  siglaUfRa?: string;
+  nomeEscola?: string;
+  descricaoTurma?: string;
+  porcentagemFaltas?: number;
+  porcentagemFrequencia?: number;
+  nivelNota?: number;
+  dataAnoLetivo?: number;
+  mediaFinal?: number;
   numeroFaltasBimestre?: number;
-  porcentagemPresenca?: number;
   situacao?: string;
+}
+
+export interface DisciplinaAlunoItem {
+  CodigoDisciplina: number;
+  NomeDisciplina: string;
+  NomeAbreviadoDisciplina?: string;
+  CodigoTurma?: number;
+  NumeroClasse?: number;
+  NumeroSerie?: number;
+  IdentificadorTurma?: string;
+  DescricaoTurma?: string;
+  NumeroSala?: string;
+  CodigoEscola?: number;
+  NomeEscola?: string;
+  CodigoUnidade?: number;
+  CodigoTurno?: number;
+  TipoRedeEnsino?: number;
+  CodigoTipoEnsino?: number;
+  NomeTipoEnsino?: string;
+  Situacao?: number;
+  Regular?: boolean;
 }
 
 export interface AvisoTurmaItem {

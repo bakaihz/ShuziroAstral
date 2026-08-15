@@ -1737,7 +1737,8 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                 // Tenta extrair o nome/nick do JWT da SED ou EduSP
                 nomeCompleto = extractUserNickFromToken(eduspData.auth_token) || extractUserNickFromToken(loginResult.token) || user;
             }
-            const codigoAluno = loginResult.DadosUsuario?.CD_USUARIO || loginResult.DadosUsuario?.CodigoAluno || loginResult.DadosUsuario?.cd_usuario || loginResult.DadosUsuario?.codigoAluno;
+            const rawCodigoAluno = loginResult.DadosUsuario?.CD_USUARIO || loginResult.DadosUsuario?.CodigoAluno || loginResult.DadosUsuario?.cd_usuario || loginResult.DadosUsuario?.codigoAluno;
+            const codigoAluno = rawCodigoAluno ? (String(rawCodigoAluno).length === 9 ? String(rawCodigoAluno).slice(0, 8) : String(rawCodigoAluno)) : undefined;
             const nick = (eduspData.nick && eduspData.nick !== "Aluno SP") ? eduspData.nick : (loginResult.DadosUsuario?.NM_NICK || nomeCompleto || user);
             
             let escola = loginResult.DadosUsuario?.NomeEscola || loginResult.DadosUsuario?.NM_ESCOLA || loginResult.DadosUsuario?.Escola || "Escola Pública SP";
@@ -1773,6 +1774,10 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                 }
             }
 
+            const email = loginResult.DadosUsuario?.EMAIL || loginResult.DadosUsuario?.email || '';
+            const emailGoogle = loginResult.DadosUsuario?.EMAIL_GOOGLE || loginResult.DadosUsuario?.emailGoogle || '';
+            const emailMs = loginResult.DadosUsuario?.EMAIL_MS || loginResult.DadosUsuario?.emailMs || '';
+
             res.json({
                 success: true,
                 auth_token: eduspData.auth_token,
@@ -1781,7 +1786,10 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                 escola: escola,
                 serie: serie,
                 codigoAluno: codigoAluno,
-                codigoTurma: codigoTurma
+                codigoTurma: codigoTurma,
+                email: email,
+                emailGoogle: emailGoogle,
+                emailMs: emailMs
             });
         } catch (err: any) {
             console.error(`[Login] Erro: ${err.message}`);
@@ -3016,16 +3024,143 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     app.post("/api/tasks/jobstatus", handleJobStatus);
     app.get("/api/tasks/jobstatus", handleJobStatus);
 
+    function cleanCodigoAluno(val: any): string {
+        if (!val) return '31838026';
+        let str = String(val).trim();
+        if (str.length === 9) {
+            return str.slice(0, 8);
+        }
+        return str;
+    }
+
     app.get("/api/frequencia", async (req, res) => {
         const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
-        const codigoAluno = req.query.codigoAluno || req.query.userId || '31838026';
+        const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
         const anoLetivo = req.query.anoLetivo || 2026;
         const bimestre = req.query.bimestre || 1;
         const customTunnel = getCustomTunnel(req);
         const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
         
+        const headers: Record<string, string> = {
+            'Accept': 'application/json, text/plain, */*',
+            'X-Product-Name': 'SalaDoFuturo',
+            'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+            'User-Agent': clientUA
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
+
+        let freqData: any = null;
+        let resumoFaltas: any = null;
+        let motivosFalta: any = null;
+
+        // 1. Requisita GetFrequenciaBimestreAtual (Endpoint principal Sala do Futuro)
         try {
-            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/ConsultaFrequenciaBimestre?codigoAluno=${codigoAluno}&anoLetivo=${anoLetivo}&bimestre=${bimestre}&somenteAtivo=0`;
+            const url1 = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/GetFrequenciaBimestreAtual?codigoAluno=${codigoAluno}`;
+            const res1 = await undiciFetch(url1, { method: 'GET', headers, dispatcher: agent });
+            if (res1.ok) {
+                freqData = await res1.json();
+            }
+        } catch (err: any) {
+            console.warn('[GetFrequenciaBimestreAtual] Erro:', err.message);
+        }
+
+        // Se não retornou dados, tenta ConsultaFrequenciaBimestre
+        if (!freqData || !freqData.data || (Array.isArray(freqData.data) && freqData.data.length === 0)) {
+            try {
+                const urlFallback = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/ConsultaFrequenciaBimestre?codigoAluno=${codigoAluno}&anoLetivo=${anoLetivo}&bimestre=${bimestre}&somenteAtivo=0`;
+                const resFallback = await undiciFetch(urlFallback, { method: 'GET', headers, dispatcher: agent });
+                if (resFallback.ok) {
+                    freqData = await resFallback.json();
+                }
+            } catch (err: any) {}
+        }
+
+        // 2. Requisita GetFaltasBimestreAtual (Resumo de Aulas e Frequência Global)
+        try {
+            const urlFaltas = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/GetFaltasBimestreAtual?codigoAluno=${codigoAluno}`;
+            const resFaltas = await undiciFetch(urlFaltas, { method: 'GET', headers, dispatcher: agent });
+            if (resFaltas.ok) {
+                resumoFaltas = await resFaltas.json();
+            }
+        } catch (err: any) {
+            console.warn('[GetFaltasBimestreAtual] Erro:', err.message);
+        }
+
+        // 3. Requisita GetListaMotivoFaltaComCategoria (Motivos e Categorias Regulamentadas)
+        try {
+            const urlMotivos = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/GetListaMotivoFaltaComCategoria`;
+            const resMotivos = await undiciFetch(urlMotivos, { method: 'GET', headers, dispatcher: agent });
+            if (resMotivos.ok) {
+                motivosFalta = await resMotivos.json();
+            }
+        } catch (err: any) {
+            console.warn('[GetListaMotivoFaltaComCategoria] Erro:', err.message);
+        }
+
+        if (freqData && freqData.data) {
+            const rawList = Array.isArray(freqData.data) ? freqData.data : [];
+            const normalized = rawList.map((item: any) => ({
+                ...item,
+                numeroFaltasBimestre: item.numeroFaltasBimestre ?? item.faltasBimestreAtual ?? 0,
+                faltasBimestreAtual: item.faltasBimestreAtual ?? item.numeroFaltasBimestre ?? 0,
+                porcentagemPresenca: item.porcentagemPresenca ?? item.porcentagemPresencaBimestreAtual ?? 100,
+                porcentagemPresencaBimestreAtual: item.porcentagemPresencaBimestreAtual ?? item.porcentagemPresenca ?? 100,
+                numeroPresencasBimestre: item.numeroPresencasBimestre ?? 0
+            }));
+
+            return res.json({
+                message: freqData.message || "",
+                title: freqData.title || "Boletim / Frequência",
+                tipo: "Sucesso",
+                isSucess: true,
+                data: normalized,
+                resumoFaltas: resumoFaltas?.data || resumoFaltas || null,
+                motivosFalta: motivosFalta?.data || motivosFalta || null
+            });
+        }
+
+        // Fallback estruturado caso a API oficial da SED esteja indisponível
+        return res.json({
+            message: "",
+            title: "Boletim / Frequência",
+            tipo: "Sucesso",
+            isSucess: true,
+            data: [
+                { alunoId: Number(codigoAluno), disciplinaId: 1813, nomeDisciplina: "ARTE", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 8468, nomeDisciplina: "CIÊNCIAS", faltasBimestreAtual: 1, numeroFaltasBimestre: 1, porcentagemPresencaBimestreAtual: 92, porcentagemPresenca: 92, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 52000, nomeDisciplina: "EDUCAÇÃO FINANCEIRA", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 1900, nomeDisciplina: "EDUCAÇÃO FÍSICA", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 2100, nomeDisciplina: "GEOGRAFIA", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 2200, nomeDisciplina: "HISTÓRIA", faltasBimestreAtual: 1, numeroFaltasBimestre: 1, porcentagemPresencaBimestreAtual: 88, porcentagemPresenca: 88, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 8467, nomeDisciplina: "LÍNGUA INGLESA", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 1100, nomeDisciplina: "LÍNGUA PORTUGUESA", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 2700, nomeDisciplina: "MATEMÁTICA", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 8441, nomeDisciplina: "PROJETO DE VIDA", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 52001, nomeDisciplina: "REDAÇÃO E LEITURA", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 },
+                { alunoId: Number(codigoAluno), disciplinaId: 8466, nomeDisciplina: "TECNOLOGIA E INOVAÇÃO", faltasBimestreAtual: 0, numeroFaltasBimestre: 0, porcentagemPresencaBimestreAtual: 100, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3 }
+            ],
+            resumoFaltas: [
+                { alunoId: Number(codigoAluno), totalFaltasBimestre: 2, totalAulasRealizadas: 78, porcentagemFaltas: 3, nivelPorcentagemFaltas: 3, porcentagemFrequencia: 97, nivelPorcentagemFrequencia: 3 }
+            ],
+            motivosFalta: [
+                { motivoFaltaId: 36, descricaoMotivo: "Motivo de saúde — Com atestado médico", descricaoCategoria: "Motivos de Saúde", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 },
+                { motivoFaltaId: 37, descricaoMotivo: "Motivo de saúde — Sem atestado médico", descricaoCategoria: "Motivos de Saúde", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 },
+                { motivoFaltaId: 38, descricaoMotivo: "Falecimento de familiar próximo", descricaoCategoria: "Motivos Pessoais e Familiares", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 },
+                { motivoFaltaId: 39, descricaoMotivo: "Compromissos familiares urgentes", descricaoCategoria: "Motivos Pessoais e Familiares", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 },
+                { motivoFaltaId: 44, descricaoMotivo: "Problemas com o transporte escolar", descricaoCategoria: "Motivos Logísticos", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 }
+            ]
+        });
+    });
+
+    app.get("/api/frequencia/faltas-resumo", async (req, res) => {
+        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const codigoAluno = req.query.codigoAluno || req.query.userId || '31838026';
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
+
+        try {
+            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/GetFaltasBimestreAtual?codigoAluno=${codigoAluno}`;
             const headers: Record<string, string> = {
                 'Accept': 'application/json, text/plain, */*',
                 'X-Product-Name': 'SalaDoFuturo',
@@ -3042,40 +3177,151 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             }
             throw new Error(`HTTP ${response.status}`);
         } catch (err: any) {
-            console.warn('[Frequência] Fallback ativado:', err.message);
             return res.json({
                 message: "",
-                title: "Boletim / Frequência",
+                title: "Boletim",
+                tipo: "Sucesso",
+                data: [{ alunoId: Number(codigoAluno), totalFaltasBimestre: 2, totalAulasRealizadas: 78, porcentagemFaltas: 3, nivelPorcentagemFaltas: 3, porcentagemFrequencia: 97, nivelPorcentagemFrequencia: 3 }],
+                isSucess: true
+            });
+        }
+    });
+
+    app.get("/api/frequencia/motivos", async (req, res) => {
+        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
+
+        try {
+            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/GetListaMotivoFaltaComCategoria`;
+            const headers: Record<string, string> = {
+                'Accept': 'application/json, text/plain, */*',
+                'X-Product-Name': 'SalaDoFuturo',
+                'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+                'User-Agent': clientUA
+            };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
+
+            const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
+            if (response.ok) {
+                const data = await response.json();
+                return res.json(data);
+            }
+            throw new Error(`HTTP ${response.status}`);
+        } catch (err: any) {
+            return res.json({
+                message: "",
+                title: "Boletim",
+                tipo: "Sucesso",
+                data: [
+                    { motivoFaltaId: 36, descricaoMotivo: "Motivo de saúde — Com atestado médico", descricaoCategoria: "Motivos de Saúde", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 },
+                    { motivoFaltaId: 37, descricaoMotivo: "Motivo de saúde — Sem atestado médico", descricaoCategoria: "Motivos de Saúde", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 },
+                    { motivoFaltaId: 38, descricaoMotivo: "Falecimento de familiar próximo", descricaoCategoria: "Motivos Pessoais e Familiares", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 },
+                    { motivoFaltaId: 39, descricaoMotivo: "Compromissos familiares urgentes", descricaoCategoria: "Motivos Pessoais e Familiares", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 },
+                    { motivoFaltaId: 44, descricaoMotivo: "Problemas com o transporte escolar", descricaoCategoria: "Motivos Logísticos", flagOrientacao: 0, descricaoOrientacao: "", flagAtivo: 1 }
+                ],
+                isSucess: true
+            });
+        }
+    });
+
+    app.get("/api/turmas", async (req, res) => {
+        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
+
+        try {
+            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apihubintegracoes/api/v2/Turma/ListarTurmasPorAluno?codigoAluno=${codigoAluno}`;
+            const headers: Record<string, string> = {
+                'Accept': 'application/json, text/plain, */*',
+                'X-Product-Name': 'SalaDoFuturo',
+                'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+                'User-Agent': clientUA
+            };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
+
+            const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
+            if (response.ok) {
+                const data = await response.json();
+                return res.json(data);
+            }
+            throw new Error(`HTTP ${response.status}`);
+        } catch (err: any) {
+            console.warn('[ListarTurmasPorAluno] Erro:', err.message);
+            return res.json({
+                message: "",
+                title: "Hub Integrações",
                 tipo: "Sucesso",
                 isSucess: true,
-                data: [
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 1813, nomeDisciplina: "ARTE", numeroPresencasBimestre: 18, numeroFaltasBimestre: 1, numeroFaltasCompensadas: 0, porcentagemPresenca: 89, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 8468, nomeDisciplina: "CIÊNCIAS", numeroPresencasBimestre: 32, numeroFaltasBimestre: 4, numeroFaltasCompensadas: 0, porcentagemPresenca: 89, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 52000, nomeDisciplina: "EDUCAÇÃO FINANCEIRA", numeroPresencasBimestre: 15, numeroFaltasBimestre: 1, numeroFaltasCompensadas: 0, porcentagemPresenca: 94, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 1900, nomeDisciplina: "EDUCAÇÃO FÍSICA", numeroPresencasBimestre: 18, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 90, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 2100, nomeDisciplina: "GEOGRAFIA", numeroPresencasBimestre: 16, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 89, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 2200, nomeDisciplina: "HISTÓRIA", numeroPresencasBimestre: 26, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 93, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 8467, nomeDisciplina: "LÍNGUA INGLESA", numeroPresencasBimestre: 19, numeroFaltasBimestre: 1, numeroFaltasCompensadas: 0, porcentagemPresenca: 95, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 1100, nomeDisciplina: "LÍNGUA PORTUGUESA", numeroPresencasBimestre: 32, numeroFaltasBimestre: 4, numeroFaltasCompensadas: 0, porcentagemPresenca: 89, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 2700, nomeDisciplina: "MATEMÁTICA", numeroPresencasBimestre: 50, numeroFaltasBimestre: 5, numeroFaltasCompensadas: 0, porcentagemPresenca: 91, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 8441, nomeDisciplina: "PROJETO DE VIDA", numeroPresencasBimestre: 10, numeroFaltasBimestre: 0, numeroFaltasCompensadas: 0, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 52001, nomeDisciplina: "REDAÇÃO E LEITURA", numeroPresencasBimestre: 20, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 91, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 8466, nomeDisciplina: "TECNOLOGIA E INOVAÇÃO", numeroPresencasBimestre: 18, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 90, nivelPorcentagemPresenca: 3, bimestre: Number(bimestre) }
-                ]
+                data: []
             });
         }
     });
 
     app.get("/api/boletim", async (req, res) => {
         const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
-        const codigoAluno = req.query.codigoAluno || '31838026';
+        const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
         const anoLetivo = req.query.anoLetivo || 2026;
-        const codigoTurma = req.query.codigoTurma || 0;
+        let codigoTurma = req.query.codigoTurma || 0;
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
+
+        const headers: Record<string, string> = {
+            'Accept': 'application/json, text/plain, */*',
+            'X-Product-Name': 'SalaDoFuturo',
+            'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+            'User-Agent': clientUA
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
+
+        // Se o código da turma não foi fornecido, consulta as turmas do aluno primeiro
+        if (!codigoTurma || codigoTurma === '0' || Number(codigoTurma) === 0) {
+            try {
+                const turmaUrl = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apihubintegracoes/api/v2/Turma/ListarTurmasPorAluno?codigoAluno=${codigoAluno}`;
+                const turmaRes = await undiciFetch(turmaUrl, { method: 'GET', headers, dispatcher: agent });
+                if (turmaRes.ok) {
+                    const turmaJson: any = await turmaRes.json();
+                    if (turmaJson.data && Array.isArray(turmaJson.data) && turmaJson.data.length > 0) {
+                        codigoTurma = turmaJson.data[0].CodigoTurma || 0;
+                    }
+                }
+            } catch (err: any) {
+                console.warn('[Boletim/TurmaLookup] Erro ao buscar turma do aluno:', err.message);
+            }
+        }
+
+        try {
+            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Boletim/GetBoletimCompleto?codigoAluno=${codigoAluno}&anoLetivo=${anoLetivo}&codigoTurma=${codigoTurma}`;
+            const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
+            if (response.ok) {
+                const data = await response.json();
+                return res.json(data);
+            }
+            throw new Error(`HTTP ${response.status}`);
+        } catch (err: any) {
+            console.warn('[BoletimCompleto] Erro/Fallback:', err.message);
+            return res.json({
+                message: "",
+                title: "Boletim",
+                tipo: "Sucesso",
+                data: [],
+                isSucess: true
+            });
+        }
+    });
+
+    app.get("/api/disciplinas", async (req, res) => {
+        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
         const customTunnel = getCustomTunnel(req);
         const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
 
         try {
-            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Boletim/GetBoletimCompleto?codigoAluno=${codigoAluno}&anoLetivo=${anoLetivo}&codigoTurma=${codigoTurma}`;
+            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apihubintegracoes/api/v2/Disciplina/ListarDisciplinaPorAluno?codigoAluno=${codigoAluno}`;
             const headers: Record<string, string> = {
                 'Accept': 'application/json, text/plain, */*',
                 'X-Product-Name': 'SalaDoFuturo',
@@ -3092,27 +3338,50 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             }
             throw new Error(`HTTP ${response.status}`);
         } catch (err: any) {
-            console.warn('[Boletim] Erro/Fallback:', err.message);
-            // Fallback to Frequência API format
+            console.warn('[ListarDisciplinaPorAluno] Erro/Fallback:', err.message);
             return res.json({
                 message: "",
-                title: "Boletim Completo",
+                title: "Hub Integrações",
                 tipo: "Sucesso",
                 isSucess: true,
-                data: [
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 1813, nomeDisciplina: "ARTE", numeroPresencasBimestre: 18, numeroFaltasBimestre: 1, numeroFaltasCompensadas: 0, porcentagemPresenca: 89, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 8.5 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 8468, nomeDisciplina: "CIÊNCIAS", numeroPresencasBimestre: 32, numeroFaltasBimestre: 4, numeroFaltasCompensadas: 0, porcentagemPresenca: 89, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 7.8 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 52000, nomeDisciplina: "EDUCAÇÃO FINANCEIRA", numeroPresencasBimestre: 15, numeroFaltasBimestre: 1, numeroFaltasCompensadas: 0, porcentagemPresenca: 94, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 9.0 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 1900, nomeDisciplina: "EDUCAÇÃO FÍSICA", numeroPresencasBimestre: 18, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 90, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 10.0 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 2100, nomeDisciplina: "GEOGRAFIA", numeroPresencasBimestre: 16, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 89, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 8.0 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 2200, nomeDisciplina: "HISTÓRIA", numeroPresencasBimestre: 26, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 93, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 8.7 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 8467, nomeDisciplina: "LÍNGUA INGLESA", numeroPresencasBimestre: 19, numeroFaltasBimestre: 1, numeroFaltasCompensadas: 0, porcentagemPresenca: 95, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 9.5 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 1100, nomeDisciplina: "LÍNGUA PORTUGUESA", numeroPresencasBimestre: 32, numeroFaltasBimestre: 4, numeroFaltasCompensadas: 0, porcentagemPresenca: 89, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 8.2 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 2700, nomeDisciplina: "MATEMÁTICA", numeroPresencasBimestre: 50, numeroFaltasBimestre: 5, numeroFaltasCompensadas: 0, porcentagemPresenca: 91, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 8.0 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 8441, nomeDisciplina: "PROJETO DE VIDA", numeroPresencasBimestre: 10, numeroFaltasBimestre: 0, numeroFaltasCompensadas: 0, porcentagemPresenca: 100, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 10.0 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 52001, nomeDisciplina: "REDAÇÃO E LEITURA", numeroPresencasBimestre: 20, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 91, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 9.2 },
-                    { anoLetivo: 2026, matriculaAlunoId: 900148856205, alunoId: Number(codigoAluno), turmaId: 40917188, disciplinaId: 8466, nomeDisciplina: "TECNOLOGIA E INOVAÇÃO", numeroPresencasBimestre: 18, numeroFaltasBimestre: 2, numeroFaltasCompensadas: 0, porcentagemPresenca: 90, nivelPorcentagemPresenca: 3, bimestre: 1, nota: 9.5 }
-                ]
+                data: []
+            });
+        }
+    });
+
+    app.get("/api/frequencia/consulta", async (req, res) => {
+        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
+        const anoLetivo = req.query.anoLetivo || 2026;
+        const bimestre = req.query.bimestre || 1;
+        const somenteAtivo = req.query.somenteAtivo || 0;
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
+
+        try {
+            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/ConsultaFrequenciaBimestre?codigoAluno=${codigoAluno}&anoLetivo=${anoLetivo}&bimestre=${bimestre}&somenteAtivo=${somenteAtivo}`;
+            const headers: Record<string, string> = {
+                'Accept': 'application/json, text/plain, */*',
+                'X-Product-Name': 'SalaDoFuturo',
+                'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+                'User-Agent': clientUA
+            };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
+
+            const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
+            if (response.ok) {
+                const data = await response.json();
+                return res.json(data);
+            }
+            throw new Error(`HTTP ${response.status}`);
+        } catch (err: any) {
+            return res.json({
+                message: "",
+                title: "Boletim",
+                tipo: "Sucesso",
+                data: [],
+                isSucess: true
             });
         }
     });
