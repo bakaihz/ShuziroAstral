@@ -136,10 +136,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
       {/* Main Glassmorphism Login Modal */}
       <motion.div 
-        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        initial={{ opacity: 0, scale: 0.95, y: 16 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.25, ease: 'easeOut' }}
-        className="bg-[#09090b]/90 backdrop-blur-md border border-white/15 hover:border-white/30 rounded-3xl p-5 sm:p-6 max-w-sm sm:max-w-md w-full shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative overflow-hidden my-auto transform-gpu transition-all"
+        transition={{ duration: 0.35, ease: 'easeOut' }}
+        className="bg-[#09090b]/85 backdrop-blur-3xl border border-white/15 hover:border-white/30 rounded-3xl p-5 sm:p-7 max-w-sm sm:max-w-md w-full shadow-[0_25px_80px_rgba(0,0,0,0.85)] relative overflow-hidden my-auto transform-gpu transition-all"
       >
         {/* Top Metallic Rainbow Shimmer Bar */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-amber-400 via-emerald-400 to-indigo-500" />

@@ -27,7 +27,8 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
     window.addEventListener('resize', handleResize, { passive: true });
 
     const isMobile = width < 768;
-    const count = isMobile ? 25 : 45;
+    const count = isMobile ? 38 : 75;
+    const connectionDist = isMobile ? 85 : 120;
 
     interface Star {
       x: number;
@@ -42,7 +43,7 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
     }
 
     let stars: Star[] = [];
-    const colors = ['#ffffff', '#f4f4f5', '#e4e4e7', '#cbd5e1'];
+    const colors = ['#ffffff', '#f4f4f5', '#e4e4e7', '#fecdd3', '#cbd5e1'];
 
     const initStars = () => {
       stars = [];
@@ -50,10 +51,10 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
         stars.push({
           x: Math.random() * width,
           y: Math.random() * height,
-          vx: (Math.random() - 0.5) * 0.15,
-          vy: (Math.random() - 0.5) * 0.15,
-          size: Math.random() * 1.5 + 0.6,
-          baseAlpha: Math.random() * 0.5 + 0.2,
+          vx: (Math.random() - 0.5) * 0.25,
+          vy: (Math.random() - 0.5) * 0.25,
+          size: Math.random() * 1.6 + 0.6,
+          baseAlpha: Math.random() * 0.5 + 0.25,
           flickerSpeed: Math.random() * 0.02 + 0.01,
           flickerOffset: Math.random() * Math.PI * 2,
           color: colors[Math.floor(Math.random() * colors.length)],
@@ -82,7 +83,28 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
       t += 0.015;
       ctx.clearRect(0, 0, width, height);
 
-      // Smooth lightweight star rendering
+      // 1. Draw connection lines between close stars (constellation web)
+      for (let i = 0; i < stars.length; i++) {
+        const s1 = stars[i];
+        for (let j = i + 1; j < stars.length; j++) {
+          const s2 = stars[j];
+          const dx = s1.x - s2.x;
+          const dy = s1.y - s2.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < connectionDist) {
+            const lineAlpha = (1 - dist / connectionDist) * 0.12;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${lineAlpha})`;
+            ctx.lineWidth = 0.6;
+            ctx.beginPath();
+            ctx.moveTo(s1.x, s1.y);
+            ctx.lineTo(s2.x, s2.y);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // 2. Draw and update stars
       for (let i = 0; i < stars.length; i++) {
         const s = stars[i];
 
@@ -94,7 +116,7 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
         if (s.y < 0) s.y = height;
         else if (s.y > height) s.y = 0;
 
-        const flicker = Math.sin(t * s.flickerSpeed * 40 + s.flickerOffset) * 0.3 + 0.7;
+        const flicker = Math.sin(t * s.flickerSpeed * 60 + s.flickerOffset) * 0.35 + 0.65;
         const currentAlpha = Math.max(0.1, Math.min(1, s.baseAlpha * flicker));
 
         ctx.globalAlpha = currentAlpha;
@@ -102,6 +124,13 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
         ctx.fill();
+
+        if (s.size > 1.4) {
+          ctx.globalAlpha = currentAlpha * 0.25;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.size * 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
 
       animId = requestAnimationFrame(render);
