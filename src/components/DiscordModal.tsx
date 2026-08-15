@@ -25,11 +25,11 @@ export const DiscordModal: React.FC<DiscordModalProps> = ({ isOpen, onClose }) =
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-zinc-400 to-white z-10" />
 
         {/* Top Banner Image */}
-        <div className="relative h-36 sm:h-40 w-full bg-zinc-900 overflow-hidden border-b border-[#27272a]">
-          <a href="https://ibb.co/vxDB7tqF" target="_blank" rel="noreferrer">
+        <div className="relative h-36 sm:h-44 w-full bg-zinc-900 overflow-hidden border-b border-[#27272a]">
+          <a href="https://ibb.co/mFqknYfp" target="_blank" rel="noreferrer">
             <img
-              src="https://i.ibb.co/XZV4hwLQ/1784647906279.png"
-              alt="ShuziroAstral Banner"
+              src="https://i.ibb.co/6JPzKpjQ/1786808465101.png"
+              alt="ShuziroAstral Discord Banner"
               className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
               referrerPolicy="no-referrer"
             />
@@ -52,14 +52,12 @@ export const DiscordModal: React.FC<DiscordModalProps> = ({ isOpen, onClose }) =
         <div className="p-4 sm:p-5 space-y-3.5">
           <div className="flex items-start gap-3">
             <div className="w-12 h-12 rounded-xl bg-zinc-900 border-2 border-zinc-700 p-0.5 shrink-0 overflow-hidden shadow-inner flex items-center justify-center">
-              <a href="https://ibb.co/1GkZrxMn" target="_blank" rel="noreferrer">
-                <img
-                  src="https://i.ibb.co/1GkZrxMn/1784648026795.png"
-                  alt="Shuziro Avatar"
-                  className="w-full h-full object-cover rounded-lg"
-                  referrerPolicy="no-referrer"
-                />
-              </a>
+              <img
+                src="https://i.ibb.co/zTCgk7Mk/8860a99d3dc1ae4311adacbc72ed147a.jpg"
+                alt="Shuziro Avatar"
+                className="w-full h-full object-cover rounded-lg"
+                referrerPolicy="no-referrer"
+              />
             </div>
 
             <div>

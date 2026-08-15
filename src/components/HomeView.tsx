@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Heart, ChevronRight, Sparkles, MessageSquare, ExternalLink, ArrowRight, BookOpen, CheckCircle, FileText, Flame } from 'lucide-react';
 import { UserData } from '../types';
 import { PLATFORMS_LIST, detectGradeLevel } from './PlataformasView';
-import eyeLogoImg from '../assets/images/shuziro_eye_logo_1786668563276.jpg';
+const eyeLogoImg = 'https://i.ibb.co/zTCgk7Mk/8860a99d3dc1ae4311adacbc72ed147a.jpg';
 
 interface HomeViewProps {
   userData?: UserData;
@@ -53,81 +53,58 @@ export const HomeView: React.FC<HomeViewProps> = ({ userData, onNavigate, taskCo
       animate="visible"
       className="space-y-6"
     >
-      {/* Featured Header Banner */}
+      {/* Discord Promo Card (Single official banner) */}
       <motion.div 
         variants={itemVariants}
-        className="relative rounded-2xl overflow-hidden border border-[#27272a] shadow-xl bg-[#121214] group"
+        className="bg-[#121214] border border-[#27272a] hover:border-zinc-700 rounded-2xl overflow-hidden shadow-xl transition-all group"
       >
-        <a href="https://ibb.co/vxDB7tqF" target="_blank" rel="noreferrer" className="block relative h-40 sm:h-52 w-full overflow-hidden">
-          <img
-            src="https://i.ibb.co/XZV4hwLQ/1784647906279.png"
-            alt="ShuziroAstral Official Banner"
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
-        </a>
+        <div className="relative h-32 sm:h-36 w-full bg-zinc-900 overflow-hidden border-b border-[#27272a]">
+          <a href="https://ibb.co/mFqknYfp" target="_blank" rel="noreferrer">
+            <img
+              src="https://i.ibb.co/6JPzKpjQ/1786808465101.png"
+              alt="ShuziroAstral Discord Banner"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            />
+          </a>
+          <div className="absolute inset-0 bg-gradient-to-t from-[#121214] via-transparent to-transparent pointer-events-none" />
+        </div>
 
-        <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:right-4 flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
-          <div>
-            <div className="text-[11px] uppercase font-bold tracking-wider text-zinc-300 flex items-center gap-1.5 font-mono">
-              <Sparkles className="w-3 h-3 text-red-500 animate-pulse" /> ShuziroAstral Hub 2026
+        <div className="p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-black border border-zinc-700 p-0.5 shrink-0 overflow-hidden shadow-lg">
+              <img
+                src={eyeLogoImg}
+                alt="Shuziro Astral Community Logo"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover rounded-lg"
+              />
             </div>
-            <h1 className="text-base sm:text-lg font-extrabold text-white">Comunidade & Automações Escolares</h1>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-white">Servidor Oficial do Discord</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-900 text-zinc-300 font-mono font-bold border border-zinc-700">
+                  discord.gg/VdnsPj8sA
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400 mt-1 max-w-lg">
+                Tire dúvidas sobre matérias, receba avisos de novos scripts e interaja com milhares de estudantes de SP!
+              </p>
+            </div>
           </div>
 
           <motion.a
-            whileHover={{ scale: 1.04 }}
-            whileTap={{ scale: 0.96 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             href="https://discord.gg/VdnsPj8sA"
             target="_blank"
             rel="noreferrer"
-            className="px-3.5 py-2 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer"
+            className="w-full md:w-auto px-5 py-2.5 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-lg"
           >
-            <DiscordLogo className="w-3.5 h-3.5 text-black" />
-            Entrar no Discord
-            <ExternalLink className="w-3 h-3 opacity-80" />
+            <DiscordLogo className="w-4 h-4 text-black" />
+            Acessar Servidor Discord
           </motion.a>
         </div>
-      </motion.div>
-
-      {/* Discord Promo Card */}
-      <motion.div 
-        variants={itemVariants}
-        className="bg-[#121214] border border-[#27272a] hover:border-zinc-700 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-5 relative overflow-hidden shadow-xl transition-all"
-      >
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-black border-2 border-zinc-700 p-0.5 shrink-0 overflow-hidden shadow-xl group-hover:scale-105 transition-transform">
-            <img
-              src={eyeLogoImg}
-              alt="Shuziro Astral Community Logo"
-              className="w-full h-full object-cover rounded-xl"
-            />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-white">Servidor Oficial do Discord</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-900 text-zinc-300 font-mono font-bold border border-zinc-700">
-                discord.gg/VdnsPj8sA
-              </span>
-            </div>
-            <p className="text-xs text-zinc-400 mt-1 max-w-lg">
-              Tire dúvidas sobre matérias, receba avisos de novos scripts e interaja com milhares de estudantes de SP!
-            </p>
-          </div>
-        </div>
-
-        <motion.a
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          href="https://discord.gg/VdnsPj8sA"
-          target="_blank"
-          rel="noreferrer"
-          className="w-full md:w-auto px-5 py-3 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-lg"
-        >
-          <DiscordLogo className="w-4 h-4 text-black" />
-          Acessar Servidor Discord
-        </motion.a>
       </motion.div>
 
       {/* Donation Banner */}

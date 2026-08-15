@@ -27,8 +27,7 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
     window.addEventListener('resize', handleResize, { passive: true });
 
     const isMobile = width < 768;
-    const count = isMobile ? 38 : 75;
-    const connectionDist = isMobile ? 85 : 120;
+    const count = isMobile ? 25 : 45;
 
     interface Star {
       x: number;
@@ -43,8 +42,7 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
     }
 
     let stars: Star[] = [];
-
-    const colors = ['#ffffff', '#f4f4f5', '#e4e4e7', '#fecdd3', '#cbd5e1'];
+    const colors = ['#ffffff', '#f4f4f5', '#e4e4e7', '#cbd5e1'];
 
     const initStars = () => {
       stars = [];
@@ -52,10 +50,10 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
         stars.push({
           x: Math.random() * width,
           y: Math.random() * height,
-          vx: (Math.random() - 0.5) * 0.25,
-          vy: (Math.random() - 0.5) * 0.25,
-          size: Math.random() * 1.6 + 0.6,
-          baseAlpha: Math.random() * 0.5 + 0.25,
+          vx: (Math.random() - 0.5) * 0.15,
+          vy: (Math.random() - 0.5) * 0.15,
+          size: Math.random() * 1.5 + 0.6,
+          baseAlpha: Math.random() * 0.5 + 0.2,
           flickerSpeed: Math.random() * 0.02 + 0.01,
           flickerOffset: Math.random() * Math.PI * 2,
           color: colors[Math.floor(Math.random() * colors.length)],
@@ -84,43 +82,19 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
       t += 0.015;
       ctx.clearRect(0, 0, width, height);
 
-      // 1. Draw connection lines between close stars (constellation web)
-      for (let i = 0; i < stars.length; i++) {
-        const s1 = stars[i];
-        for (let j = i + 1; j < stars.length; j++) {
-          const s2 = stars[j];
-          const dx = s1.x - s2.x;
-          const dy = s1.y - s2.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < connectionDist) {
-            const lineAlpha = (1 - dist / connectionDist) * 0.12;
-            ctx.strokeStyle = `rgba(255, 255, 255, ${lineAlpha})`;
-            ctx.lineWidth = 0.6;
-            ctx.beginPath();
-            ctx.moveTo(s1.x, s1.y);
-            ctx.lineTo(s2.x, s2.y);
-            ctx.stroke();
-          }
-        }
-      }
-
-      // 2. Draw and update stars
+      // Smooth lightweight star rendering
       for (let i = 0; i < stars.length; i++) {
         const s = stars[i];
 
-        // Move stars smoothly
         s.x += s.vx;
         s.y += s.vy;
 
-        // Wrap edges
         if (s.x < 0) s.x = width;
         else if (s.x > width) s.x = 0;
         if (s.y < 0) s.y = height;
         else if (s.y > height) s.y = 0;
 
-        // Flicker luminescence
-        const flicker = Math.sin(t * s.flickerSpeed * 60 + s.flickerOffset) * 0.35 + 0.65;
+        const flicker = Math.sin(t * s.flickerSpeed * 40 + s.flickerOffset) * 0.3 + 0.7;
         const currentAlpha = Math.max(0.1, Math.min(1, s.baseAlpha * flicker));
 
         ctx.globalAlpha = currentAlpha;
@@ -128,14 +102,6 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
         ctx.fill();
-
-        // Subtle glow for larger stars
-        if (s.size > 1.4) {
-          ctx.globalAlpha = currentAlpha * 0.25;
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, s.size * 2.2, 0, Math.PI * 2);
-          ctx.fill();
-        }
       }
 
       animId = requestAnimationFrame(render);
@@ -151,29 +117,33 @@ export const BackgroundStars: React.FC<BackgroundStarsProps> = ({ isStatic = fal
 
   return (
     <div className="fixed inset-0 z-0 bg-[#060608] overflow-hidden pointer-events-none select-none contain-strict">
-      {/* Dynamic Aurora Ambient Nebula Glows */}
-      <div 
-        className="absolute -top-32 -left-32 w-[380px] md:w-[650px] h-[380px] md:h-[650px] bg-red-950/20 rounded-full blur-[110px] pointer-events-none will-change-transform transform-gpu animate-pulse" 
-        style={{ animationDuration: '8s' }}
-      />
-      <div 
-        className="absolute top-1/3 -right-24 w-[350px] md:w-[600px] h-[350px] md:h-[600px] bg-zinc-700/10 rounded-full blur-[120px] pointer-events-none will-change-transform transform-gpu" 
-      />
-      <div 
-        className="absolute -bottom-32 left-1/4 w-[350px] md:w-[550px] h-[350px] md:h-[550px] bg-red-900/15 rounded-full blur-[130px] pointer-events-none will-change-transform transform-gpu" 
-      />
-
-      {/* Futuristic Geometric Mesh Grid */}
-      <div 
-        className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:3.5rem_3.5rem] [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_60%,transparent_100%)] opacity-80" 
+      {/* Single High-Performance Background Wallpaper */}
+      <img
+        src="https://i.ibb.co/7JnpRSPy/b13bdb12a704c5b71b5b6dd6c0ef6b4f.jpg"
+        alt="Background Wallpaper"
+        referrerPolicy="no-referrer"
+        crossOrigin="anonymous"
+        className="absolute inset-0 w-full h-full object-cover opacity-85 pointer-events-none z-0 transform-gpu"
+        onError={(e) => {
+          (e.target as HTMLElement).style.display = 'none';
+        }}
       />
 
-      {/* Lightweight canvas for all celestial stars in 1 draw cycle */}
+      {/* Subtle vignette gradient overlay for readability */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#060608]/40 via-[#060608]/20 to-[#060608]/60 pointer-events-none z-0" />
+
+      {/* Futuristic Lightweight Mesh Grid */}
+      <div 
+        className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:3.5rem_3.5rem] [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_60%,transparent_100%)] opacity-40 z-0" 
+      />
+
+      {/* Lightweight canvas for stars */}
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full pointer-events-none"
+        className="absolute inset-0 w-full h-full pointer-events-none z-0"
       />
     </div>
   );
 };
+
 
