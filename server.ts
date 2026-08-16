@@ -35,13 +35,25 @@ const serverHeaderGenerator = new HeaderGenerator({
 const upstreamProxy = process.env.UPSTREAM_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 const serverProxyAgent = upstreamProxy ? new ProxyAgent({ getProxyForUrl: () => upstreamProxy }) : undefined;
 
+// High-Performance HTTP/HTTPS Agent Connection Pool para grandes requisições em paralelo
+const highPerfUndiciAgent = new Agent({
+    keepAliveTimeout: 60_000,
+    keepAliveMaxTimeout: 600_000,
+    connections: 300,
+    pipelining: 10,
+    connect: {
+        timeout: 8_000,
+        rejectUnauthorized: false
+    }
+});
+
 // Fingerprint e sessão do navegador sincronizados a partir da verificação anti-bot do cliente
 let activeBrowserSession = {
     userAgent: USER_AGENT,
     platform: 'Win32',
     language: 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
     cookies: '',
-    secChUa: '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    secChUa: '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
     lastSync: Date.now()
 };
 
@@ -196,6 +208,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
             const fetchOpts: any = {
                 method: method.toUpperCase(),
                 headers: mergedHeaders,
+                dispatcher: highPerfUndiciAgent,
                 signal: AbortSignal.timeout(timeoutMs)
             };
             if (isJsonBody || isStringBody) {
@@ -216,7 +229,8 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
 
         attempt++;
         if (attempt <= maxRetries) {
-            await new Promise(r => setTimeout(r, 150 * attempt));
+            const jitter = Math.floor(Math.random() * 100);
+            await new Promise(r => setTimeout(r, (150 * attempt) + jitter));
         }
     }
 
@@ -371,31 +385,50 @@ async function startServer() {
     let cachedWorkingTunnel: string | null = null;
 
     async function askAI(prompt: string): Promise<string> {
-        // 1. Prioridade Primária: API Rochwxs / Rocahes (api.rochwxs.lol / api.rocahes.lol)
+        // 1. Prioridade Primária: API Rochwxs (https://api.rochwxs.lol/chat)
         const primaryAiEndpoints = [
             'https://api.rochwxs.lol/chat',
-            'https://api.rocahes.lol/chat',
-            'https://api.rochwxs.lol/api/chat',
-            'https://api.rocahes.lol/api/chat'
+            'https://api.rochwxs.lol/api/chat'
         ];
 
-        for (const endpoint of primaryAiEndpoints) {
-            try {
-                const response = await undiciFetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: prompt, prompt: prompt, query: prompt }),
-                    signal: AbortSignal.timeout(4000)
-                });
-                if (response.ok) {
-                    const data: any = await response.json();
-                    const text = data.response || data.reply || data.answer || data.content || data.text || data.message || data.result;
-                    if (text && String(text).trim()) {
-                        return String(text).trim();
+        const queryEndpoint = async (endpoint: string): Promise<string> => {
+            const response = await undiciFetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: prompt, prompt: prompt, query: prompt }),
+                dispatcher: highPerfUndiciAgent,
+                signal: AbortSignal.timeout(3500)
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data: any = await response.json();
+            const text = data.response || data.reply || data.answer || data.content || data.text || data.message || data.result;
+            if (text && String(text).trim()) {
+                return String(text).trim();
+            }
+            throw new Error('Resposta vazia');
+        };
+
+        try {
+            // Dispara todos os mirrors em paralelo e pega a resposta do mais rápido
+            const fastestResponse = await Promise.any(primaryAiEndpoints.map(ep => queryEndpoint(ep)));
+            if (fastestResponse) return fastestResponse;
+        } catch {
+            // Se o race de todos os mirrors falhou, tenta individualmente com Got
+            for (const endpoint of primaryAiEndpoints) {
+                try {
+                    const fallbackGot = await gotScraping({
+                        url: endpoint,
+                        method: 'POST',
+                        json: { message: prompt, prompt: prompt, query: prompt },
+                        timeout: { request: 3000 },
+                        throwHttpErrors: false
+                    });
+                    if (fallbackGot.statusCode >= 200 && fallbackGot.statusCode < 300) {
+                        const parsed: any = typeof fallbackGot.body === 'string' ? JSON.parse(fallbackGot.body) : fallbackGot.body;
+                        const text = parsed.response || parsed.reply || parsed.answer || parsed.content || parsed.text || parsed.message || parsed.result;
+                        if (text && String(text).trim()) return String(text).trim();
                     }
-                }
-            } catch (e: any) {
-                // Tenta próximo endpoint
+                } catch {}
             }
         }
 
@@ -411,6 +444,7 @@ async function startServer() {
                     model: 'openai/gpt-oss-20b:free',
                     messages: [{ role: 'user', content: prompt }]
                 }),
+                dispatcher: highPerfUndiciAgent,
                 signal: AbortSignal.timeout(4500)
             });
             if (openRouterRes.ok) {

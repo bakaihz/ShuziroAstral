@@ -26,6 +26,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
   onOpenBakaiProfile
 }) => {
   const [ra, setRa] = useState('');
+  const [uf, setUf] = useState('SP');
   const [senha, setSenha] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
@@ -41,7 +42,17 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
   useEffect(() => {
     if (selectedAccount) {
-      if (selectedAccount.ra) setRa(selectedAccount.ra);
+      if (selectedAccount.ra) {
+        // Se a conta salva já contiver UF no final, extrai ou usa direto
+        const cleanRa = selectedAccount.ra;
+        const matchUf = cleanRa.match(/([a-zA-Z]{2})$/);
+        if (matchUf) {
+          setUf(matchUf[1].toUpperCase());
+          setRa(cleanRa.slice(0, -2));
+        } else {
+          setRa(cleanRa);
+        }
+      }
       if (selectedAccount.senha) setSenha(selectedAccount.senha);
     }
   }, [selectedAccount]);
@@ -49,7 +60,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isVerified) return;
-    onLogin(ra, senha);
+    const finalRa = ra.toLowerCase().endsWith(uf.toLowerCase()) ? ra : `${ra}${uf.toLowerCase()}`;
+    onLogin(finalRa, senha);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -182,25 +194,42 @@ export const LoginView: React.FC<LoginViewProps> = ({
               )}
             </AnimatePresence>
 
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                value={ra}
-                onChange={(e) => setRa(e.target.value)}
-                placeholder="Ex.: 000123456789sp"
-                required
-                className="w-full pl-3.5 pr-9 py-2.5 bg-zinc-900/90 border border-zinc-800 focus:border-white focus:ring-1 focus:ring-white/20 rounded-xl text-white text-xs font-medium placeholder-zinc-500 focus:outline-none transition-all shadow-inner"
-              />
-              {ra && (
-                <button
-                  type="button"
-                  onClick={() => setRa('')}
-                  className="absolute right-2.5 text-zinc-500 hover:text-zinc-300 p-1 cursor-pointer"
-                  title="Limpar campo"
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 flex items-center">
+                <input
+                  type="text"
+                  value={ra}
+                  onChange={(e) => setRa(e.target.value)}
+                  placeholder="Ex.: 000123456789"
+                  required
+                  className="w-full pl-3.5 pr-9 py-2.5 bg-zinc-900/90 border border-zinc-800 focus:border-white focus:ring-1 focus:ring-white/20 rounded-xl text-white text-xs font-medium placeholder-zinc-500 focus:outline-none transition-all shadow-inner font-mono"
+                />
+                {ra && (
+                  <button
+                    type="button"
+                    onClick={() => setRa('')}
+                    className="absolute right-2.5 text-zinc-500 hover:text-zinc-300 p-1 cursor-pointer"
+                    title="Limpar campo"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* UF Selector */}
+              <div className="w-20 shrink-0">
+                <select
+                  value={uf}
+                  onChange={(e) => setUf(e.target.value)}
+                  className="w-full py-2.5 px-2.5 bg-zinc-900/90 border border-zinc-800 focus:border-white focus:ring-1 focus:ring-white/20 rounded-xl text-white text-xs font-bold font-mono focus:outline-none transition-all shadow-inner cursor-pointer text-center uppercase"
                 >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
+                  <option value="SP">SP</option>
+                  <option value="RJ">RJ</option>
+                  <option value="MT">MT</option>
+                  <option value="GO">GO</option>
+                  <option value="PR">PR</option>
+                </select>
+              </div>
             </div>
           </div>
 
