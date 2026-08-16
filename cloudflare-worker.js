@@ -58,6 +58,7 @@ export default {
       const targetParsed = new URL(targetUrl);
       const isEdusp = targetParsed.host.includes('edusp-api.ip.tv') || targetParsed.host.includes('saladofuturo');
       const isAlura = targetParsed.host.includes('alura.com.br');
+      const isMatific = targetParsed.host.includes('matific.com');
 
       // ─── 4. PREPARA HEADERS ───
       const headers = new Headers(request.headers);
@@ -93,6 +94,9 @@ export default {
       } else if (isAlura) {
         headers.set('Origin', 'https://cursos.alura.com.br');
         headers.set('Referer', 'https://cursos.alura.com.br/');
+      } else if (isMatific) {
+        headers.set('Origin', 'https://www.matific.com');
+        headers.set('Referer', 'https://www.matific.com/bra/pt-br/login-page/');
       } else {
         if (!headers.has('Origin')) headers.set('Origin', 'https://saladofuturo.educacao.sp.gov.br');
         if (!headers.has('Referer')) headers.set('Referer', 'https://saladofuturo.educacao.sp.gov.br/');

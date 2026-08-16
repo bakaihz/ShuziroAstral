@@ -631,9 +631,9 @@ export default function App() {
     if (taskIds.length === 0) return;
 
     let minTimeSec = 30;
-    let maxTimeSec = 90;
+    let maxTimeSec = 60;
     let mode: 'draft' | 'submitted' = defaultMode;
-    let concurrency = 1;
+    let concurrency = 2;
 
     if (typeof optionsOrTimeSec === 'object' && optionsOrTimeSec !== null) {
       minTimeSec = optionsOrTimeSec.minTimeSec || 30;
@@ -673,12 +673,18 @@ export default function App() {
     }
 
     try {
+      const currentCaptcha = captchaToken || localStorage.getItem('edusp_captcha_token') || '';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-api-key': authToken
+      };
+      if (currentCaptcha) {
+        headers['x-captcha-token'] = currentCaptcha;
+      }
+
       const res = await fetch('/api/tasks/batch-run', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': authToken
-        },
+        headers,
         body: JSON.stringify({
           taskIds,
           tasksMeta,
@@ -686,7 +692,8 @@ export default function App() {
           maxTimeSec,
           mode,
           concurrency,
-          auth_token: authToken
+          auth_token: authToken,
+          captcha_token: currentCaptcha
         })
       });
 

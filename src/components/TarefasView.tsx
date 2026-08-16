@@ -57,12 +57,12 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
   const [showModal, setShowModal] = useState(false);
   const [visibleLimit, setVisibleLimit] = useState(40);
   
-  // Time configuration state (Min and Max)
+  // Time configuration state (Min and Max: 30s min to 60s max)
   const [minTimeSec, setMinTimeSec] = useState<number>(30);
-  const [maxTimeSec, setMaxTimeSec] = useState<number>(90);
+  const [maxTimeSec, setMaxTimeSec] = useState<number>(60);
   const [preset, setPreset] = useState<'turbo' | 'rapido' | 'normal' | 'seguro' | 'custom'>('rapido');
   const [mode, setMode] = useState<'draft' | 'submitted'>('submitted');
-  const [concurrency, setConcurrency] = useState<number>(1);
+  const [concurrency, setConcurrency] = useState<number>(2);
 
   const tarefas = useMemo(() => tasks.filter(t => !t.is_essay), [tasks]);
 
@@ -160,24 +160,24 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
 
   const handleDoSingleTask = (id: string) => {
     if (onStartAutomation) {
-      onStartAutomation([id], { minTimeSec, maxTimeSec, mode: 'submitted', concurrency: 1 }, 'submitted');
+      onStartAutomation([id], { minTimeSec: 30, maxTimeSec: 60, mode: 'submitted', concurrency: 1 }, 'submitted');
     }
   };
 
   const handlePresetChange = (p: 'turbo' | 'rapido' | 'normal' | 'seguro' | 'custom') => {
     setPreset(p);
     if (p === 'turbo') {
-      setMinTimeSec(15);
-      setMaxTimeSec(30);
+      setMinTimeSec(30);
+      setMaxTimeSec(45);
     } else if (p === 'rapido') {
       setMinTimeSec(30);
-      setMaxTimeSec(90);
+      setMaxTimeSec(60);
     } else if (p === 'normal') {
+      setMinTimeSec(60);
+      setMaxTimeSec(120);
+    } else if (p === 'seguro') {
       setMinTimeSec(120);
       setMaxTimeSec(240);
-    } else if (p === 'seguro') {
-      setMinTimeSec(300);
-      setMaxTimeSec(600);
     }
   };
 
@@ -541,7 +541,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     <div className="flex items-center gap-1 font-bold text-white text-[11px]">
                       <Zap className="w-3 h-3 text-amber-400 fill-amber-400" /> Turbo
                     </div>
-                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">15s — 30s</div>
+                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">30s — 45s</div>
                   </button>
 
                   <button
@@ -556,7 +556,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     <div className="flex items-center gap-1 font-bold text-white text-[11px]">
                       <Zap className="w-3 h-3 text-red-500 fill-red-500" /> Rápido
                     </div>
-                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">30s — 1.5m</div>
+                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">30s — 1 min (Padrão)</div>
                   </button>
 
                   <button
@@ -569,9 +569,9 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     }`}
                   >
                     <div className="flex items-center gap-1 font-bold text-white text-[11px]">
-                      <Clock className="w-3 h-3 text-zinc-300" /> Normal
+                      <Clock className="w-3 h-3 text-zinc-300" /> Moderado
                     </div>
-                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">2m — 4m</div>
+                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">1m — 2m</div>
                   </button>
 
                   <button
@@ -586,7 +586,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     <div className="flex items-center gap-1 font-bold text-white text-[11px]">
                       <ShieldCheck className="w-3 h-3 text-emerald-400" /> Seguro
                     </div>
-                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">5m — 10m</div>
+                    <div className="text-[9px] text-zinc-400 mt-0.5 font-mono">2m — 4m</div>
                   </button>
                 </div>
               </div>
@@ -607,7 +607,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     </label>
                     <input
                       type="number"
-                      min={5}
+                      min={10}
                       value={minTimeSec}
                       onChange={(e) => {
                         const val = Math.max(5, Number(e.target.value) || 5);

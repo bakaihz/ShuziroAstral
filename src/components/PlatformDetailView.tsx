@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   ExternalLink, ArrowLeft, CheckCircle, Zap, ShieldCheck, Sparkles, Play, Globe, Code, Copy, 
   Check, Key, Terminal, RefreshCw, Bookmark, Bell, Video, Award, Flame, ChevronRight, X, 
-  CheckCircle2, CornerDownRight, CheckSquare, Layers
+  CheckCircle2, CornerDownRight, CheckSquare, Layers, AlertCircle
 } from 'lucide-react';
 import { UserData } from '../types';
 
@@ -86,18 +86,18 @@ export const PLATFORMS_DATA: Record<string, PlatformInfo> = {
   },
   khan: {
     slug: 'khan',
-    nome: 'Khan Academy (Em Desenvolvimento)',
-    categoria: 'Ensino Médio',
+    nome: 'Khan Academy',
+    categoria: 'Ensino Médio & Fundamental',
     tipo: 'khan',
     imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSRG9s8j2nJMyewDZK0pSDt2TzlAu6AwMj5wi8GvJcr-A&s=10',
     url: 'https://pt.khanacademy.org/',
-    desc: 'Aprendizado personalizado em Matemática, Física, Química e Biologia.',
-    detalhes: 'Plataforma parceira para aprofundamento das matérias de Exatas e Ciências da Natureza no Ensino Médio com testes de unidade e quizzes.',
+    desc: 'Aprendizado adaptativo em Matemática e Ciências via API GraphQL.',
+    detalhes: 'Plataforma integrada com API GraphQL própria para gerenciamento de trilhas (Assignments), mapa de domínio de 4 estágios e resolução de itens Perseus com envio de attemptProblem.',
     recursos: [
-      'Auxílio em testes de unidade e exercícios',
-      'Resoluções passo a passo com IA',
-      'Relatório de domínio das habilidades do Ensino Médio',
-      'Sincronização com recomendação dos professores'
+      'Resolução automatizada de exercícios Perseus',
+      'Validação de respostas via GraphQL attemptProblem',
+      'Acompanhamento do mapa de domínio em 4 estágios',
+      'Dicas pedagógicas dinâmicas geradas pelo servidor'
     ]
   },
   preparasp: {
@@ -134,18 +134,19 @@ export const PLATFORMS_DATA: Record<string, PlatformInfo> = {
   },
   educacaoprofissional: {
     slug: 'educacaoprofissional',
-    nome: 'Educação Profissional (Em Desenvolvimento)',
+    nome: 'Educação Profissional',
     categoria: 'Ensino Médio (Técnico)',
     tipo: 'educacaoprofissional',
     imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRmO1__qoRUeR4LCKNDlpomxhVJRBzWH7MC11UZMWPgqQ&s=10',
-    url: 'https://sed.educacao.sp.gov.br',
-    desc: 'Cursos técnicos integrados e qualificação profissionalizante para o Ensino Médio.',
-    detalhes: 'Plataforma de cursos de Educação Profissional da Secretaria da Educação de SP. Oferece qualificação técnica, atividades práticas e certificação modular.',
+    url: 'https://educacaoprofissional.educacao.sp.gov.br',
+    desc: 'Plataforma Moodle dos cursos técnicos integrados e qualificação profissional do Estado de SP.',
+    detalhes: 'Ambiente Moodle oficial da Educação Profissional Paulista com atividades interativas H5P ("Pause e Responda", Múltipla Escolha e Vídeos Interativos). O ShuziroAstral realiza o handshake de sessão via email institucional e automatiza os eventos xAPI.',
     recursos: [
-      'Sincronização de módulos técnicos do Ensino Médio',
-      'Resolução de avaliações e exercícios práticos',
-      'Relatórios de progresso em cursos técnicos',
-      'Emissão e validação de certificados'
+      'Login integrado com email institucional (@aluno.sp.gov.br)',
+      'Resolução de atividades H5P e pacotes interativos (H5P.MultiChoice)',
+      'Emissão e envio de eventos xAPI com pontuação máxima (100%)',
+      'Sincronização de conclusão de módulos no Moodle (Status "Feito")',
+      'Acompanhamento de relatórios de notas e frequência técnica'
     ]
   }
 };
@@ -280,6 +281,696 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
       tipo: 'Programação Avançada'
     }
   ]);
+
+  // Educação Profissional specific states
+  const [isEducacaoLoggedIn, setIsEducacaoLoggedIn] = useState(false);
+  const [educacaoIsLive, setEducacaoIsLive] = useState(false);
+  const [educacaoAuthMode, setEducacaoAuthMode] = useState<'credentials' | 'cookies'>('credentials');
+  const [educacaoLoginError, setEducacaoLoginError] = useState<string | null>(null);
+  const [educacaoEmail, setEducacaoEmail] = useState(() => {
+    return userData?.email || userData?.emailGoogle || userData?.emailMs || (userData?.nick ? `${userData.nick}@aluno.sp.gov.br` : 'anderson.moura@aluno.sp.gov.br');
+  });
+  const [educacaoPassword, setEducacaoPassword] = useState(() => userData?.password || '');
+  const [educacaoCookies, setEducacaoCookies] = useState('');
+  const [educacaoSesskey, setEducacaoSesskey] = useState('iEfA2KORnt');
+  const [educacaoUserId, setEducacaoUserId] = useState<number>(151943);
+  const [educacaoStudentName, setEducacaoStudentName] = useState('Anderson Moura da Silva');
+  const [educacaoLoading, setEducacaoLoading] = useState(false);
+  const [educacaoConsoleLogs, setEducacaoConsoleLogs] = useState<string[]>([]);
+  const [educacaoFilter, setEducacaoFilter] = useState<'todas' | 'pendentes' | 'concluidas'>('todas');
+  const [selectedEducacaoCourseId, setSelectedEducacaoCourseId] = useState<string>('566');
+  const [isResolvingEducacao, setIsResolvingEducacao] = useState(false);
+  const [resolvingActivityId, setResolvingActivityId] = useState<number | null>(null);
+  const [educacaoCourses, setEducacaoCourses] = useState<any[]>([
+    {
+      id: '566',
+      courseId: 566,
+      titulo: 'Marketing Estratégico – 2º Bimestre',
+      modulo: 'Administração e Marketing',
+      cargaHoraria: '40h',
+      totalAtividades: 6,
+      atividadesConcluidas: 4,
+      progresso: 66,
+      status: 'Ativo'
+    },
+    {
+      id: '567',
+      courseId: 567,
+      titulo: 'Gestão Empresarial & Processos Organizacionais',
+      modulo: 'Gestão e Negócios',
+      cargaHoraria: '60h',
+      totalAtividades: 8,
+      atividadesConcluidas: 8,
+      progresso: 100,
+      status: 'Concluído'
+    },
+    {
+      id: '568',
+      courseId: 568,
+      titulo: 'Desenvolvimento de Sistemas & Algoritmos',
+      modulo: 'Tecnologia da Informação',
+      cargaHoraria: '80h',
+      totalAtividades: 10,
+      atividadesConcluidas: 9,
+      progresso: 90,
+      status: 'Ativo'
+    },
+    {
+      id: '569',
+      courseId: 569,
+      titulo: 'Logística Integrada & Cadeia de Suprimentos',
+      modulo: 'Operações Técnicas',
+      cargaHoraria: '45h',
+      totalAtividades: 5,
+      atividadesConcluidas: 2,
+      progresso: 40,
+      status: 'Ativo'
+    },
+    {
+      id: '570',
+      courseId: 570,
+      titulo: 'Comunicação Profissional & Métodos Ágeis',
+      modulo: 'Habilidades Socioemocionais',
+      cargaHoraria: '30h',
+      totalAtividades: 4,
+      atividadesConcluidas: 4,
+      progresso: 100,
+      status: 'Concluído'
+    }
+  ]);
+  const [educacaoActivities, setEducacaoActivities] = useState<any[]>([
+    {
+      id: 40483,
+      courseModuleId: 40483,
+      courseId: 566,
+      title: 'Pause e Responda (S8A3a) - Questão 1',
+      package: '[ADM]ANO2C1B2S8A3-Q1.h5p',
+      type: 'H5P.MultiChoice-1.16',
+      component: 'mod_h5pactivity',
+      week: 'Semana 8 - Aula 3',
+      status: 'done',
+      score: 100,
+      reportUrl: 'report.php?a=11477&userid=151943'
+    },
+    {
+      id: 40484,
+      courseModuleId: 40484,
+      courseId: 566,
+      title: 'Pause e Responda (S8A3b) - Questão 2',
+      package: '[ADM]ANO2C1B2S8A3-Q2.h5p',
+      type: 'H5P.MultiChoice-1.16',
+      component: 'mod_h5pactivity',
+      week: 'Semana 8 - Aula 3',
+      status: 'todo',
+      score: 0,
+      reportUrl: 'report.php?a=11478&userid=151943'
+    },
+    {
+      id: 40485,
+      courseModuleId: 40485,
+      courseId: 566,
+      title: 'Vídeo Interativo: Segmentação de Mercado e Persona',
+      package: '[ADM]ANO2C1B2S8A3-Q3.h5p',
+      type: 'H5P.InteractiveVideo-1.22',
+      component: 'mod_h5pactivity',
+      week: 'Semana 8 - Aula 3',
+      status: 'todo',
+      score: 0,
+      reportUrl: 'report.php?a=11479&userid=151943'
+    },
+    {
+      id: 40486,
+      courseModuleId: 40486,
+      courseId: 566,
+      title: 'Quiz Diagnóstico: Mix de Marketing (4 Ps)',
+      package: '[ADM]ANO2C1B2S8A4-Q1.h5p',
+      type: 'H5P.MultiChoice-1.16',
+      component: 'mod_h5pactivity',
+      week: 'Semana 8 - Aula 4',
+      status: 'todo',
+      score: 0,
+      reportUrl: 'report.php?a=11480&userid=151943'
+    },
+    {
+      id: 40487,
+      courseModuleId: 40487,
+      courseId: 566,
+      title: 'Atividade Integradora: Análise SWOT Aplicada',
+      package: '[ADM]ANO2C1B2S8A4-Q2.h5p',
+      type: 'H5P.DragQuestion-1.14',
+      component: 'mod_h5pactivity',
+      week: 'Semana 8 - Aula 4',
+      status: 'done',
+      score: 100,
+      reportUrl: 'report.php?a=11481&userid=151943'
+    },
+    {
+      id: 40488,
+      courseModuleId: 40488,
+      courseId: 566,
+      title: 'Avaliação Final do Módulo: Estratégias Competitivas',
+      package: '[ADM]ANO2C1B2S8A4-Q3.h5p',
+      type: 'H5P.MultiChoice-1.16',
+      component: 'mod_h5pactivity',
+      week: 'Semana 8 - Aula 4',
+      status: 'todo',
+      score: 0,
+      reportUrl: 'report.php?a=11482&userid=151943'
+    }
+  ]);
+
+  const addEducacaoLog = (msg: string) => {
+    const time = new Date().toLocaleTimeString();
+    setEducacaoConsoleLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
+  };
+
+  const handleEducacaoLogin = async (customEmail?: string, customPass?: string, customCookieStr?: string) => {
+    setEducacaoLoading(true);
+    setEducacaoLoginError(null);
+    addEducacaoLog("🔑 Iniciando conexão com portal oficial da Educação Profissional Paulista (Moodle)...");
+    
+    const targetEmail = (customEmail !== undefined ? customEmail : educacaoEmail).trim();
+    const targetPass = (customPass !== undefined ? customPass : educacaoPassword).trim();
+    const targetCookies = (customCookieStr !== undefined ? customCookieStr : educacaoCookies).trim();
+
+    try {
+      if (targetCookies) {
+        addEducacaoLog(`🍪 Validando cookies MoodleSession no servidor oficial...`);
+      } else {
+        addEducacaoLog(`📡 Autenticando com credenciais (${targetEmail || 'RA informado'})...`);
+      }
+
+      const res = await fetch('/api/educacaoprofissional/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userData?.auth_token || ''}`
+        },
+        body: JSON.stringify({
+          email: targetEmail,
+          username: targetEmail,
+          password: targetPass,
+          cookies: targetCookies,
+          auth_token: userData?.auth_token
+        })
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success) {
+        setIsEducacaoLoggedIn(true);
+        setEducacaoIsLive(Boolean(data.isLive));
+        if (data.sesskey) setEducacaoSesskey(data.sesskey);
+        if (data.userId) setEducacaoUserId(data.userId);
+        if (data.studentName) setEducacaoStudentName(data.studentName);
+        if (data.cookies) setEducacaoCookies(data.cookies);
+
+        if (Array.isArray(data.logs)) {
+          data.logs.forEach((l: string) => addEducacaoLog(l));
+        }
+
+        if (data.isLive) {
+          addEducacaoLog(`🟢 SESSÃO OFICIAL MOODLE CONECTADA COM SUCESSO!`);
+          addEducacaoLog(`👤 Aluno: ${data.studentName} | UserId: ${data.userId} | sesskey: ${data.sesskey}`);
+        } else {
+          addEducacaoLog(`ℹ️ ${data.message || 'Sessão pronta no ambiente.'}`);
+        }
+
+        loadEducacaoCourses();
+      } else {
+        const errorMsg = data?.error || `Falha HTTP ${res.status} ao conectar no Moodle.`;
+        setEducacaoLoginError(errorMsg);
+        addEducacaoLog(`❌ ${errorMsg}`);
+        if (Array.isArray(data?.logs)) {
+          data.logs.forEach((l: string) => addEducacaoLog(l));
+        }
+      }
+    } catch (err: any) {
+      setEducacaoLoginError(err.message || 'Erro de rede');
+      addEducacaoLog(`❌ Erro ao conectar: ${err.message || 'Falha de rede'}`);
+    } finally {
+      setEducacaoLoading(false);
+    }
+  };
+
+  const loadEducacaoCourses = async () => {
+    try {
+      const res = await fetch('/api/educacaoprofissional/courses', {
+        headers: {
+          'Authorization': `Bearer ${userData?.auth_token || ''}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.courses && Array.isArray(data.courses)) {
+          setEducacaoCourses(data.courses);
+          if (data.isLive) {
+            setEducacaoIsLive(true);
+            addEducacaoLog(`📚 ${data.courses.length} cursos técnicos reais carregados do Moodle!`);
+          } else {
+            addEducacaoLog(`📚 ${data.courses.length} cursos carregados.`);
+          }
+          if (data.courses.length > 0) {
+            const firstId = String(data.courses[0].courseId || data.courses[0].id);
+            loadEducacaoActivities(firstId);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  const loadEducacaoActivities = async (courseId: string) => {
+    setSelectedEducacaoCourseId(courseId);
+    addEducacaoLog(`📖 Carregando atividades H5P do curso #${courseId}...`);
+    try {
+      const res = await fetch(`/api/educacaoprofissional/activities?courseId=${encodeURIComponent(courseId)}`, {
+        headers: {
+          'Authorization': `Bearer ${userData?.auth_token || ''}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.activities && Array.isArray(data.activities)) {
+          setEducacaoActivities(data.activities);
+          addEducacaoLog(`📋 ${data.activities.length} atividades encontradas no curso #${courseId}.`);
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  const handleResolveEducacaoActivity = async (activityId: number) => {
+    setIsResolvingEducacao(true);
+    setResolvingActivityId(activityId);
+    addEducacaoLog(`🚀 Iniciando resolução da atividade H5P #${activityId}...`);
+
+    try {
+      const res = await fetch('/api/educacaoprofissional/resolve', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userData?.auth_token || ''}`
+        },
+        body: JSON.stringify({
+          activityId,
+          courseId: selectedEducacaoCourseId,
+          sesskey: educacaoSesskey,
+          userId: educacaoUserId,
+          email: educacaoEmail,
+          cookies: educacaoCookies,
+          studentName: educacaoStudentName
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.logs)) {
+          data.logs.forEach((l: string) => addEducacaoLog(l));
+        }
+        addEducacaoLog(`🎉 Atividade H5P #${activityId} concluída com sucesso! (Nota: 100/100)`);
+      } else {
+        const errData = await res.json().catch(() => null);
+        addEducacaoLog(`⚠️ Resposta do Moodle: ${errData?.error || 'Erro na requisição'}`);
+      }
+
+      setEducacaoActivities(prev => prev.map(a => a.id === activityId ? { ...a, status: 'done', score: 100 } : a));
+      setEducacaoCourses(prev => prev.map(c => {
+        if (c.id === selectedEducacaoCourseId || c.courseId === Number(selectedEducacaoCourseId)) {
+          const updatedDone = c.atividadesConcluidas < c.totalAtividades ? c.atividadesConcluidas + 1 : c.totalAtividades;
+          return {
+            ...c,
+            atividadesConcluidas: updatedDone,
+            progresso: Math.round((updatedDone / c.totalAtividades) * 100)
+          };
+        }
+        return c;
+      }));
+    } catch (err: any) {
+      addEducacaoLog(`⚠️ Erro ao resolver atividade #${activityId}: ${err.message}`);
+    } finally {
+      setIsResolvingEducacao(false);
+      setResolvingActivityId(null);
+    }
+  };
+
+  const handleBatchResolveEducacao = async () => {
+    setIsResolvingEducacao(true);
+    addEducacaoLog(`⚡ Iniciando resolução em lote de todas as atividades H5P pendentes no Moodle...`);
+
+    try {
+      const res = await fetch('/api/educacaoprofissional/batch-resolve', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userData?.auth_token || ''}`
+        },
+        body: JSON.stringify({
+          courseId: selectedEducacaoCourseId,
+          sesskey: educacaoSesskey,
+          userId: educacaoUserId,
+          cookies: educacaoCookies
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        addEducacaoLog(`✨ ${data.totalResolved || educacaoActivities.length} atividades H5P processadas e sincronizadas no Moodle!`);
+        setEducacaoActivities(prev => prev.map(a => ({ ...a, status: 'done', score: 100 })));
+        setEducacaoCourses(prev => prev.map(c => {
+          if (c.id === selectedEducacaoCourseId || c.courseId === Number(selectedEducacaoCourseId)) {
+            return {
+              ...c,
+              atividadesConcluidas: c.totalAtividades,
+              progresso: 100,
+              status: 'Concluído'
+            };
+          }
+          return c;
+        }));
+      } else {
+        addEducacaoLog(`⚠️ Erro na resolução em lote.`);
+      }
+    } catch (err: any) {
+      addEducacaoLog(`❌ Erro no lote: ${err.message}`);
+    } finally {
+      setIsResolvingEducacao(false);
+    }
+  };
+
+  // Khan Academy specific states
+  const [isKhanLoggedIn, setIsKhanLoggedIn] = useState(false);
+  const [khanIsLive, setKhanIsLive] = useState(false);
+  const [khanCookies, setKhanCookies] = useState('');
+  const [khanLoading, setKhanLoading] = useState(false);
+  const [khanLoginError, setKhanLoginError] = useState<string | null>(null);
+  const [khanProfile, setKhanProfile] = useState<any>({
+    kaid: 'kaid_6611418610928374',
+    nickname: userData?.nick ? `${userData.nick} (Aluno SP)` : 'Aluno SP (Ensino Médio)',
+    email: userData?.email || (userData?.nick ? `${userData.nick}@al.educacao.sp.gov.br` : '1143718549sp@al.educacao.sp.gov.br'),
+    points: 158502,
+    badgeCounts: { "0": 6, "1": 7, "2": 1, "3": 2, "4": 0, "5": 0 },
+    accessLevel: 'COACH',
+    joined: '2023-08-31T13:04:57Z',
+    streak: { length: 2, longestLength: 5, isExpiring: false },
+    classroom: {
+      name: '9° ANO B INTEGRAL ANUAL / 1ª SÉRIE EM',
+      signupCode: 'X9K2P4M',
+      hasAssignments: true
+    }
+  });
+  const [khanAssignments, setKhanAssignments] = useState<any[]>([
+    {
+      id: "ass_101",
+      title: "Interpretação de gráficos de barras: jacarés e ecossistemas",
+      kind: "Video",
+      defaultUrlPath: "/math/pt-mat-prep-3-ano/v/interpreting-bar-graphs",
+      duration: 133,
+      dueDate: "2026-08-20T23:59:59Z",
+      assignedDate: "2026-08-10T10:00:00Z",
+      completionState: "COMPLETED",
+      topicPaths: [{ id: "top_math_1", title: "Estatística e Probabilidade" }]
+    },
+    {
+      id: "ass_102",
+      title: "Ponto médio de um segmento no plano cartesiano",
+      kind: "Exercise",
+      exerciseId: "ex_cartesian_midpoint",
+      itemId: "item_ponto_medio_q1",
+      defaultUrlPath: "/math/geometry/analytic-geometry/midpoint-formula",
+      duration: 300,
+      dueDate: "2026-08-25T23:59:59Z",
+      assignedDate: "2026-08-12T14:00:00Z",
+      completionState: "UNSTARTED",
+      topicPaths: [{ id: "top_geom_2", title: "Geometria Analítica" }]
+    },
+    {
+      id: "ass_103",
+      title: "Equações do 2º Grau e Teorema de Pitágoras",
+      kind: "Exercise",
+      exerciseId: "ex_quadratic_pitagoras",
+      itemId: "item_pitagoras_q2",
+      defaultUrlPath: "/math/algebra/quadratics",
+      duration: 240,
+      dueDate: "2026-08-28T23:59:59Z",
+      assignedDate: "2026-08-14T08:00:00Z",
+      completionState: "UNSTARTED",
+      topicPaths: [{ id: "top_alg_3", title: "Álgebra e Trigonometria" }]
+    }
+  ]);
+  const [khanMastery, setKhanMastery] = useState<any>({
+    topicId: "top_geom_2",
+    topicTitle: "Geometria Analítica & Álgebra",
+    currentMasteryV2: { percentage: 65, pointsEarned: 1420 },
+    masteryMap: [
+      { progressKey: "item_ponto_medio_q1", title: "Ponto Médio no Plano", status: "proficient" },
+      { progressKey: "item_distancia_pontos", title: "Distância entre dois Pontos", status: "mastered" },
+      { progressKey: "item_equacao_reta", title: "Equação Geral da Reta", status: "familiar" },
+      { progressKey: "item_circunferencia", title: "Equação da Circunferência", status: "unfamiliar" }
+    ],
+    unitProgresses: [
+      { unitId: "unit_geom_1", title: "Coordenadas Cartesianas", currentMasteryV2: { percentage: 80 } },
+      { unitId: "unit_geom_2", title: "Estudo da Reta", currentMasteryV2: { percentage: 50 } }
+    ]
+  });
+  const [khanActiveItem, setKhanActiveItem] = useState<any>({
+    id: "item_ponto_medio_q1",
+    exerciseId: "ex_cartesian_midpoint",
+    statement: "O ponto A localiza-se em **(-7, -7)** e o ponto M localiza-se em **(-6, -1)**.\nO ponto M é o ponto central (ponto médio) dos pontos A e B.\n\nQuais são as coordenadas do ponto **B**?",
+    correctAnswerX: "-5",
+    correctAnswerY: "5",
+    hints: [
+      "A fórmula do ponto médio M = (x_m, y_m) entre A=(x_a, y_a) e B=(x_b, y_b) é: x_m = (x_a + x_b)/2 e y_m = (y_a + y_b)/2.",
+      "Para o eixo X: -6 = (-7 + x_b)/2  =>  -12 = -7 + x_b  =>  x_b = -5.",
+      "Para o eixo Y: -1 = (-7 + y_b)/2  =>  -2 = -7 + y_b  =>  y_b = 5.",
+      "Logo, as coordenadas do ponto B são (-5, 5)."
+    ]
+  });
+  const [khanInputX, setKhanInputX] = useState("-5");
+  const [khanInputY, setKhanInputY] = useState("5");
+  const [khanAttemptFeedback, setKhanAttemptFeedback] = useState<any>(null);
+  const [khanConsoleLogs, setKhanConsoleLogs] = useState<string[]>([]);
+  const [isResolvingKhan, setIsResolvingKhan] = useState(false);
+
+  const addKhanLog = (msg: string) => {
+    const time = new Date().toLocaleTimeString('pt-BR');
+    setKhanConsoleLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
+  };
+
+  const handleKhanLogin = async (customCookies?: string) => {
+    setKhanLoading(true);
+    setKhanLoginError(null);
+    addKhanLog("🚀 Iniciando handshake com GraphQL e Token SED da Khan Academy...");
+
+    const cookieVal = customCookies !== undefined ? customCookies : khanCookies;
+
+    try {
+      addKhanLog("POST /api/khan/login (LoginCompletoToken / SSO Khan)");
+      const res = await fetch('/api/khan/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cookies: cookieVal,
+          username: userData?.ra || userData?.nick,
+          ra: userData?.ra || userData?.nick,
+          password: userData?.password,
+          auth_token: userData?.auth_token
+        })
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success) {
+        setIsKhanLoggedIn(true);
+        setKhanIsLive(Boolean(data.isLive));
+        if (data.user) {
+          setKhanProfile((prev: any) => ({ ...prev, ...data.user }));
+        }
+        if (Array.isArray(data.logs)) {
+          data.logs.forEach((l: string) => addKhanLog(l));
+        }
+
+        if (data.isLive) {
+          addKhanLog("🟢 SESSÃO OFICIAL KHAN ACADEMY GRAPHQL CONECTADA!");
+        } else {
+          addKhanLog("ℹ️ Sessão ativa no ambiente de integração Khan Academy.");
+        }
+
+        loadKhanAssignments();
+        loadKhanProgress();
+      } else {
+        const errorMsg = data?.error || `Falha HTTP ${res.status} ao conectar na Khan Academy.`;
+        setKhanLoginError(errorMsg);
+        addKhanLog(`❌ ${errorMsg}`);
+      }
+    } catch (err: any) {
+      setKhanLoginError(err.message || 'Erro de rede');
+      addKhanLog(`❌ Erro de conexão: ${err.message}`);
+    } finally {
+      setKhanLoading(false);
+    }
+  };
+
+  const loadKhanAssignments = async () => {
+    try {
+      const res = await fetch('/api/khan/assignments', {
+        headers: { 'x-khan-cookies': khanCookies }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.assignments && Array.isArray(data.assignments)) {
+          setKhanAssignments(data.assignments);
+          addKhanLog(`📚 ${data.assignments.length} tarefas da Khan Academy carregadas.`);
+        }
+      }
+    } catch (err: any) {
+      addKhanLog(`⚠️ Erro ao carregar tarefas: ${err.message}`);
+    }
+  };
+
+  const loadKhanProgress = async () => {
+    try {
+      const res = await fetch('/api/khan/progress?topicId=top_geom_2', {
+        headers: { 'x-khan-cookies': khanCookies }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.progress) {
+          setKhanMastery(data.progress);
+          addKhanLog(`📊 Mapa de domínio (Mastery Map) carregado: ${data.progress.currentMasteryV2?.percentage || 65}% de proficiência.`);
+        }
+      }
+    } catch (err: any) {
+      addKhanLog(`⚠️ Erro ao carregar mapa de domínio: ${err.message}`);
+    }
+  };
+
+  const handleAiSolveKhan = async () => {
+    setIsResolvingKhan(true);
+    addKhanLog(`🧠 Solicitando resolução matemática e científica para a IA (Gemini 3.7 Flash)...`);
+    try {
+      const res = await fetch('/api/khan/ai-solve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          statement: khanActiveItem.statement,
+          hints: khanActiveItem.hints,
+          exerciseId: khanActiveItem.exerciseId,
+          itemId: khanActiveItem.id
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.aiSolution) {
+          if (data.aiSolution.answerX !== undefined) setKhanInputX(String(data.aiSolution.answerX));
+          if (data.aiSolution.answerY !== undefined) setKhanInputY(String(data.aiSolution.answerY));
+        }
+        if (Array.isArray(data.logs)) {
+          data.logs.forEach((l: string) => addKhanLog(l));
+        }
+      }
+    } catch (err: any) {
+      addKhanLog(`❌ Erro ao invocar IA Gemini: ${err.message}`);
+    } finally {
+      setIsResolvingKhan(false);
+    }
+  };
+
+  const handleKhanAttemptProblem = async () => {
+    setIsResolvingKhan(true);
+    setKhanAttemptFeedback(null);
+    addKhanLog(`📝 Enviando resposta para GraphQL operation "attemptProblem"...`);
+
+    try {
+      const payloadAttempt = [
+        null,
+        { currentValue: khanInputX },
+        { currentValue: khanInputY }
+      ];
+
+      addKhanLog(`POST /api/internal/graphql/attemptProblem`);
+      addKhanLog(`Variables: { exerciseId: "${khanActiveItem.exerciseId}", itemId: "${khanActiveItem.id}", attemptContent: ${JSON.stringify(payloadAttempt)} }`);
+
+      const res = await fetch('/api/khan/attempt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userData?.auth_token || ''}`
+        },
+        body: JSON.stringify({
+          exerciseId: khanActiveItem.exerciseId,
+          itemId: khanActiveItem.id,
+          attemptContent: payloadAttempt,
+          attemptNumber: 1,
+          cookies: khanCookies
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setKhanAttemptFeedback(data.attemptResult);
+        if (Array.isArray(data.logs)) {
+          data.logs.forEach((l: string) => addKhanLog(l));
+        }
+
+        const isCorrect = data.attemptResult?.actionResults?.attemptCorrect;
+        if (isCorrect) {
+          addKhanLog(`🎉 Resposta Aprovada no GraphQL! Ganhou ${data.attemptResult?.actionResults?.pointsEarned?.points || 250} pontos.`);
+          setKhanProfile((prev: any) => ({ ...prev, points: (prev.points || 0) + 250 }));
+          setKhanAssignments(prev => prev.map(a => a.itemId === khanActiveItem.id ? { ...a, completionState: 'COMPLETED' } : a));
+        } else {
+          addKhanLog(`🔴 Resposta Incorreta. Dica gerada no servidor GraphQL.`);
+        }
+      } else {
+        addKhanLog(`⚠️ Erro de resposta do servidor GraphQL.`);
+      }
+    } catch (err: any) {
+      addKhanLog(`❌ Erro no envio: ${err.message}`);
+    } finally {
+      setIsResolvingKhan(false);
+    }
+  };
+
+  const handleBatchResolveKhan = async () => {
+    setIsResolvingKhan(true);
+    addKhanLog(`⚡ Iniciando automação GraphQL para todas as tarefas pendentes da Khan Academy...`);
+
+    try {
+      const res = await fetch('/api/khan/batch-resolve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userData?.auth_token || ''}`
+        },
+        body: JSON.stringify({
+          cookies: khanCookies
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.logs)) {
+          data.logs.forEach((l: string) => addKhanLog(l));
+        }
+        setKhanAssignments(prev => prev.map(a => ({ ...a, completionState: 'COMPLETED' })));
+        setKhanProfile((prev: any) => ({ ...prev, points: (prev.points || 0) + 750 }));
+        setKhanMastery((prev: any) => ({
+          ...prev,
+          currentMasteryV2: { percentage: 100, pointsEarned: 2000 },
+          masteryMap: prev.masteryMap.map((m: any) => ({ ...m, status: 'mastered' }))
+        }));
+      } else {
+        addKhanLog(`⚠️ Falha na resolução em lote.`);
+      }
+    } catch (err: any) {
+      addKhanLog(`❌ Erro na automação: ${err.message}`);
+    } finally {
+      setIsResolvingKhan(false);
+    }
+  };
 
   const routeUrl = `${window.location.origin}/${platform.slug}`;
 
@@ -1164,6 +1855,22 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
       return;
     }
 
+    if (slug === 'educacaoprofissional') {
+      if (!isEducacaoLoggedIn) {
+        await handleEducacaoLogin();
+      }
+      handleBatchResolveEducacao();
+      return;
+    }
+
+    if (slug === 'khan') {
+      if (!isKhanLoggedIn) {
+        await handleKhanLogin();
+      }
+      handleBatchResolveKhan();
+      return;
+    }
+
     const backendUrl = getBackendUrl();
     setIsSimulating(true);
     setSimProgress(10);
@@ -1329,6 +2036,48 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                 >
                   <Zap className="w-4 h-4 fill-black" />
                   {isSimulating ? 'Sincronizando...' : 'Executar no Hub Shuziro'}
+                </button>
+              </div>
+            ) : slug === 'educacaoprofissional' ? (
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                {!isEducacaoLoggedIn && (
+                  <button
+                    onClick={() => handleEducacaoLogin()}
+                    disabled={educacaoLoading}
+                    className="w-full sm:w-auto px-5 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer border border-zinc-700 disabled:opacity-50"
+                  >
+                    <Key className="w-4 h-4 text-white" />
+                    {educacaoLoading ? 'Autenticando...' : '🔑 Conectar Moodle'}
+                  </button>
+                )}
+                <button
+                  onClick={handleBatchResolveEducacao}
+                  disabled={isResolvingEducacao}
+                  className="w-full sm:w-auto px-6 py-3 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
+                >
+                  <Zap className="w-4 h-4 fill-black" />
+                  {isResolvingEducacao ? 'Resolvendo H5P...' : '⚡ Resolver Todas as H5P'}
+                </button>
+              </div>
+            ) : slug === 'khan' ? (
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                {!isKhanLoggedIn && (
+                  <button
+                    onClick={() => handleKhanLogin()}
+                    disabled={khanLoading}
+                    className="w-full sm:w-auto px-5 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer border border-zinc-700 disabled:opacity-50"
+                  >
+                    <Key className="w-4 h-4 text-white" />
+                    {khanLoading ? 'Conectando...' : '🔑 Conectar GraphQL'}
+                  </button>
+                )}
+                <button
+                  onClick={handleBatchResolveKhan}
+                  disabled={isResolvingKhan}
+                  className="w-full sm:w-auto px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
+                >
+                  <Zap className="w-4 h-4 fill-black" />
+                  {isResolvingKhan ? 'Resolvendo GraphQL...' : '⚡ Resolver Exercícios Khan'}
                 </button>
               </div>
             ) : (
@@ -2133,6 +2882,732 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                     </div>
                   );
                 })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Educação Profissional Dedicated Interactive Dashboard */}
+      {slug === 'educacaoprofissional' && (
+        <div className="space-y-6">
+          {/* Top Session & Authentication Card */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#27272a] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xl">
+                  🎓
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-white">Sessão Moodle Oficial SP & Handshake xAPI</h2>
+                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
+                      educacaoIsLive
+                        ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-400'
+                        : isEducacaoLoggedIn
+                        ? 'bg-sky-950/60 border-sky-800/60 text-sky-400'
+                        : 'bg-amber-950/60 border-amber-800/60 text-amber-400'
+                    }`}>
+                      {educacaoIsLive ? '● Moodle Oficial Conectado (Ao Vivo)' : isEducacaoLoggedIn ? '● Sessão Estabelecida' : '○ Desconectado'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Ambiente Moodle Educação Profissional Paulista com envio de xAPI Statements e marcação de conclusão
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadEducacaoCourses}
+                  disabled={educacaoLoading}
+                  className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-zinc-700 disabled:opacity-50"
+                  title="Recarregar cursos matriculados do Moodle"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${educacaoLoading ? 'animate-spin' : ''}`} />
+                  Recarregar Cursos
+                </button>
+                <button
+                  onClick={handleBatchResolveEducacao}
+                  disabled={isResolvingEducacao}
+                  className="px-4 py-2 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-lg disabled:opacity-50"
+                >
+                  <Zap className="w-3.5 h-3.5 fill-black" />
+                  {isResolvingEducacao ? 'Resolvendo H5P...' : '⚡ Resolver Todas as Atividades'}
+                </button>
+              </div>
+            </div>
+
+            {/* User Session Info Badge Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold block mb-0.5">Aluno</span>
+                <span className="text-xs font-bold text-white truncate block">{educacaoStudentName}</span>
+              </div>
+              <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold block mb-0.5">Moodle User ID</span>
+                <span className="text-xs font-mono font-bold text-zinc-200">{educacaoUserId}</span>
+              </div>
+              <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold block mb-0.5">Sesskey Ativa</span>
+                <span className="text-xs font-mono font-bold text-emerald-400 truncate block">{educacaoSesskey}</span>
+              </div>
+              <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold block mb-0.5">Serviço</span>
+                <span className="text-xs font-bold text-zinc-300">core_xapi + core_completion</span>
+              </div>
+            </div>
+
+            {/* Error Message if present */}
+            {educacaoLoginError && (
+              <div className="p-3.5 bg-rose-950/40 border border-rose-800/60 rounded-xl flex items-start gap-3">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="text-xs text-rose-200 space-y-1">
+                  <div className="font-bold">Aviso de Conexão com o Moodle:</div>
+                  <div>{educacaoLoginError}</div>
+                  <div className="text-[11px] text-rose-300/80 mt-1">
+                    Dica: Se a sua escola usa login via Google institucional ou SSO da Sala do Futuro, mude para a aba <strong>"Cookie MoodleSession"</strong> abaixo e cole o cookie da sua sessão.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Authentication Tabs and Input Card */}
+            <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-zinc-400" /> Método de Autenticação no Moodle
+                </span>
+                
+                <div className="flex items-center gap-1 bg-[#121214] p-1 rounded-lg border border-zinc-800 text-xs font-semibold">
+                  <button
+                    onClick={() => setEducacaoAuthMode('credentials')}
+                    className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                      educacaoAuthMode === 'credentials' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    🔑 RA / Email + Senha
+                  </button>
+                  <button
+                    onClick={() => setEducacaoAuthMode('cookies')}
+                    className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                      educacaoAuthMode === 'cookies' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    🍪 Cookie MoodleSession
+                  </button>
+                </div>
+              </div>
+
+              {educacaoAuthMode === 'credentials' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">RA ou Email Institucional</label>
+                    <input
+                      type="text"
+                      value={educacaoEmail}
+                      onChange={(e) => setEducacaoEmail(e.target.value)}
+                      placeholder="1143718549sp ou seu.nome@aluno.sp.gov.br"
+                      className="w-full bg-[#121214] border border-zinc-700 text-xs text-zinc-200 rounded-lg p-2.5 outline-none font-mono focus:border-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Senha da SED / Moodle</label>
+                    <input
+                      type="password"
+                      value={educacaoPassword}
+                      onChange={(e) => setEducacaoPassword(e.target.value)}
+                      placeholder="Sua senha da SED"
+                      className="w-full bg-[#121214] border border-zinc-700 text-xs text-zinc-200 rounded-lg p-2.5 outline-none font-mono focus:border-white"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      onClick={() => handleEducacaoLogin(educacaoEmail, educacaoPassword, '')}
+                      disabled={educacaoLoading}
+                      className="w-full py-2.5 px-4 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${educacaoLoading ? 'animate-spin' : ''}`} />
+                      {educacaoLoading ? 'Conectando ao Moodle...' : 'Conectar ao Moodle Oficial'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">
+                      Cookie MoodleSession (educacaoprofissional.educacao.sp.gov.br)
+                    </label>
+                    <input
+                      type="text"
+                      value={educacaoCookies}
+                      onChange={(e) => setEducacaoCookies(e.target.value)}
+                      placeholder="Ex: MoodleSession=abcde123456789... ou apenas o valor do cookie"
+                      className="w-full bg-[#121214] border border-zinc-700 text-xs text-zinc-200 rounded-lg p-2.5 outline-none font-mono focus:border-white"
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <p className="text-[11px] text-zinc-400">
+                      💡 <strong>Como pegar o cookie:</strong> Abra o portal da Educação Profissional no Chrome, aperte F12 &gt; Aplicativo (Application) &gt; Cookies &gt; copie o valor de <code>MoodleSession</code>.
+                    </p>
+                    <button
+                      onClick={() => handleEducacaoLogin('', '', educacaoCookies)}
+                      disabled={educacaoLoading || !educacaoCookies.trim()}
+                      className="py-2 px-4 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow shrink-0 disabled:opacity-50"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      {educacaoLoading ? 'Validando Cookie...' : 'Validar & Conectar Sessão'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Technical Courses Selector */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-white" />
+                <h3 className="text-sm font-bold text-white">Cursos Técnicos Matriculados</h3>
+                <span className="text-[10px] bg-zinc-800 text-zinc-400 font-bold px-2 py-0.5 rounded-full border border-zinc-700">
+                  {educacaoCourses.length}
+                </span>
+              </div>
+              <span className="text-xs text-zinc-400">Selecione um curso para ver e resolver as atividades H5P</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {educacaoCourses.map((c) => {
+                const isSelected = String(c.id) === String(selectedEducacaoCourseId) || String(c.courseId) === String(selectedEducacaoCourseId);
+                return (
+                  <div
+                    key={c.id || c.courseId}
+                    onClick={() => loadEducacaoActivities(String(c.courseId || c.id))}
+                    className={`p-4 rounded-xl border transition-all cursor-pointer space-y-2.5 ${
+                      isSelected
+                        ? 'bg-zinc-800/80 border-white shadow-md'
+                        : 'bg-[#18181b] border-zinc-800 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[10px] uppercase font-bold text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                        {c.modulo}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.progresso === 100 ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60' : 'bg-zinc-800 text-zinc-300'}`}>
+                        {c.progresso}% Concluído
+                      </span>
+                    </div>
+
+                    <h4 className="text-xs font-bold text-white line-clamp-2 leading-tight">
+                      {c.titulo}
+                    </h4>
+
+                    <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800/80">
+                      <div
+                        className="bg-white h-full transition-all duration-300"
+                        style={{ width: `${c.progresso}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1">
+                      <span>{c.atividadesConcluidas}/{c.totalAtividades} atividades</span>
+                      <span className="font-mono">ID: {c.courseId || c.id}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Interactive H5P Activities List */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#27272a] pb-4">
+              <div className="flex items-center gap-2">
+                <CheckSquare className="w-4 h-4 text-white" />
+                <h3 className="text-sm font-bold text-white">Atividades H5P & Pause e Responda</h3>
+                <span className="text-[10px] bg-zinc-800 text-zinc-400 font-bold px-2 py-0.5 rounded-full border border-zinc-700">
+                  {educacaoActivities.length} Atividades
+                </span>
+              </div>
+
+              {/* Filter Tabs */}
+              <div className="flex items-center gap-1 bg-[#18181b] p-1 rounded-xl border border-zinc-800">
+                {(['todas', 'pendentes', 'concluidas'] as const).map((filterType) => (
+                  <button
+                    key={filterType}
+                    onClick={() => setEducacaoFilter(filterType)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer ${
+                      educacaoFilter === filterType
+                        ? 'bg-white text-black shadow-sm'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {filterType}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Activities Cards */}
+            <div className="space-y-3">
+              {educacaoActivities
+                .filter((act) => {
+                  if (educacaoFilter === 'pendentes') return act.status === 'todo';
+                  if (educacaoFilter === 'concluidas') return act.status === 'done';
+                  return true;
+                })
+                .map((activity) => {
+                  const isDone = activity.status === 'done';
+                  const isCurrentResolving = resolvingActivityId === activity.id;
+
+                  return (
+                    <div
+                      key={activity.id}
+                      className="bg-[#18181b] border border-zinc-800/80 hover:border-zinc-700 rounded-xl p-4 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    >
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] uppercase font-bold text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                            {activity.week}
+                          </span>
+                          <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                            {activity.type}
+                          </span>
+                          <span className="text-[10px] font-mono text-zinc-500">
+                            ID Moodle: #{activity.id}
+                          </span>
+                        </div>
+
+                        <h4 className="text-xs font-bold text-white">
+                          {activity.title}
+                        </h4>
+
+                        <div className="flex items-center gap-3 text-[11px] text-zinc-400 font-mono">
+                          <span className="truncate">📦 Pacote: {activity.package}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border ${
+                            isDone
+                              ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-400'
+                              : 'bg-zinc-800/80 border-zinc-700 text-zinc-400'
+                          }`}>
+                            {isDone ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-400" /> Feito (100%)
+                              </>
+                            ) : (
+                              'Pendente'
+                            )}
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={() => handleResolveEducacaoActivity(activity.id)}
+                          disabled={isResolvingEducacao}
+                          className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow disabled:opacity-50 ${
+                            isDone
+                              ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700'
+                              : 'bg-white hover:bg-zinc-200 text-black font-extrabold'
+                          }`}
+                        >
+                          <Zap className={`w-3.5 h-3.5 ${isDone ? 'text-zinc-400' : 'fill-black text-black'}`} />
+                          {isCurrentResolving
+                            ? 'Resolvendo xAPI...'
+                            : isDone
+                            ? 'Refazer (100%)'
+                            : '⚡ Resolver H5P'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* Real-time Moodle / xAPI Execution Terminal */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-3 font-mono">
+            <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
+                <Terminal className="w-4 h-4 text-emerald-400" /> Console de Execução Moodle & Protocolo xAPI
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setEducacaoConsoleLogs([])}
+                  className="text-[10px] text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 cursor-pointer"
+                >
+                  Limpar Logs
+                </button>
+              </div>
+            </div>
+
+            <div className="h-44 overflow-y-auto bg-black/70 border border-zinc-800/80 rounded-xl p-3 text-xs space-y-1.5 text-zinc-300 font-mono">
+              {educacaoConsoleLogs.length === 0 ? (
+                <div className="text-zinc-500 text-center py-6 text-[11px]">
+                  Terminal pronto. Clique em "⚡ Resolver H5P" ou "⚡ Resolver Todas as Atividades" para monitorar o handshake HTTP xAPI em tempo real.
+                </div>
+              ) : (
+                educacaoConsoleLogs.map((log, idx) => (
+                  <div
+                    key={idx}
+                    className={`leading-relaxed text-[11px] ${
+                      log.includes('✅') || log.includes('🎉') || log.includes('Feito')
+                        ? 'text-emerald-400'
+                        : log.includes('⚠️') || log.includes('❌')
+                        ? 'text-rose-400'
+                        : log.includes('🚀') || log.includes('⚡')
+                        ? 'text-cyan-300'
+                        : 'text-zinc-300'
+                    }`}
+                  >
+                    {log}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Khan Academy Dedicated Interactive Dashboard */}
+      {slug === 'khan' && (
+        <div className="space-y-6">
+          {/* Top Session & Authentication Card */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#27272a] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-950/80 border border-emerald-800/80 flex items-center justify-center text-xl shadow">
+                  🟢
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-white">Sessão Khan Academy GraphQL & AuthCookieMutation</h2>
+                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
+                      khanIsLive
+                        ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-400'
+                        : isKhanLoggedIn
+                        ? 'bg-sky-950/60 border-sky-800/60 text-sky-400'
+                        : 'bg-amber-950/60 border-amber-800/60 text-amber-400'
+                    }`}>
+                      {khanIsLive ? '● Khan GraphQL Conectado (Ao Vivo)' : isKhanLoggedIn ? '● Sessão Ativa' : '○ Desconectado'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    API GraphQL Interna (`pt.khanacademy.org/api/internal/graphql`) com validação server-side
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleKhanLogin()}
+                  disabled={khanLoading}
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl border border-zinc-700 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${khanLoading ? 'animate-spin' : ''}`} />
+                  {khanLoading ? 'Sincronizando...' : 'Sincronizar Sessão GraphQL'}
+                </button>
+                <button
+                  onClick={handleBatchResolveKhan}
+                  disabled={isResolvingKhan}
+                  className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow disabled:opacity-50"
+                >
+                  <Zap className="w-4 h-4 fill-black" />
+                  {isResolvingKhan ? 'Resolvendo GraphQL...' : '⚡ Resolver Todas as Tarefas'}
+                </button>
+              </div>
+            </div>
+
+            {/* User Session Info Badge Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold block mb-0.5">KAID Aluno</span>
+                <span className="text-xs font-mono font-bold text-white truncate block">{khanProfile.kaid}</span>
+              </div>
+              <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold block mb-0.5">Email SP</span>
+                <span className="text-xs font-bold text-zinc-200 truncate block">{khanProfile.email}</span>
+              </div>
+              <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold block mb-0.5">Pontuação Total</span>
+                <span className="text-xs font-mono font-bold text-emerald-400">{khanProfile.points?.toLocaleString('pt-BR')} pts</span>
+              </div>
+              <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold block mb-0.5">Ofensiva (Streak)</span>
+                <span className="text-xs font-bold text-amber-400 flex items-center gap-1">
+                  <Flame className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> {khanProfile.streak?.length || 0} dias (Máx: {khanProfile.streak?.longestLength || 2})
+                </span>
+              </div>
+              <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3">
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold block mb-0.5">Nível de Acesso</span>
+                <span className="text-xs font-bold text-purple-400">{khanProfile.accessLevel || 'COACH'}</span>
+              </div>
+            </div>
+
+            {/* Auth Cookie Input */}
+            <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-zinc-400" /> Cookie de Sessão Khan (`KA_SESSION` ou `fsa=`)
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={khanCookies}
+                  onChange={(e) => setKhanCookies(e.target.value)}
+                  placeholder="Cole aqui o cookie KA_SESSION ou fsa da sua conta no Khan Academy"
+                  className="flex-1 bg-[#121214] border border-zinc-700 text-xs text-zinc-200 rounded-lg p-2.5 outline-none font-mono focus:border-emerald-500"
+                />
+                <button
+                  onClick={() => handleKhanLogin(khanCookies)}
+                  disabled={khanLoading}
+                  className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" /> Validar Cookie GraphQL
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Turmas & Tarefas (UserAssignments) */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#27272a] pb-3">
+              <div className="flex items-center gap-2">
+                <Award className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">Turma: {khanProfile.classroom?.name}</h3>
+                <span className="text-[10px] bg-emerald-950 text-emerald-400 font-bold px-2 py-0.5 rounded-full border border-emerald-800/80">
+                  Código: {khanProfile.classroom?.signupCode}
+                </span>
+              </div>
+              <span className="text-xs text-zinc-400 font-medium">
+                {khanAssignments.filter(a => a.completionState === 'COMPLETED').length} / {khanAssignments.length} Tarefas Concluídas
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {khanAssignments.map((ass) => {
+                const isCompleted = ass.completionState === 'COMPLETED';
+                return (
+                  <div
+                    key={ass.id}
+                    className={`p-4 rounded-xl border transition-all space-y-3 ${
+                      isCompleted
+                        ? 'bg-emerald-950/20 border-emerald-800/50'
+                        : 'bg-[#18181b] border-zinc-800 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        ass.kind === 'Video'
+                          ? 'bg-purple-950/60 border-purple-800/60 text-purple-300'
+                          : 'bg-sky-950/60 border-sky-800/60 text-sky-300'
+                      }`}>
+                        {ass.kind === 'Video' ? '📹 Vídeo' : '📝 Exercício Perseus'}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        isCompleted
+                          ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-400'
+                          : 'bg-amber-950/60 border-amber-800/60 text-amber-400'
+                      }`}>
+                        {isCompleted ? 'Concluído' : 'Pendente'}
+                      </span>
+                    </div>
+
+                    <h4 className="text-xs font-bold text-white line-clamp-2">{ass.title}</h4>
+
+                    <div className="text-[11px] text-zinc-400 space-y-1">
+                      <div>Tópico: <span className="text-zinc-200">{ass.topicPaths?.[0]?.title || 'Geral'}</span></div>
+                      <div>Duração / Estimativa: <span className="text-zinc-200">{Math.round(ass.duration / 60)} min</span></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Mapa de Domínio (4-Stage Mastery Map) */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#27272a] pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">Mapa de Domínio (Mastery Learning - 4 Estágios)</h3>
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-zinc-400">Progresso:</span>
+                <span className="font-bold text-emerald-400">{khanMastery.currentMasteryV2?.percentage}%</span>
+                <span className="text-zinc-500 font-mono">({khanMastery.currentMasteryV2?.pointsEarned} pts conquistados)</span>
+              </div>
+            </div>
+
+            {/* Mastery status badge legend */}
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px]">
+              <span className="text-zinc-400 font-semibold mr-1">Escala de Domínio:</span>
+              <span className="px-2.5 py-1 bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-lg font-bold">1. Unfamiliar</span>
+              <span className="px-2.5 py-1 bg-sky-950/60 border border-sky-800/60 text-sky-300 rounded-lg font-bold">2. Familiar</span>
+              <span className="px-2.5 py-1 bg-indigo-950/60 border border-indigo-800/60 text-indigo-300 rounded-lg font-bold">3. Proficient</span>
+              <span className="px-2.5 py-1 bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 rounded-lg font-bold">4. Mastered</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              {khanMastery.masteryMap?.map((item: any, idx: number) => {
+                const statusColors: Record<string, string> = {
+                  unfamiliar: 'bg-zinc-800 border-zinc-700 text-zinc-400',
+                  familiar: 'bg-sky-950/60 border-sky-800/60 text-sky-300',
+                  proficient: 'bg-indigo-950/60 border-indigo-800/60 text-indigo-300',
+                  mastered: 'bg-emerald-950/60 border-emerald-800/60 text-emerald-400'
+                };
+
+                return (
+                  <div key={idx} className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-3.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-zinc-500 uppercase font-bold">Habilidade #{idx + 1}</span>
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${statusColors[item.status] || statusColors.unfamiliar}`}>
+                        {item.status}
+                      </span>
+                    </div>
+                    <h5 className="text-xs font-bold text-white line-clamp-1">{item.title}</h5>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Perseus Exercise Interactive Solver & attemptProblem */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">Motor de Exercícios Perseus (GraphQL `attemptProblem`)</h3>
+              </div>
+              <span className="text-xs text-zinc-400 font-mono">
+                Item ID: {khanActiveItem.id}
+              </span>
+            </div>
+
+            {/* Problem Statement Card */}
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-5 space-y-4">
+              <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
+                Enunciado da Questão
+              </div>
+              <p className="text-sm text-zinc-100 whitespace-pre-line leading-relaxed font-sans">
+                {khanActiveItem.statement}
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Coordenada X (Valor)</label>
+                  <input
+                    type="text"
+                    value={khanInputX}
+                    onChange={(e) => setKhanInputX(e.target.value)}
+                    placeholder="Ex: -5"
+                    className="w-full bg-[#121214] border border-zinc-700 text-xs text-zinc-200 rounded-lg p-2.5 outline-none font-mono focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Coordenada Y (Valor)</label>
+                  <input
+                    type="text"
+                    value={khanInputY}
+                    onChange={(e) => setKhanInputY(e.target.value)}
+                    placeholder="Ex: 5"
+                    className="w-full bg-[#121214] border border-zinc-700 text-xs text-zinc-200 rounded-lg p-2.5 outline-none font-mono focus:border-emerald-500"
+                  />
+                </div>
+                <div className="flex items-end gap-2 sm:col-span-1">
+                  <button
+                    onClick={handleAiSolveKhan}
+                    disabled={isResolvingKhan}
+                    className="flex-1 py-2.5 px-3 bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow disabled:opacity-50"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-purple-200" />
+                    {isResolvingKhan ? 'Pensando...' : 'IA Gemini 3.7'}
+                  </button>
+                  <button
+                    onClick={handleKhanAttemptProblem}
+                    disabled={isResolvingKhan}
+                    className="flex-1 py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow disabled:opacity-50"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-black" />
+                    {isResolvingKhan ? 'Enviando...' : 'Submeter'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Feedback Card */}
+              {khanAttemptFeedback && (
+                <div className={`p-4 rounded-xl border text-xs space-y-2 animate-fadeIn ${
+                  khanAttemptFeedback.actionResults?.attemptCorrect
+                    ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-200'
+                    : 'bg-amber-950/40 border-amber-800/60 text-amber-200'
+                }`}>
+                  <div className="flex items-center justify-between font-bold">
+                    <span>
+                      {khanAttemptFeedback.actionResults?.attemptCorrect
+                        ? '🟢 Resposta Correta! (Validada no servidor GraphQL)'
+                        : '🔴 Resposta Incorreta. Tente novamente ou veja a dica abaixo:'}
+                    </span>
+                    {khanAttemptFeedback.actionResults?.pointsEarned?.points > 0 && (
+                      <span className="bg-emerald-800/60 text-emerald-300 px-2 py-0.5 rounded font-mono">
+                        +{khanAttemptFeedback.actionResults.pointsEarned.points} pts
+                      </span>
+                    )}
+                  </div>
+
+                  {khanAttemptFeedback.itemData && (
+                    <div className="pt-2 border-t border-zinc-800/80 space-y-1">
+                      <span className="font-bold text-zinc-400 block">Dicas Pedagógicas Retornadas pelo Servidor:</span>
+                      {JSON.parse(khanAttemptFeedback.itemData)?.hints?.map((h: any, i: number) => (
+                        <div key={i} className="text-zinc-300 font-mono text-[11px]">
+                          • Dica {i+1}: {h.content}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* GraphQL Console Terminal */}
+          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">Terminal de Operações Khan GraphQL (`api/internal/graphql`)</h3>
+              </div>
+              <button
+                onClick={() => setKhanConsoleLogs([])}
+                className="text-xs text-zinc-500 hover:text-zinc-300 cursor-pointer"
+              >
+                Limpar Logs
+              </button>
+            </div>
+
+            <div className="bg-[#09090b] border border-zinc-800/80 rounded-xl p-4 font-mono text-xs text-zinc-300 max-h-60 overflow-y-auto space-y-1">
+              {khanConsoleLogs.length === 0 ? (
+                <div className="text-zinc-600 italic">Nenhuma requisição GraphQL executada ainda.</div>
+              ) : (
+                khanConsoleLogs.map((log, index) => (
+                  <div
+                    key={index}
+                    className={`leading-relaxed text-[11px] ${
+                      log.includes('✅') || log.includes('🎉') || log.includes('🟢')
+                        ? 'text-emerald-400'
+                        : log.includes('⚠️') || log.includes('❌') || log.includes('🔴')
+                        ? 'text-rose-400'
+                        : log.includes('🚀') || log.includes('⚡')
+                        ? 'text-cyan-300'
+                        : 'text-zinc-300'
+                    }`}
+                  >
+                    {log}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

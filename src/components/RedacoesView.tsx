@@ -30,10 +30,10 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
   
-  // Min and Max time configuration
-  const [minTimeSec, setMinTimeSec] = useState<number>(60);
-  const [maxTimeSec, setMaxTimeSec] = useState<number>(180);
-  const [preset, setPreset] = useState<'rapido' | 'normal' | 'seguro' | 'custom'>('rapido');
+  // Min and Max time configuration (Min 30s, Max 60s)
+  const [minTimeSec, setMinTimeSec] = useState<number>(30);
+  const [maxTimeSec, setMaxTimeSec] = useState<number>(60);
+  const [preset, setPreset] = useState<'turbo' | 'rapido' | 'normal' | 'seguro' | 'custom'>('rapido');
   const [mode, setMode] = useState<'draft' | 'submitted'>('draft');
 
   const pendingCount = redacoes.filter(t => !isTaskExpired(t) && t.answer_status !== 'draft').length;
@@ -70,17 +70,20 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({
     setSelectedIds(new Set());
   };
 
-  const handlePresetChange = (p: 'rapido' | 'normal' | 'seguro' | 'custom') => {
+  const handlePresetChange = (p: 'turbo' | 'rapido' | 'normal' | 'seguro' | 'custom') => {
     setPreset(p);
-    if (p === 'rapido') {
-      setMinTimeSec(60);
-      setMaxTimeSec(180);
+    if (p === 'turbo') {
+      setMinTimeSec(30);
+      setMaxTimeSec(45);
+    } else if (p === 'rapido') {
+      setMinTimeSec(30);
+      setMaxTimeSec(60);
     } else if (p === 'normal') {
-      setMinTimeSec(180);
-      setMaxTimeSec(360);
+      setMinTimeSec(60);
+      setMaxTimeSec(120);
     } else if (p === 'seguro') {
-      setMinTimeSec(480);
-      setMaxTimeSec(720);
+      setMinTimeSec(120);
+      setMaxTimeSec(240);
     }
   };
 
@@ -294,7 +297,22 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({
                 <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider font-mono">
                   Presets de Velocidade (Anti-Ban)
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePresetChange('turbo')}
+                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                      preset === 'turbo'
+                        ? 'border-white bg-zinc-800 text-white font-bold'
+                        : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-extrabold text-white">
+                      <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> Turbo
+                    </div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">30s — 45s</div>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => handlePresetChange('rapido')}
@@ -307,7 +325,7 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({
                     <div className="flex items-center gap-1.5 font-extrabold text-white">
                       <Zap className="w-3.5 h-3.5 text-red-500 fill-red-500" /> Rápido
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 1 min • Máx 3 min</div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">30s — 1 min (Padrão)</div>
                   </button>
 
                   <button
@@ -320,9 +338,24 @@ export const RedacoesView: React.FC<RedacoesViewProps> = ({
                     }`}
                   >
                     <div className="flex items-center gap-1.5 font-extrabold text-white">
-                      <Clock className="w-3.5 h-3.5 text-zinc-300" /> Normal
+                      <Clock className="w-3.5 h-3.5 text-zinc-300" /> Moderado
                     </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">Mín 3 min • Máx 6 min</div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">1m — 2m</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handlePresetChange('seguro')}
+                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                      preset === 'seguro'
+                        ? 'border-white bg-zinc-800 text-white font-bold'
+                        : 'border-[#27272a] bg-[#18181b] text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-extrabold text-white">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Seguro
+                    </div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">2m — 4m</div>
                   </button>
                 </div>
               </div>
