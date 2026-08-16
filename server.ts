@@ -8127,6 +8127,53 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
         }
     });
 
+    // 8. Proxy HTTP Centralizado Elefante Letrado / LeiaSP (Para Modo REAL)
+    app.all("/api/leiasp/proxy*", async (req, res) => {
+        try {
+            const rawPath = req.url.replace(/^\/api\/leiasp\/proxy/, '');
+            const targetPath = rawPath || '/';
+            const baseUrl = 'https://prod-apistudent.elefanteletrado.com.br';
+            const fullTargetUrl = `${baseUrl}${targetPath}`;
+
+            const userAuth = String(req.headers['authorization'] || '').trim();
+            const headers: Record<string, string> = {
+                'accept': 'application/json, text/plain, */*',
+                'content-type': req.headers['content-type'] || 'application/json',
+                'origin': 'https://em.elefanteletrado.com.br',
+                'referer': 'https://em.elefanteletrado.com.br/'
+            };
+
+            if (userAuth) {
+                headers['authorization'] = userAuth;
+            }
+
+            console.log(`[LeiaSP Proxy] ${req.method} -> ${fullTargetUrl}`);
+
+            const response = await fetchWithGotScraping(fullTargetUrl, {
+                method: req.method,
+                headers,
+                body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
+                timeoutMs: 8000,
+                maxRetries: 1
+            });
+
+            res.status(response.status || 200);
+            if (response.text) {
+                try {
+                    const parsed = JSON.parse(response.text);
+                    res.json(parsed);
+                } catch {
+                    res.send(response.text);
+                }
+            } else {
+                res.end();
+            }
+        } catch (e: any) {
+            console.error("[LeiaSP Proxy Error]", e.message);
+            res.status(502).json({ error: "Erro na comunicação proxy do Elefante Letrado", details: e.message });
+        }
+    });
+
     // ==========================================
     // SPEAK (INGLÊS) ENDPOINTS COM FALLBACK
     // ==========================================

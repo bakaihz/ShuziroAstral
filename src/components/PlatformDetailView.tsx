@@ -6,6 +6,13 @@ import {
   Mic, Headphones, MessageSquare, GraduationCap, FileText, CheckCheck, Target, Compass, Plus
 } from 'lucide-react';
 import { UserData } from '../types';
+import { Library as LibraryView } from './Library';
+import { BookComponent } from './Book';
+import { ReaderComponent } from './Reader';
+import { QuizComponent } from './Quiz';
+import { ProfileComponent } from './Profile';
+import { getEnvironment, setMode, AppMode } from '../config/environment';
+import { AuthManager } from '../api/auth';
 
 export interface PlatformInfo {
   slug: string;
@@ -1006,6 +1013,9 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
     loading: boolean;
     solved: boolean;
   } | null>(null);
+  const [leiaAppMode, setLeiaAppMode] = useState<AppMode>('MOCK');
+  const [activeLeiaView, setActiveLeiaView] = useState<'library' | 'book' | 'reader' | 'quiz' | 'profile'>('library');
+  const [selectedBookForView, setSelectedBookForView] = useState<any>(null);
   const [showAddBookForm, setShowAddBookForm] = useState(false);
   const [newBookTitle, setNewBookTitle] = useState('');
   const [newBookAuthor, setNewBookAuthor] = useState('');
@@ -1057,6 +1067,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
         setIsLeiaLoggedIn(true);
         const resolvedToken = data.token || data.userSession?.leia_token || targetVal || userData?.auth_token;
         setLeiaToken(resolvedToken);
+        AuthManager.setToken(resolvedToken);
         addLeiaLog(`✅ Login do LeiaSP realizado com sucesso! Aluno: ${data.userSession?.name || userData?.nome || 'Conectado'}`);
         await loadLeiaData(resolvedToken);
       } else {
@@ -4378,6 +4389,170 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                   {leiaLoading ? 'Conectando...' : 'Trocar Token SSO'}
                 </button>
               </div>
+            </div>
+
+            {/* Mode Switcher & Architecture Navigation */}
+            <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-3 flex flex-col md:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+                <button
+                  onClick={() => setActiveLeiaView('library')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    activeLeiaView === 'library'
+                      ? 'bg-amber-500 text-black shadow'
+                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  Biblioteca (LibraryAPI)
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (!selectedBookForView && leiaBooks.length > 0) {
+                      setSelectedBookForView(leiaBooks[0]);
+                    }
+                    setActiveLeiaView('book');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    activeLeiaView === 'book'
+                      ? 'bg-amber-500 text-black shadow'
+                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Livro (BooksAPI)
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (!selectedBookForView && leiaBooks.length > 0) {
+                      setSelectedBookForView(leiaBooks[0]);
+                    }
+                    setActiveLeiaView('reader');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    activeLeiaView === 'reader'
+                      ? 'bg-amber-500 text-black shadow'
+                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  Leitor (ReadingAPI)
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (!selectedBookForView && leiaBooks.length > 0) {
+                      setSelectedBookForView(leiaBooks[0]);
+                    }
+                    setActiveLeiaView('quiz');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    activeLeiaView === 'quiz'
+                      ? 'bg-amber-500 text-black shadow'
+                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  Quiz (QuizAPI)
+                </button>
+
+                <button
+                  onClick={() => setActiveLeiaView('profile')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    activeLeiaView === 'profile'
+                      ? 'bg-amber-500 text-black shadow'
+                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <GraduationCap className="w-3.5 h-3.5" />
+                  Perfil (StudentAPI)
+                </button>
+              </div>
+
+              {/* MOCK vs REAL Mode Toggle */}
+              <div className="flex items-center gap-2 bg-[#09090b] border border-zinc-800 p-1 rounded-lg shrink-0">
+                <span className="text-[10px] font-bold text-zinc-400 px-1">Modo:</span>
+                <button
+                  onClick={() => {
+                    setLeiaAppMode('MOCK');
+                    setMode('MOCK');
+                  }}
+                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                    leiaAppMode === 'MOCK'
+                      ? 'bg-amber-500 text-black font-extrabold'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  MOCK
+                </button>
+                <button
+                  onClick={() => {
+                    setLeiaAppMode('REAL');
+                    setMode('REAL');
+                  }}
+                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                    leiaAppMode === 'REAL'
+                      ? 'bg-emerald-500 text-black font-extrabold'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  REAL (Proxy HTTP)
+                </button>
+              </div>
+            </div>
+
+            {/* Architecture Interactive View Render */}
+            <div className="pt-2">
+              {activeLeiaView === 'library' && (
+                <LibraryView
+                  onSelectBook={(bookId) => {
+                    const found = leiaBooks.find(b => String(b.id) === String(bookId)) || {
+                      id: bookId,
+                      title: `Obra #${bookId}`,
+                      author: 'Autor Selecionado',
+                      genre: 'Literatura Brasileira',
+                      totalPages: 81,
+                      currentPage: 1
+                    };
+                    setSelectedBookForView(found);
+                    setActiveLeiaView('book');
+                  }}
+                />
+              )}
+
+              {activeLeiaView === 'book' && (
+                <BookComponent
+                  bookId={selectedBookForView?.id || 6565}
+                  onBack={() => setActiveLeiaView('library')}
+                  onStartReading={(bookDetail) => {
+                    setSelectedBookForView(bookDetail);
+                    setActiveLeiaView('reader');
+                  }}
+                />
+              )}
+
+              {activeLeiaView === 'reader' && (
+                <ReaderComponent
+                  book={selectedBookForView || { id: 6565, title: 'Dom Casmurro', totalPages: 81, currentPage: 1, author: 'Machado de Assis', genre: 'Literatura Clássica' }}
+                  onClose={() => setActiveLeiaView('library')}
+                  onOpenQuiz={() => setActiveLeiaView('quiz')}
+                />
+              )}
+
+              {activeLeiaView === 'quiz' && (
+                <QuizComponent
+                  bookId={selectedBookForView?.id || 6565}
+                  onBack={() => setActiveLeiaView('library')}
+                  onComplete={() => {
+                    addLeiaLog(`🎉 Quiz da obra #${selectedBookForView?.id || 6565} submetido com nota máxima!`);
+                  }}
+                />
+              )}
+
+              {activeLeiaView === 'profile' && (
+                <ProfileComponent />
+              )}
             </div>
 
             {/* Termômetro Semanal & Estatísticas */}
