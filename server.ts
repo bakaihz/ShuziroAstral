@@ -7784,7 +7784,7 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
     // 1. Troca de token OAuth SEDUC -> Elefante Letrado / LeiaSP
     app.post("/api/leiasp/oauth-exchange", async (req, res) => {
         try {
-            const { inputUrlOrToken, authToken } = req.body || {};
+            const { inputUrlOrToken, authToken, customBooks } = req.body || {};
             let targetToken = inputUrlOrToken || authToken || '';
 
             if (targetToken.includes('?token=')) {
@@ -7793,6 +7793,8 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
                 targetToken = targetToken.split('?t=')[1].split('&')[0];
             } else if (targetToken.includes('token=')) {
                 targetToken = targetToken.split('token=')[1].split('&')[0];
+            } else if (targetToken.includes('ticket=')) {
+                targetToken = targetToken.split('ticket=')[1].split('&')[0];
             }
 
             targetToken = decodeURIComponent(targetToken.trim());
@@ -7800,7 +7802,39 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
                 targetToken = 'leiasp_token_' + Date.now();
             }
 
-            // Tenta troca direta com a API do Elefante Letrado de forma isolada e rápida
+            // Se o cliente forneceu livros customizados na requisição, armazena imediatamente
+            if (customBooks && Array.isArray(customBooks) && customBooks.length > 0) {
+                leiaUserCatalogs.set(targetToken, customBooks);
+            }
+
+            // 1. Teste instantâneo de JWT (0ms, sem requisição de rede)
+            try {
+                const parts = targetToken.split('.');
+                if (parts.length >= 2) {
+                    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+                    const name = payload.Nome || payload.name || payload.given_name || payload.Login || 'Aluno LeiaSP';
+                    const ra = payload.Login ? String(payload.Login).replace(/\D/g, '').slice(0, -1) : '114371854';
+                    const digito = payload.Login ? String(payload.Login).replace(/\D/g, '').slice(-1) : '9';
+                    const userSession = {
+                        auth_token: targetToken,
+                        leia_token: targetToken,
+                        name,
+                        ra: ra || '114371854',
+                        digito: digito || '9',
+                        school: payload.Escola || 'Seduc SP - LeiaSP',
+                        classroom: payload.Turma || 'Ensino Médio'
+                    };
+                    leiaSessions.set(targetToken, {
+                        token: targetToken,
+                        cookies: '',
+                        expiry: Date.now() + 1000 * 60 * 60 * 24,
+                        userMeta: userSession
+                    });
+                    return res.json({ success: true, userSession, token: targetToken, source: 'jwt_instant' });
+                }
+            } catch {}
+
+            // 2. Tenta troca direta com a API do Elefante Letrado (1.5s max, 0 retries)
             let exchangedSuccess = false;
             let exchangedData: any = null;
 
@@ -7812,7 +7846,8 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
                         'origin': 'https://em.elefanteletrado.com.br',
                         'referer': 'https://em.elefanteletrado.com.br/'
                     },
-                    timeoutMs: 3500
+                    timeoutMs: 1800,
+                    maxRetries: 0
                 });
 
                 if (exchangeRes.ok && exchangeRes.text) {
@@ -7822,7 +7857,7 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
                     } catch {}
                 }
             } catch (err: any) {
-                console.log("[LeiaSP OAuth] Elefante Letrado externo indisponível/timeout (usando fallback JWT/SSO):", err.message);
+                console.log("[LeiaSP OAuth] Elefante Letrado externo indisponível/timeout (usando fallback SSO direto):", err.message);
             }
 
             if (exchangedSuccess && exchangedData) {
@@ -7844,31 +7879,7 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
                 return res.json({ success: true, userSession, token: userSession.leia_token, source: 'elefante_api' });
             }
 
-            // Fallback 1: se for JWT parseável
-            try {
-                const parts = targetToken.split('.');
-                if (parts.length >= 2) {
-                    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-                    const userSession = {
-                        auth_token: targetToken,
-                        leia_token: targetToken,
-                        name: payload.Nome || payload.name || payload.Login || 'Aluno LeiaSP',
-                        ra: payload.Login ? String(payload.Login).replace(/\D/g, '').slice(0, -1) : '114371854',
-                        digito: payload.Login ? String(payload.Login).replace(/\D/g, '').slice(-1) : '9',
-                        school: payload.Escola || 'Seduc SP - LeiaSP',
-                        classroom: payload.Turma || 'Ensino Médio'
-                    };
-                    leiaSessions.set(targetToken, {
-                        token: targetToken,
-                        cookies: '',
-                        expiry: Date.now() + 1000 * 60 * 60 * 24,
-                        userMeta: userSession
-                    });
-                    return res.json({ success: true, userSession, token: targetToken, source: 'jwt_payload' });
-                }
-            } catch {}
-
-            // Fallback 2: Sessão direta garantida (evita qualquer travamento)
+            // 3. Fallback: Sessão direta garantida (evita qualquer travamento)
             const userSession = {
                 auth_token: targetToken,
                 leia_token: targetToken,

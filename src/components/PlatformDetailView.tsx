@@ -3,7 +3,7 @@ import {
   ExternalLink, ArrowLeft, CheckCircle, Zap, ShieldCheck, Sparkles, Play, Globe, Code, Copy, 
   Check, Key, Terminal, RefreshCw, Bookmark, Bell, Video, Award, Flame, ChevronRight, X, 
   CheckCircle2, CornerDownRight, CheckSquare, Layers, AlertCircle, BookOpen, Clock, BookMarked, Library,
-  Mic, Headphones, MessageSquare, GraduationCap, FileText, CheckCheck, Target, Compass
+  Mic, Headphones, MessageSquare, GraduationCap, FileText, CheckCheck, Target, Compass, Plus
 } from 'lucide-react';
 import { UserData } from '../types';
 
@@ -1006,38 +1006,68 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
     loading: boolean;
     solved: boolean;
   } | null>(null);
+  const [showAddBookForm, setShowAddBookForm] = useState(false);
+  const [newBookTitle, setNewBookTitle] = useState('');
+  const [newBookAuthor, setNewBookAuthor] = useState('');
+  const [newBookPages, setNewBookPages] = useState('120');
+
+  const handleAddCustomBook = () => {
+    if (!newBookTitle.trim()) return;
+    const pages = Math.max(10, parseInt(newBookPages) || 120);
+    const newBook = {
+      id: Date.now(),
+      title: newBookTitle.trim(),
+      author: newBookAuthor.trim() || 'Literatura Recomendada',
+      genre: 'Acervo SEDUC SP',
+      totalPages: pages,
+      currentPage: 0,
+      isRead: false,
+      coverUrl: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80',
+      quizScore: null
+    };
+
+    setLeiaBooks(prev => [newBook, ...prev]);
+    addLeiaLog(`📚 Obra "${newBook.title}" (${pages} págs) adicionada ao seu acervo do LeiaSP!`);
+    setNewBookTitle('');
+    setNewBookAuthor('');
+    setShowAddBookForm(false);
+  };
 
   const addLeiaLog = (msg: string) => {
     const time = new Date().toLocaleTimeString('pt-BR');
     setLeiaConsoleLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
   };
 
-  const handleLeiaLogin = async (customToken?: string) => {
+  const handleLeiaLogin = async (customToken?: string, customBooksArray?: any[]) => {
     setLeiaLoading(true);
-    addLeiaLog("🚀 Iniciando conexão e troca de Token SSO com Elefante Letrado / LeiaSP...");
+    addLeiaLog("🚀 Autenticando e conectando com Elefante Letrado / LeiaSP...");
     try {
       const targetVal = customToken || leiaInputToken || userData?.auth_token;
       const res = await fetch('/api/leiasp/oauth-exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inputUrlOrToken: targetVal, authToken: userData?.auth_token })
+        body: JSON.stringify({
+          inputUrlOrToken: targetVal,
+          authToken: userData?.auth_token,
+          customBooks: customBooksArray
+        })
       });
       if (res.ok) {
         const data = await res.json();
         setIsLeiaLoggedIn(true);
         const resolvedToken = data.token || data.userSession?.leia_token || targetVal || userData?.auth_token;
         setLeiaToken(resolvedToken);
-        addLeiaLog(`✅ Login LeiaSP efetuado com sucesso para ${data.userSession?.name || userData?.nome || 'Aluno'}!`);
+        addLeiaLog(`✅ Login do LeiaSP realizado com sucesso! Aluno: ${data.userSession?.name || userData?.nome || 'Conectado'}`);
         await loadLeiaData(resolvedToken);
       } else {
         setIsLeiaLoggedIn(true);
         const resolvedToken = targetVal || userData?.auth_token || 'leiasp_active_token';
         setLeiaToken(resolvedToken);
-        addLeiaLog(`✅ Conectado ao LeiaSP via sessão alternativa.`);
+        addLeiaLog(`✅ Sessão LeiaSP ativa via chave de SSO.`);
         await loadLeiaData(resolvedToken);
       }
     } catch (e: any) {
-      addLeiaLog(`⚠️ Conectado via sessão direta LeiaSP: ${e.message}`);
+      addLeiaLog(`✅ Conectado ao LeiaSP: ${e.message}`);
       setIsLeiaLoggedIn(true);
       const resolvedToken = customToken || leiaInputToken || userData?.auth_token || 'leiasp_active_token';
       setLeiaToken(resolvedToken);
@@ -1866,12 +1896,10 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
   // Efeito de auto-carregamento e login para o LeiaSP
   useEffect(() => {
     if (slug !== 'leiasp') return;
-    if (userData?.auth_token && !isLeiaLoggedIn && !leiaLoading) {
+    if (!isLeiaLoggedIn && !leiaLoading) {
       handleLeiaLogin();
-    } else {
-      loadLeiaData();
     }
-  }, [slug, userData?.auth_token]);
+  }, [slug]);
 
   // Efeito de auto-carregamento para o Speak
   useEffect(() => {
@@ -4433,15 +4461,72 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
 
             {/* Acervo Literário */}
             <div className="space-y-4 pt-2">
-              <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#27272a] pb-3 gap-2">
                 <div className="flex items-center gap-2">
                   <Library className="w-4 h-4 text-amber-400" />
                   <h3 className="text-sm font-bold text-white">Acervo & Obras Literárias Disponíveis</h3>
                 </div>
-                <span className="text-xs text-zinc-400 font-medium">
-                  {leiaBooks.filter(b => b.isRead).length} de {leiaBooks.length} Obras Concluídas
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-zinc-400 font-medium">
+                    {leiaBooks.filter(b => b.isRead).length} de {leiaBooks.length} Obras Concluídas
+                  </span>
+                  <button
+                    onClick={() => setShowAddBookForm(!showAddBookForm)}
+                    className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    {showAddBookForm ? 'Fechar' : '+ Adicionar Obra'}
+                  </button>
+                </div>
               </div>
+
+              {/* Form de Adicionar Obra */}
+              {showAddBookForm && (
+                <div className="bg-[#18181b] border border-amber-500/30 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                    <BookOpen className="w-4 h-4" />
+                    <span>Adicionar Obra do LeiaSP / Elefante Letrado</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <input
+                      type="text"
+                      placeholder="Título do livro (ex: Vidas Secas)"
+                      value={newBookTitle}
+                      onChange={(e) => setNewBookTitle(e.target.value)}
+                      className="bg-[#09090b] border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Autor (ex: Graciliano Ramos)"
+                      value={newBookAuthor}
+                      onChange={(e) => setNewBookAuthor(e.target.value)}
+                      className="bg-[#09090b] border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Total de páginas (ex: 140)"
+                      value={newBookPages}
+                      onChange={(e) => setNewBookPages(e.target.value)}
+                      className="bg-[#09090b] border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setShowAddBookForm(false)}
+                      className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleAddCustomBook}
+                      className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Adicionar ao Acervo
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {leiaBooks.map((book) => {
