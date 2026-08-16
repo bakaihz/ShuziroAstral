@@ -57,10 +57,10 @@ const CORS_HEADERS = {
 
 // Armazenamento de sessão de verificação anti-bot e fingerprint Chromium extraído
 let activeClientSession = {
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
     platform: 'Win32',
     language: 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-    secChUa: '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"',
+    secChUa: '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
     secChUaMobile: '?0',
     secChUaPlatform: '"Windows"',
     cookies: '',

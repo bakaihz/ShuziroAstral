@@ -5,6 +5,8 @@ export interface UserData {
   nome: string;
   escola: string;
   serie: string;
+  ra?: string;
+  password?: string;
   codigoAluno?: number | string;
   codigoTurma?: number | string;
   email?: string;
@@ -38,6 +40,8 @@ export interface FrequenciaItem {
   turmaId?: number;
   disciplinaId?: number;
   nomeDisciplina: string;
+  quantidadeAulasRealizadas?: number;
+  quantidadeAulasPlanejadas?: number;
   numeroPresencasBimestre?: number;
   numeroFaltasBimestre?: number;
   faltasBimestreAtual?: number;
