@@ -9,6 +9,7 @@ export interface BookDetail {
   totalPages: number;
   currentPage: number;
   contentUrl?: string;
+  epubUrl?: string;
   coverUrl?: string;
   description?: string;
 }

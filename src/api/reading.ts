@@ -44,12 +44,13 @@ export const ReadingAPI = {
     return ApiClient.post(`/v1/reading-monitor/read/${bookId}`, dataToSend);
   },
 
-  async closeBook(bookId: string | number): Promise<ApiResponse<any>> {
+  async closeBook(bookId: string | number, currentPageTime: number = 0): Promise<ApiResponse<any>> {
     const env = getEnvironment();
+    const endpoint = `/v1/book-reading/close-book/${bookId}/0?currentPageTime=${currentPageTime}`;
     if (env.mode === 'MOCK') {
-      ApiClient.post(`/v1/book-reading/close-book/${bookId}/0`);
-      return { status: 200, data: { message: "Sessão de leitura encerrada com sucesso." }, ok: true };
+      ApiClient.post(endpoint);
+      return { status: 200, data: { message: "Sessão de leitura encerrada com sucesso.", bookId, currentPageTime }, ok: true };
     }
-    return ApiClient.post(`/v1/book-reading/close-book/${bookId}/0`);
+    return ApiClient.post(endpoint);
   }
 };

@@ -3,7 +3,7 @@ import {
   ExternalLink, ArrowLeft, CheckCircle, Zap, ShieldCheck, Sparkles, Play, Globe, Code, Copy, 
   Check, Key, Terminal, RefreshCw, Bookmark, Bell, Video, Award, Flame, ChevronRight, X, 
   CheckCircle2, CornerDownRight, CheckSquare, Layers, AlertCircle, BookOpen, Clock, BookMarked, Library,
-  Mic, Headphones, MessageSquare, GraduationCap, FileText, CheckCheck, Target, Compass, Plus
+  Mic, Headphones, MessageSquare, GraduationCap, FileText, CheckCheck, Target, Compass, Plus, Wrench
 } from 'lucide-react';
 import { UserData } from '../types';
 import { Library as LibraryView } from './Library';
@@ -175,6 +175,8 @@ const getBackendUrl = () => {
   return DEFAULT_BACKEND_URL;
 };
 
+const ALLOWED_PLATFORMS = new Set(['alura', 'khan', 'tarefas', 'redacoes', 'leiasp']);
+
 export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
   slug,
   userData,
@@ -183,6 +185,61 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
   pingStatus
 }) => {
   const platform = PLATFORMS_DATA[slug] || PLATFORMS_DATA['matific'];
+
+  // Block access to platforms that are in maintenance
+  if (!ALLOWED_PLATFORMS.has(slug)) {
+    return (
+      <div className="space-y-6 max-w-4xl mx-auto py-8">
+        <button
+          onClick={onBack}
+          className="px-4 py-2 bg-[#121214] hover:bg-[#18181b] border border-[#27272a] text-zinc-300 rounded-xl text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Voltar para Plataformas
+        </button>
+
+        <div className="bg-[#121214] border border-red-900/50 rounded-3xl p-8 sm:p-12 text-center space-y-6 shadow-2xl relative overflow-hidden">
+          <div className="w-20 h-20 rounded-3xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-4xl mx-auto shadow-inner">
+            🛠️
+          </div>
+
+          <div className="space-y-2 max-w-md mx-auto">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/80 border border-red-800 text-red-400 text-xs font-bold animate-pulse">
+              <Wrench className="w-3.5 h-3.5" />
+              Em Manutenção Temporária
+            </div>
+            <h2 className="text-2xl font-black text-white tracking-tight">
+              {platform?.nome || 'Plataforma'} em Manutenção
+            </h2>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Esta plataforma está passando por manutenção de servidores e banco de dados. Ninguém conseguirá acessar ou executar tarefas nesta ferramenta até que a manutenção seja concluída.
+            </p>
+          </div>
+
+          <div className="bg-[#18181b] border border-zinc-800 rounded-2xl p-4 max-w-sm mx-auto text-left text-xs space-y-2">
+            <div className="flex items-center justify-between text-zinc-400">
+              <span>Status do Acesso:</span>
+              <span className="font-bold text-red-400">Bloqueado para Manutenção</span>
+            </div>
+            <div className="flex items-center justify-between text-zinc-400">
+              <span>Plataformas Ativas:</span>
+              <span className="font-bold text-emerald-400">Alura, Khan, Tarefas, Redação, LeiaSP</span>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={onBack}
+              className="px-6 py-3 bg-white hover:bg-zinc-200 text-black font-extrabold text-xs rounded-xl transition-all cursor-pointer shadow-lg"
+            >
+              Voltar para as Plataformas Ativas
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const [copied, setCopied] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [simProgress, setSimProgress] = useState(0);
@@ -1910,7 +1967,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
     if (!isLeiaLoggedIn && !leiaLoading) {
       handleLeiaLogin();
     }
-  }, [slug]);
+  }, [slug, userData?.auth_token]);
 
   // Efeito de auto-carregamento para o Speak
   useEffect(() => {
@@ -4365,30 +4422,34 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
               </div>
             </div>
 
-            {/* SSO Token / URL Manual Connection Input */}
-            <div className="bg-[#18181b] border border-amber-900/30 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-3">
-              <div className="flex-1 w-full space-y-1">
-                <label className="text-[11px] font-semibold text-amber-400 uppercase tracking-wider block">
-                  Link ou Token SSO LeiaSP / Elefante Letrado
-                </label>
-                <input
-                  type="text"
-                  placeholder="Cole o link com token SED (ex: https://leiasp.ip.tv/?token=... ou token JWT)"
-                  value={leiaInputToken}
-                  onChange={(e) => setLeiaInputToken(e.target.value)}
-                  className="w-full bg-[#09090b] border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500 font-mono"
-                />
+            {/* Status da Autenticação Automática LeiaSP */}
+            <div className="bg-[#18181b] border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                  <CheckCheck className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-white">Autenticação Automática LeiaSP / Elefante Letrado</h4>
+                    <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-950 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-800">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                      Sessão Ativa
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Autenticação SSO realizada automaticamente em segundo plano via token da sessão do aluno.
+                  </p>
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-                <button
-                  onClick={() => handleLeiaLogin()}
-                  disabled={leiaLoading}
-                  className="w-full sm:w-auto px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow disabled:opacity-50"
-                >
-                  <Zap className="w-3.5 h-3.5 fill-black" />
-                  {leiaLoading ? 'Conectando...' : 'Trocar Token SSO'}
-                </button>
-              </div>
+
+              <button
+                onClick={() => handleLeiaLogin()}
+                disabled={leiaLoading}
+                className="px-3 py-1.5 bg-[#09090b] hover:bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${leiaLoading ? 'animate-spin' : ''}`} />
+                {leiaLoading ? 'Sincronizando...' : 'Reautenticar Sessão'}
+              </button>
             </div>
 
             {/* Mode Switcher & Architecture Navigation */}
@@ -4551,7 +4612,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
               )}
 
               {activeLeiaView === 'profile' && (
-                <ProfileComponent />
+                <ProfileComponent userData={userData} />
               )}
             </div>
 

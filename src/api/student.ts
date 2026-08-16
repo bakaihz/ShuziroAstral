@@ -1,21 +1,35 @@
 import { ApiClient, ApiResponse } from './client';
 import { getEnvironment } from '../config/environment';
+import { UserData } from '../types';
 
 export const StudentAPI = {
-  async getStudent(): Promise<ApiResponse<any>> {
+  async getStudent(userData?: UserData): Promise<ApiResponse<any>> {
     const env = getEnvironment();
     if (env.mode === 'MOCK') {
       ApiClient.get('/v1.5/student');
+      let raStr = userData?.ra || "";
+      let digitoStr = userData?.digito || "";
+
+      if (raStr) {
+        const clean = String(raStr).replace(/sp$/i, '');
+        if (!digitoStr && clean.length > 1) {
+          raStr = clean.slice(0, -1);
+          digitoStr = clean.slice(-1);
+        } else {
+          raStr = clean;
+        }
+      }
+
       return {
         status: 200,
         data: {
-          id: "std_114371854",
-          name: "Aluno Conectado - LeiaSP",
-          ra: "114371854",
-          digito: "9",
+          id: `std_${userData?.ra || 'active'}`,
+          name: userData?.nome || userData?.nick || "Aluno Conectado",
+          ra: raStr || userData?.ra || "",
+          digito: digitoStr || userData?.digito || "SP",
           uf: "SP",
-          grade: "Ensino Médio",
-          schoolName: "E.E. Professor Gabriel - SEDUC SP"
+          grade: userData?.serie || "Ensino Médio",
+          schoolName: userData?.escola || "SEDUC SP"
         },
         ok: true
       };

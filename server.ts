@@ -8174,6 +8174,63 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
         }
     });
 
+    // 8b. CDN Proxy EPUB (HTTP Range Requests Elefante Letrado)
+    app.all("/api/leiasp/cdn-proxy", async (req, res) => {
+        try {
+            const targetUrl = String(req.query.url || '');
+            if (!targetUrl) {
+                return res.status(400).json({ error: "URL do EPUB não informada" });
+            }
+
+            const rangeHeader = req.headers['range'];
+            const headers: Record<string, string> = {
+                'accept': 'application/epub+zip, */*',
+                'origin': 'https://reader.elefanteletrado.com.br',
+                'referer': 'https://reader.elefanteletrado.com.br/'
+            };
+
+            if (rangeHeader) {
+                headers['range'] = String(rangeHeader);
+            }
+
+            console.log(`[LeiaSP CDN Proxy] Range: ${rangeHeader || 'FULL'} -> ${targetUrl}`);
+
+            const response: any = await fetchWithGotScraping(targetUrl, {
+                method: 'GET',
+                headers,
+                timeoutMs: 12000,
+                maxRetries: 1
+            });
+
+            const statusCode = response.status || 200;
+            res.status(statusCode);
+
+            // Repassar headers de Range importantes
+            if (response.headers?.['content-range']) {
+                res.setHeader('Content-Range', response.headers['content-range']);
+            }
+            if (response.headers?.['accept-ranges']) {
+                res.setHeader('Accept-Ranges', response.headers['accept-ranges']);
+            }
+            if (response.headers?.['content-type']) {
+                res.setHeader('Content-Type', response.headers['content-type']);
+            } else {
+                res.setHeader('Content-Type', 'application/epub+zip');
+            }
+
+            if (response.rawBody) {
+                res.send(response.rawBody);
+            } else if (response.text) {
+                res.send(response.text);
+            } else {
+                res.end();
+            }
+        } catch (e: any) {
+            console.error("[LeiaSP CDN Proxy Error]", e.message);
+            res.status(502).json({ error: "Erro ao carregar range do EPUB", details: e.message });
+        }
+    });
+
     // ==========================================
     // SPEAK (INGLÊS) ENDPOINTS COM FALLBACK
     // ==========================================

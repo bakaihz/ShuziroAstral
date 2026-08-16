@@ -6,6 +6,7 @@ export interface UserData {
   escola: string;
   serie: string;
   ra?: string;
+  digito?: string;
   password?: string;
   codigoAluno?: number | string;
   codigoTurma?: number | string;

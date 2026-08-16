@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { StudentAPI } from '../api/student';
-import { User, Flame, Award, Bell, MessageSquare, CheckCircle, RefreshCw, BookOpen } from 'lucide-react';
+import { User, Flame, Bell, RefreshCw, BookOpen } from 'lucide-react';
+import { UserData } from '../types';
 
-export const ProfileComponent: React.FC = () => {
+interface ProfileProps {
+  userData?: UserData;
+}
+
+export const ProfileComponent: React.FC<ProfileProps> = ({ userData }) => {
   const [student, setStudent] = useState<any>(null);
   const [thermometer, setThermometer] = useState<any>(null);
   const [announcement, setAnnouncement] = useState<any>(null);
@@ -14,7 +19,7 @@ export const ProfileComponent: React.FC = () => {
     setLoading(true);
     try {
       const [stdRes, thermRes, annRes, fbRes, asgRes] = await Promise.all([
-        StudentAPI.getStudent(),
+        StudentAPI.getStudent(userData),
         StudentAPI.getThermometer(),
         StudentAPI.getLatestAnnouncement(),
         StudentAPI.getFeedbacks(),
@@ -35,7 +40,27 @@ export const ProfileComponent: React.FC = () => {
 
   useEffect(() => {
     loadProfile();
-  }, []);
+  }, [userData]);
+
+  const studentName = student?.name || userData?.nome || userData?.nick || "Aluno Conectado";
+  const studentSchool = student?.schoolName || userData?.escola || "SEDUC SP";
+  const studentGrade = student?.grade || userData?.serie || "Ensino Médio";
+  
+  // Format RA dynamically
+  let rawRa = student?.ra || userData?.ra || '';
+  let digito = student?.digito || userData?.digito || '';
+  
+  if (rawRa) {
+    const clean = String(rawRa).replace(/sp$/i, '');
+    if (!digito && clean.length > 1) {
+      rawRa = clean.slice(0, -1);
+      digito = clean.slice(-1);
+    } else {
+      rawRa = clean;
+    }
+  }
+
+  const raDisplay = rawRa ? `${rawRa}${digito ? '-' + digito : ''}` : (userData?.ra || 'Carregando...');
 
   return (
     <div className="space-y-6">
@@ -47,13 +72,13 @@ export const ProfileComponent: React.FC = () => {
           </div>
           <div>
             <h3 className="text-base font-extrabold text-white">
-              {student?.name || "Aluno LeiaSP"}
+              {studentName}
             </h3>
             <p className="text-xs text-zinc-400">
-              RA: <strong className="text-zinc-200">{student?.ra || "114371854"}-{student?.digito || "9"}</strong> | {student?.schoolName || "Seduc SP"}
+              RA: <strong className="text-zinc-200">{raDisplay}</strong> | {studentSchool} ({studentGrade})
             </p>
             <span className="inline-block mt-1 text-[10px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded font-bold border border-amber-800">
-              GET /v1.5/student
+              Sessão de Aluno Conectada
             </span>
           </div>
         </div>
