@@ -61,9 +61,7 @@ const PROXY_TUNNELS = [
     "https://api.davilucas99kk.workers.dev",
     "https://bakaiwaf.shuziroastral.lol",
     "https://proxy.shuziroastral.lol",
-    "https://edusp-api.ip.tv",
-    "https://corsproxy.io/?",
-    "https://api.allorigins.win/raw?url="
+    "https://edusp-api.ip.tv"
 ];
 
 // Cache em memória de respostas rápidas de GET (15 segundos para sucesso, 2 segundos para respostas vazias)
@@ -340,7 +338,22 @@ async function startServer() {
             if (parts.length >= 2) {
                 const payloadStr = Buffer.from(parts[1], 'base64').toString('utf8');
                 const payload = JSON.parse(payloadStr);
-                if (payload.LOGIN || payload.aud === 'SED' || payload.AUD === 'SED' || (payload.iss && payload.iss.includes('azurewebsites'))) {
+                
+                // Se o JWT já tiver claim de realm 'edusp' ou 'ip.tv', já é o token final
+                if (payload.realm === 'edusp' || payload.iss === 'ip.tv' || payload.iss === 'edusp' || (payload.aud && String(payload.aud).toLowerCase() === 'edusp')) {
+                    return false;
+                }
+
+                // Indicadores de JWT emitido pela SED / Seduc SP / Prodesp
+                if (
+                    payload.LOGIN || payload.login || payload.Login ||
+                    payload.aud === 'SED' || payload.AUD === 'SED' ||
+                    payload.Nome || payload.nome ||
+                    payload.RA || payload.ra ||
+                    payload.unique_name || payload.nameid ||
+                    (payload.iss && (payload.iss.includes('azurewebsites') || payload.iss.includes('sed.educacao') || payload.iss.includes('prodesp') || payload.iss.includes('sp.gov.br'))) ||
+                    payload.TipoUsuario || payload.perfil
+                ) {
                     return true;
                 }
             }
@@ -1395,7 +1408,12 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                         }
 
                         if (isCaptchaError) {
-                            console.warn(`[API] CAPTCHA exigido pela EduSP (${responseStatus}): ${cleanText.substring(0, 150)}`);
+                            if (token) {
+                                const clean = token.replace(/^Bearer\s+/i, '').trim();
+                                userCaptchaTokens.delete(clean);
+                            }
+                            lastGlobalCaptchaToken = null;
+                            console.warn(`[API] CAPTCHA exigido ou expirado na EduSP (${responseStatus}): ${cleanText.substring(0, 150)}`);
                             throw errObj;
                         }
 
