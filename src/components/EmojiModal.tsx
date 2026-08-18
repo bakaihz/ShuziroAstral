@@ -49,9 +49,6 @@ export const EmojiModal: React.FC<EmojiModalProps> = ({ isOpen, onClose, onSucce
         'Content-Type': 'application/json',
         'x-client-user-agent': navigator.userAgent
       };
-      if (tunnelUrl) {
-        headers['x-tunnel-url'] = tunnelUrl;
-      }
 
       await fetch('/api/verify-antibot', {
         method: 'POST',

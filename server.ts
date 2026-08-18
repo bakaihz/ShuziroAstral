@@ -306,7 +306,17 @@ async function startServer() {
         let tunnel: string | undefined = undefined;
         if (typeof headerVal === 'string' && headerVal.trim()) {
             const trimmed = headerVal.trim();
-            if (!trimmed.includes('ais-dev-') && !trimmed.includes('ais-pre-')) {
+            const lower = trimmed.toLowerCase();
+            const isUnsafeLocalOrPrivate = 
+                lower.includes('127.0.0.1') || 
+                lower.includes('localhost') || 
+                lower.includes('termux') || 
+                lower.includes('192.168.') || 
+                lower.includes('10.') || 
+                lower.includes('ais-dev-') || 
+                lower.includes('ais-pre-');
+            
+            if (!isUnsafeLocalOrPrivate && (lower.startsWith('http://') || lower.startsWith('https://'))) {
                 tunnel = trimmed;
             }
         }
@@ -9305,7 +9315,7 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
                     });
                     tunnelSyncStatus = 'success';
                 } catch (e: any) {
-                    tunnelSyncStatus = `tunnel error: ${e.message}`;
+                    tunnelSyncStatus = 'failed';
                 }
             }
 

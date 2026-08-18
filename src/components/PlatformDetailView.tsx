@@ -170,8 +170,6 @@ interface PlatformDetailViewProps {
 const DEFAULT_BACKEND_URL = 'https://bakai.shuziroastral.lol';
 
 const getBackendUrl = () => {
-  const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
-  if (saved && saved.trim() && !saved.includes('shuziroastral.lol') && !saved.includes('workers.dev')) return saved.trim();
   return DEFAULT_BACKEND_URL;
 };
 

@@ -354,17 +354,26 @@ export default function App() {
     };
   }, [activeBatchId, authToken, userData, captchaModalOpen]);
 
-  // Load saved backend URL on mount
+  // Clean up any leaked termux tunnel or IP address from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
-    if (saved && saved.trim() && !saved.includes('shuziroastral.lol')) {
-      setTunnelUrl(saved.trim());
-    } else {
-      setTunnelUrl('');
-    }
+    try {
+      localStorage.removeItem('shuziro_termux_tunnel');
+      const savedBackend = localStorage.getItem('shuziro_backend_url');
+      if (savedBackend && (
+        savedBackend.includes('trycloudflare') || 
+        savedBackend.includes('loca.lt') || 
+        savedBackend.includes('ngrok') || 
+        savedBackend.includes('127.0.0.1') || 
+        savedBackend.includes('localhost') || 
+        savedBackend.includes('termux')
+      )) {
+        localStorage.removeItem('shuziro_backend_url');
+      }
+    } catch (e) {}
+    setTunnelUrl('');
   }, []);
 
-  const runPing = async (url: string, isSilent: boolean = false) => {
+  const runPing = async (url: string = '', isSilent: boolean = false) => {
     if (!isSilent) {
       setPingStatus('pinging');
     }
@@ -374,9 +383,7 @@ export default function App() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2500); // 2.5s timeout
 
-      const targetPingUrl = url && url.startsWith('http') ? `${url}/ping` : '/api/ping';
-
-      const res = await fetch(targetPingUrl, {
+      const res = await fetch('/api/ping', {
         method: 'GET',
         signal: controller.signal,
         headers: {
@@ -456,8 +463,7 @@ export default function App() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-client-user-agent': navigator.userAgent,
-            ...(tunnelUrl ? { 'x-tunnel-url': tunnelUrl } : {})
+            'x-client-user-agent': navigator.userAgent
           },
           body: JSON.stringify(payload)
         });
@@ -537,7 +543,6 @@ export default function App() {
         'x-api-key': token,
         'x-client-user-agent': navigator.userAgent
       };
-      if (tunnelUrl) authHeaders['x-tunnel-url'] = tunnelUrl;
 
       const allFetchedTasks: any[] = [];
       const seenIds = new Set<string>();
