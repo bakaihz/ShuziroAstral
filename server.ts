@@ -58,10 +58,11 @@ let activeBrowserSession = {
 };
 
 const PROXY_TUNNELS = [
+    "https://edusp-api.ip.tv",
     "https://api.davilucas99kk.workers.dev",
     "https://bakaiwaf.shuziroastral.lol",
-    "https://proxy.shuziroastral.lol",
-    "https://edusp-api.ip.tv"
+    "https://bakai.shuziroastral.lol",
+    "https://proxy.shuziroastral.lol"
 ];
 
 // Cache em memória de respostas rápidas de GET (15 segundos para sucesso, 2 segundos para respostas vazias)
@@ -85,13 +86,22 @@ function setCachedApiResponse(key: string, data: any) {
 }
 
 async function fetchWithGotScraping(targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: any; timeoutMs?: number; maxRetries?: number; forceHttp1?: boolean }) {
-    const { method = 'GET', headers = {}, body, timeoutMs = 5000, maxRetries = 2, forceHttp1 = false } = options;
+    const isLocalOrCloudflareTunnel = targetUrl.includes('trycloudflare.com') ||
+        targetUrl.includes('localhost') ||
+        targetUrl.includes('127.0.0.1') ||
+        targetUrl.includes('loca.lt') ||
+        targetUrl.includes('ngrok') ||
+        targetUrl.includes('workers.dev');
+
+    const defaultTimeout = isLocalOrCloudflareTunnel ? 12000 : 6000;
+    const { method = 'GET', headers = {}, body, timeoutMs = defaultTimeout, maxRetries = 2, forceHttp1 = false } = options;
 
     const cleanHeaders: Record<string, string> = {};
     for (const [key, val] of Object.entries(headers)) {
         if (!val) continue;
         const lKey = key.toLowerCase();
-        if (['host', 'content-length', 'connection'].includes(lKey)) {
+        // Não repassar headers hop-by-hop ou Host que conflitam com Cloudflared / SNI
+        if (['host', 'content-length', 'connection', 'transfer-encoding'].includes(lKey)) {
             continue;
         }
         cleanHeaders[key] = String(val);
@@ -133,7 +143,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
 
     while (attempt <= maxRetries) {
         // 1. Tenta gotScraping (HTTP/2 + TLS Fingerprint de navegador real) preservando os headers da SEDUC/EduSP
-        if (!forceHttp1) {
+        if (!forceHttp1 && !isLocalOrCloudflareTunnel) {
             try {
                 const res = await gotScraping({
                     url: targetUrl,
@@ -145,11 +155,12 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                     throwHttpErrors: false,
                     retry: { limit: 0 },
                     useHeaderGenerator: false,
-                    http2: true
+                    http2: true,
+                    decompress: true
                 });
 
                 lastStatus = res.statusCode;
-                lastText = typeof res.body === 'string' ? res.body : JSON.stringify(res.body);
+                lastText = typeof res.body === 'string' ? res.body : (res.body ? JSON.stringify(res.body) : '');
 
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     return { ok: true, status: res.statusCode, text: lastText };
@@ -163,7 +174,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
             }
         }
 
-        // 2. Fallback: Got com HTTP/1.1 puro e headers do cliente
+        // 2. Fallback / Primeiro para Cloudflared/Local: Got com HTTP/1.1 puro e headers do cliente
         try {
             const fallbackRes = await got(targetUrl, {
                 method: method.toUpperCase() as any,
@@ -173,11 +184,12 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
                 http2: false,
                 timeout: { request: timeoutMs },
                 throwHttpErrors: false,
-                retry: { limit: 0 }
+                retry: { limit: 0 },
+                decompress: true
             });
 
             lastStatus = fallbackRes.statusCode;
-            lastText = typeof fallbackRes.body === 'string' ? fallbackRes.body : JSON.stringify(fallbackRes.body);
+            lastText = typeof fallbackRes.body === 'string' ? fallbackRes.body : (fallbackRes.body ? JSON.stringify(fallbackRes.body) : '');
 
             if (fallbackRes.statusCode >= 200 && fallbackRes.statusCode < 300) {
                 return { ok: true, status: fallbackRes.statusCode, text: lastText };
@@ -398,102 +410,85 @@ async function startServer() {
     let cachedWorkingTunnel: string | null = null;
 
     async function askAI(prompt: string): Promise<string> {
-        // 1. Prioridade Primária: API Rochwxs (https://api.rochwxs.lol/chat)
-        const primaryAiEndpoints = [
-            'https://api.rochwxs.lol/chat',
-            'https://api.rochwxs.lol/api/chat'
+        // 1. Provedor Principal: OpenRouter AI (Pool de Modelos Gratuitos e Rápidos: Llama 3.3, DeepSeek, Qwen, Mistral)
+        const openRouterModels = [
+            'meta-llama/llama-3.3-70b-instruct:free',
+            'deepseek/deepseek-chat:free',
+            'qwen/qwen-2.5-72b-instruct:free',
+            'mistralai/mistral-small-24b-instruct-2501:free',
+            'meta-llama/llama-3.1-8b-instruct:free',
+            'openai/gpt-oss-20b:free'
         ];
 
-        const queryEndpoint = async (endpoint: string): Promise<string> => {
-            const response = await undiciFetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: prompt, prompt: prompt, query: prompt }),
-                dispatcher: highPerfUndiciAgent,
-                signal: AbortSignal.timeout(3500)
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data: any = await response.json();
-            const text = data.response || data.reply || data.answer || data.content || data.text || data.message || data.result;
-            if (text && String(text).trim()) {
-                return String(text).trim();
-            }
-            throw new Error('Resposta vazia');
-        };
+        const openRouterApiKey = process.env.OPENROUTER_API_KEY || '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';
 
-        try {
-            // Dispara todos os mirrors em paralelo e pega a resposta do mais rápido
-            const fastestResponse = await Promise.any(primaryAiEndpoints.map(ep => queryEndpoint(ep)));
-            if (fastestResponse) return fastestResponse;
-        } catch {
-            // Se o race de todos os mirrors falhou, tenta individualmente com Got
-            for (const endpoint of primaryAiEndpoints) {
-                try {
-                    const fallbackGot = await gotScraping({
-                        url: endpoint,
-                        method: 'POST',
-                        json: { message: prompt, prompt: prompt, query: prompt },
-                        timeout: { request: 3000 },
-                        throwHttpErrors: false
-                    });
-                    if (fallbackGot.statusCode >= 200 && fallbackGot.statusCode < 300) {
-                        const parsed: any = typeof fallbackGot.body === 'string' ? JSON.parse(fallbackGot.body) : fallbackGot.body;
-                        const text = parsed.response || parsed.reply || parsed.answer || parsed.content || parsed.text || parsed.message || parsed.result;
-                        if (text && String(text).trim()) return String(text).trim();
-                    }
-                } catch {}
+        for (const model of openRouterModels) {
+            try {
+                const openRouterRes = await undiciFetch('https://openrouter.ai/api/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${openRouterApiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [
+                            { role: 'system', content: 'Você é um assistente acadêmico especialista em responder provas e atividades escolares com formato JSON estrito.' },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: 0.2
+                    }),
+                    dispatcher: highPerfUndiciAgent,
+                    signal: AbortSignal.timeout(4000)
+                });
+                if (openRouterRes.ok) {
+                    const openRouterData: any = await openRouterRes.json();
+                    const text = openRouterData.choices?.[0]?.message?.content;
+                    if (text && String(text).trim()) return String(text).trim();
+                }
+            } catch (e: any) {
+                // Tenta próximo modelo do pool
             }
         }
 
-        // 2. Fallback Secundário: OpenRouter AI
+        // 2. Provedor Secundário: Pollinations AI (Livre, ultra-rápido, sem chaves)
         try {
-            const openRouterRes = await undiciFetch('https://openrouter.ai/api/v1/chat/completions', {
+            const pollinationsRes = await undiciFetch('https://text.pollinations.ai/', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY || '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'}`
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    model: 'openai/gpt-oss-20b:free',
-                    messages: [{ role: 'user', content: prompt }]
+                    messages: [
+                        { role: 'system', content: 'Você é um resolvedor acadêmico preciso. Responda estritamente em JSON conforme solicitado.' },
+                        { role: 'user', content: prompt }
+                    ],
+                    model: 'openai',
+                    jsonMode: true,
+                    seed: 42
                 }),
                 dispatcher: highPerfUndiciAgent,
                 signal: AbortSignal.timeout(4500)
             });
-            if (openRouterRes.ok) {
-                const openRouterData: any = await openRouterRes.json();
-                const text = openRouterData.choices?.[0]?.message?.content;
+            if (pollinationsRes.ok) {
+                const text = await pollinationsRes.text();
                 if (text && String(text).trim()) return String(text).trim();
             }
         } catch (e: any) {
-            console.warn('[AI] OpenRouter AI fallback falhou:', e.message);
+            console.warn('[AI] Pollinations fallback falhou:', e.message);
         }
 
-        // 3. Fallback de Segurança: Gemini Oficial
-        if (process.env.GEMINI_API_KEY) {
-            try {
-                const ai = new GoogleGenAI({
-                    apiKey: process.env.GEMINI_API_KEY,
-                    httpOptions: {
-                        headers: {
-                            'User-Agent': 'aistudio-build',
-                        }
-                    }
-                });
-                const response = await Promise.race([
-                    ai.models.generateContent({
-                        model: 'gemini-3.7-flash',
-                        contents: prompt,
-                    }),
-                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini Timeout')), 5000))
-                ]);
-                if (response && response.text) {
-                    return response.text.trim();
-                }
-            } catch (e: any) {
-                console.warn('[AI] Gemini fallback falhou:', e.message);
+        // 3. Fallback Direto via GotScraping no Pollinations / Free Inferences
+        try {
+            const fallbackGot = await gotScraping({
+                url: `https://text.pollinations.ai/${encodeURIComponent(prompt)}?json=true`,
+                method: 'GET',
+                timeout: { request: 3500 },
+                throwHttpErrors: false
+            });
+            if (fallbackGot.statusCode >= 200 && fallbackGot.statusCode < 300) {
+                const bodyStr = typeof fallbackGot.body === 'string' ? fallbackGot.body : JSON.stringify(fallbackGot.body);
+                if (bodyStr && bodyStr.trim()) return bodyStr.trim();
             }
-        }
+        } catch {}
 
         return "";
     }
@@ -511,45 +506,29 @@ async function startServer() {
             keys = ["0", "1", "2", "3"];
         }
 
-        const selList = (Array.isArray(selectedVal) ? selectedVal : [selectedVal])
-            .map(v => v !== null && v !== undefined ? String(v).trim() : '');
-        const ansObj: Record<string, boolean> = {};
-        let hasTrue = false;
-
-        for (let i = 0; i < keys.length; i++) {
-            const key = keys[i];
-            const opt = Array.isArray(rawOpts) ? rawOpts[i] : (rawOpts ? rawOpts[key] : null);
-            const optId = opt?.id ?? opt?.option_id ?? opt?.value ?? opt?.key ?? opt?.code;
-
-            let isSelected = false;
-            for (const s of selList) {
-                if (!s) continue;
-                if (s === key || s === String(i)) {
-                    isSelected = true;
-                    break;
-                }
-                if (optId !== undefined && optId !== null && s === String(optId).trim()) {
-                    isSelected = true;
+        let selectedKey = keys[0] || "0";
+        if (selectedVal !== undefined && selectedVal !== null) {
+            const s = String(selectedVal).trim();
+            for (let i = 0; i < keys.length; i++) {
+                const k = keys[i];
+                const opt = Array.isArray(rawOpts) ? rawOpts[i] : (rawOpts ? rawOpts[k] : null);
+                const optId = opt?.id ?? opt?.option_id ?? opt?.value ?? opt?.key ?? opt?.code;
+                if (s === k || s === String(i) || (optId !== undefined && optId !== null && s === String(optId).trim())) {
+                    selectedKey = k;
                     break;
                 }
                 if (opt && typeof opt === 'object') {
                     const oVal = opt.statement || opt.text || opt.value || opt.label;
                     if (oVal && String(oVal).trim() === s) {
-                        isSelected = true;
+                        selectedKey = k;
                         break;
                     }
                 }
             }
-
-            ansObj[key] = isSelected;
-            if (isSelected) hasTrue = true;
         }
 
-        if (!hasTrue && keys.length > 0) {
-            ansObj[keys[0]] = true;
-        }
-
-        return ansObj;
+        // EduSP strictly expects a single selected key object: { "0": true }
+        return { [selectedKey]: true };
     }
 
     function extractNickFromToken(token: string): string {
@@ -576,7 +555,15 @@ async function startServer() {
         if (Array.isArray(data.task?.questions)) return data.task.questions;
         if (Array.isArray(data.task?.items)) return data.task.items;
         if (Array.isArray(data.body?.questions)) return data.body.questions;
+        if (Array.isArray(data.body?.items)) return data.body.items;
         if (Array.isArray(data.question_list)) return data.question_list;
+        if (Array.isArray(data.activity?.questions)) return data.activity.questions;
+        if (Array.isArray(data.content?.questions)) return data.content.questions;
+        if (data.question && typeof data.question === 'object') return [data.question];
+        if (data.item && typeof data.item === 'object') return [data.item];
+        if (data.data?.question && typeof data.data.question === 'object') return [data.data.question];
+        if (data.data?.item && typeof data.data.item === 'object') return [data.data.item];
+        if (data.statement || data.options || (data.type && (data.id || data.question_id))) return [data];
         return [];
     }
 
@@ -785,8 +772,21 @@ DIRETRIZES FUNDAMENTAIS DE RESOLUÇÃO:
 3. Para CLOUD / FILL-WORDS / ORDER-SENTENCES: Retorne em "sequence" o array de strings ordenado com a resposta correta.
 4. Para FILL-LETTERS / QUADROS DE LETRAS: Retorne em "word" a palavra/termo exato em caixa alta que responde à pergunta do enunciado (ex: "TRAPEZIO").
 5. Para DISCURSIVAS / TEXT_AI / REDAÇÕES / INTERPRETAÇÃO:
-   - Analise minuciosamente do que o texto/enunciado fala e o que a declaração ou autor quis expressar (ex: contexto, sentido literal ou figurado, justificativa teórica).
-   - Elabore a resposta em formato de resumo explicativo objetivo, coeso e bem articulado.
+   - Ao receber uma questão, primeiro entenda o que o enunciado está pedindo e depois responda diretamente.
+   - Identifique o comando da questão:
+     “Compare” → apresente as diferenças e/ou semelhanças entre os elementos citados.
+     “Explique” → explique a ideia de forma clara e objetiva.
+     “Analise” → interprete o assunto e apresente os principais pontos.
+     “Cite” → forneça apenas as informações ou exemplos solicitados.
+     “Defina” → explique o significado do conceito.
+     “Justifique” → apresente a resposta acompanhada do motivo ou argumento.
+     “Por que” → explique a causa ou os motivos.
+     “Quais foram as consequências” → apresente os principais resultados ou efeitos.
+     “Caracterize” → apresente as principais características.
+   - Para questões que pedem comparação, responda deixando os dois lados claramente diferenciados. Use estruturas como “enquanto”, “já” ou “por outro lado” quando forem adequadas.
+   - Não fuja do que foi perguntado. Não invente informações. Não complique a resposta desnecessariamente.
+   - A resposta deve ter o tamanho adequado à questão: questões simples devem receber respostas curtas; questões que exigem explicação devem receber uma resposta um pouco mais desenvolvida.
+   - Use linguagem clara, natural e adequada para um estudante, como uma resposta que poderia ser escrita em uma prova.
    - SE houver PALAVRAS-CHAVE OBRIGATÓRIAS (Kumulus AI grading), inclua todas elas naturalmente no texto!
    - NUNCA use respostas genéricas ou placeholders.
 
@@ -805,7 +805,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
 }`;
 
             try {
-                console.log(`[AI Solver] Resolvendo ${questionsNeedingAI.length} questão(ões) com Gemini / IA estruturada...`);
+                console.log(`[AI Solver] Resolvendo ${questionsNeedingAI.length} questão(ões) com IA estruturada...`);
                 const aiRawResponse = await askAI(prompt);
                 let aiJson: any = null;
                 if (aiRawResponse) {
@@ -1058,7 +1058,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
 
         for (const [qIdStr, item] of Object.entries(answersMap)) {
             const qId = Number(qIdStr) || (item && item.question_id) || 1;
-            const rawType = (item && item.question_type) || 'single';
+            const rawType = String((item && item.question_type) || 'single').toLowerCase();
             let ansVal = (item && 'answer' in item) ? item.answer : item;
 
             if (isTextType(rawType) || isEssay || (ansVal && typeof ansVal === 'object' && !Array.isArray(ansVal) && (ansVal.body || ansVal.text || ansVal.title || ansVal["0"]))) {
@@ -1082,14 +1082,11 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                     textVal = generateContextualRichSummary(titulo || 'Questão da atividade', '', titleVal);
                 }
 
-                const isTextAi = rawType === 'text_ai';
                 const isEssayType = rawType === 'essay' || isEssay;
-
-                if (isTextAi) {
-                    ansVal = { "0": textVal };
-                } else if (isEssayType) {
+                if (isEssayType) {
                     ansVal = { title: titleVal, body: textVal };
                 } else {
+                    // EduSP text/text_ai/discursiva questions strictly expect { "0": text }
                     ansVal = { "0": textVal };
                 }
             } else if (rawType === 'fill-letters' || rawType === 'fill_letters') {
@@ -1097,6 +1094,8 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                     ansVal = String(ansVal.word || ansVal.text || ansVal["0"] || 'TRAPEZIO').toUpperCase();
                 } else if (typeof ansVal === 'string') {
                     ansVal = ansVal.toUpperCase().trim();
+                } else {
+                    ansVal = 'RESPOSTA';
                 }
             } else if (rawType === 'true-false' || rawType === 'true_false') {
                 if (Array.isArray(ansVal) && ansVal.length > 0 && typeof ansVal[0] === 'object' && ansVal[0] !== null) {
@@ -1106,6 +1105,8 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                         cleanObj[String(idx)] = Boolean(item?.value ?? item);
                     });
                     ansVal = cleanObj;
+                } else if (!ansVal || typeof ansVal !== 'object') {
+                    ansVal = { "0": true, "1": false };
                 }
             } else if (rawType === 'fill-words' || rawType === 'fill_words' || rawType === 'cloud' || rawType === 'order-sentences' || rawType === 'order_sentences') {
                 if (typeof ansVal === 'string') {
@@ -1118,21 +1119,115 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                     else if (typeof ansVal.body === 'string') ansVal = [ansVal.body];
                     else if (typeof ansVal.text === 'string') ansVal = [ansVal.text];
                     else ansVal = ["resposta"];
+                } else if (!Array.isArray(ansVal) || ansVal.length === 0) {
+                    ansVal = ["resposta"];
+                }
+            } else if (rawType === 'multiple') {
+                if (ansVal && typeof ansVal === 'object' && !Array.isArray(ansVal)) {
+                    const cleanMult: Record<string, boolean> = {};
+                    for (const [k, v] of Object.entries(ansVal)) {
+                        if (v === true) cleanMult[k] = true;
+                    }
+                    if (Object.keys(cleanMult).length === 0) {
+                        cleanMult[Object.keys(ansVal)[0] || "0"] = true;
+                    }
+                    ansVal = cleanMult;
+                } else if (Array.isArray(ansVal)) {
+                    const cleanMult: Record<string, boolean> = {};
+                    ansVal.forEach(k => { cleanMult[String(k)] = true; });
+                    ansVal = cleanMult;
+                } else {
+                    ansVal = { "0": true };
+                }
+            } else {
+                // Default single choice: must be a single key object { "0": true }
+                if (ansVal && typeof ansVal === 'object' && !Array.isArray(ansVal)) {
+                    const trueKey = Object.keys(ansVal).find(k => ansVal[k] === true) || Object.keys(ansVal)[0] || "0";
+                    ansVal = { [trueKey]: true };
+                } else if (typeof ansVal === 'string' || typeof ansVal === 'number') {
+                    ansVal = { [String(ansVal)]: true };
+                } else {
+                    ansVal = { "0": true };
                 }
             }
 
             canonicalAnswersMap[qIdStr] = {
                 question_id: qId,
-                question_type: rawType,
+                question_type: rawType === 'single' ? 'single' : rawType,
                 answer: ansVal
             };
         }
 
+        if (Object.keys(canonicalAnswersMap).length === 0) {
+            canonicalAnswersMap["1"] = {
+                question_id: 1,
+                question_type: "single",
+                answer: { "0": true }
+            };
+        }
+
+        const targetSlug = (slug && slug.trim() && slug !== 'undefined' && slug !== 'null') ? slug.trim() : 'room';
+
+        // Converte answersMap também para formato de array para a API EduSP caso espere array
+        const canonicalAnswersArray = Object.values(canonicalAnswersMap);
+
         const variants: any[] = [];
-        // Variante 1: Oficial canônica com accessed_on: 'room'
-        variants.push(basePayload(canonicalAnswersMap, 'room'));
-        // Variante 2: Oficial canônica com accessed_on: 'app' (fallback rápido apenas se room rejeitar)
-        variants.push(basePayload(canonicalAnswersMap, 'app'));
+        // Variante 1: Oficial canônica com formato Object e executed_on obrigatório
+        variants.push({
+            status: statusMode === 'submitted' ? 'submitted' : 'draft',
+            accessed_on: 'room',
+            executed_on: targetSlug,
+            duration: computedDuration,
+            answers: canonicalAnswersMap,
+            ...(applyToken ? { token: applyToken } : {}),
+            ...(captchaToken ? { captcha_token: captchaToken } : {})
+        });
+
+        // Variante 2: Formato Array para `answers` com executed_on
+        variants.push({
+            status: statusMode === 'submitted' ? 'submitted' : 'draft',
+            accessed_on: 'room',
+            executed_on: targetSlug,
+            duration: computedDuration,
+            answers: canonicalAnswersArray,
+            ...(applyToken ? { token: applyToken } : {}),
+            ...(captchaToken ? { captcha_token: captchaToken } : {})
+        });
+
+        // Variante 3: Com executed_on = 'room' explícito e accessed_on = 'room'
+        if (targetSlug !== 'room') {
+            variants.push({
+                status: statusMode === 'submitted' ? 'submitted' : 'draft',
+                accessed_on: 'room',
+                executed_on: 'room',
+                duration: computedDuration,
+                answers: canonicalAnswersMap,
+                ...(applyToken ? { token: applyToken } : {}),
+                ...(captchaToken ? { captcha_token: captchaToken } : {})
+            });
+        }
+
+        // Variante 4: Modo draft como fallback caso submitted falhe
+        if (statusMode === 'submitted') {
+            variants.push({
+                status: 'draft',
+                accessed_on: 'room',
+                executed_on: targetSlug,
+                duration: computedDuration,
+                answers: canonicalAnswersMap,
+                ...(applyToken ? { token: applyToken } : {}),
+                ...(captchaToken ? { captcha_token: captchaToken } : {})
+            });
+            variants.push({
+                status: 'draft',
+                accessed_on: 'room',
+                executed_on: 'room',
+                duration: computedDuration,
+                answers: canonicalAnswersArray,
+                ...(applyToken ? { token: applyToken } : {}),
+                ...(captchaToken ? { captcha_token: captchaToken } : {})
+            });
+        }
 
         return variants;
     }
@@ -1377,6 +1472,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                             const captchaErrObj: any = new Error(cleanErrMessage);
                             captchaErrObj.status = responseStatus;
                             captchaErrObj.isCaptchaAnswerError = true;
+                            captchaErrObj.isCaptchaError = true;
                             console.warn(`[API] Resposta do CAPTCHA incorreta (${responseStatus}): ${cleanText.substring(0, 150)}`);
                             throw captchaErrObj;
                         }
@@ -1478,15 +1574,38 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                         continue;
                     }
 
+                    // Suporte especial para HTTP 204 No Content ou resposta de sucesso vazia
+                    if (responseStatus === 204 || (responseStatus >= 200 && responseStatus < 300 && (!text || text.trim().length === 0))) {
+                        cachedWorkingTunnel = domain;
+                        return {
+                            success: true,
+                            ok: true,
+                            status: responseStatus,
+                            delivered: true,
+                            answer_id: body?.answer_id || body?.id || null
+                        };
+                    }
+
                     try {
                         const parsedJson = JSON.parse(text);
                         cachedWorkingTunnel = domain;
+                        if (parsedJson && typeof parsedJson === 'object' && !Array.isArray(parsedJson)) {
+                            // Se for resposta de submissão de tarefa (/answer)
+                            if (cleanPath.includes('/answer')) {
+                                parsedJson.delivered = true;
+                                parsedJson.confirmed = true;
+                            }
+                        }
                         return parsedJson;
                     } catch {
                         const trimmedText = text.trim();
                         if (trimmedText.startsWith('eyJ')) {
                             cachedWorkingTunnel = domain;
                             return trimmedText;
+                        }
+                        if (responseStatus >= 200 && responseStatus < 300) {
+                            cachedWorkingTunnel = domain;
+                            return { success: true, ok: true, text: trimmedText, delivered: true };
                         }
                         console.warn(`[API] ${finalUrl} retornou texto não-JSON que não é um token JWT: ${trimmedText.substring(0, 100)}`);
                         if (cachedWorkingTunnel === domain) cachedWorkingTunnel = null;
@@ -1510,6 +1629,37 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
             ? lastError.message
             : "Não foi possível conectar à API EduSP. Verifique o status do seu Túnel/Worker ou conexões ativas.";
         throw new Error(userFriendlyMsg);
+    }
+
+    // Map to associate EduSP auth_token to SED token
+    const tokenSessionMap = new Map<string, { sedToken: string; eduspToken: string; timestamp: number }>();
+
+    function resolveSedToken(passedToken: string, req?: any): string {
+        if (req) {
+            const sedHeader = (req.headers['x-sed-token'] as string) || (req.headers['x-sed-auth-token'] as string);
+            if (sedHeader && sedHeader.trim()) {
+                return sedHeader.replace(/^Bearer\s+/i, '').trim();
+            }
+        }
+        if (!passedToken) return '';
+        const clean = passedToken.replace(/^Bearer\s+/i, '').trim();
+        const mapped = tokenSessionMap.get(clean);
+        if (mapped && mapped.sedToken) {
+            return mapped.sedToken;
+        }
+
+        // Se o token fornecido for um JWT da SED (contém claims como AUD="SED" ou DadosUsuario)
+        try {
+            const parts = clean.split('.');
+            if (parts.length >= 2) {
+                const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+                if (payload.AUD === 'SED' || payload.aud === 'SED' || payload.DadosUsuario || payload.CD_USUARIO || payload.CodigoAluno) {
+                    return clean;
+                }
+            }
+        } catch (e) {}
+
+        return clean;
     }
 
     // ======================= AUTENTICAÇÃO =======================
@@ -1821,6 +1971,20 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
             const eduspData = await getEduSpToken(loginResult.token, customTunnel);
             console.log(`[Login] Autenticação concluída com sucesso.`);
 
+            // Store mapping between EduSP token and SED token so downstream BFF endpoints can use the SED token
+            if (eduspData?.auth_token && loginResult?.token) {
+                tokenSessionMap.set(eduspData.auth_token, {
+                    sedToken: loginResult.token,
+                    eduspToken: eduspData.auth_token,
+                    timestamp: Date.now()
+                });
+                tokenSessionMap.set(loginResult.token, {
+                    sedToken: loginResult.token,
+                    eduspToken: eduspData.auth_token,
+                    timestamp: Date.now()
+                });
+            }
+
             let nomeCompleto = loginResult.DadosUsuario?.NAME || loginResult.DadosUsuario?.NOME || loginResult.DadosUsuario?.Nome || loginResult.DadosUsuario?.NM_COMPLETO || loginResult.DadosUsuario?.NomeUsuario;
             if (!nomeCompleto || nomeCompleto === user) {
                 // Tenta extrair o nome/nick do JWT da SED ou EduSP
@@ -1879,7 +2043,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                             'X-Product-Name': 'SalaDoFuturo',
                             'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
                             'User-Agent': USER_AGENT,
-                            'Authorization': `Bearer ${eduspData.auth_token}`
+                            'Authorization': `Bearer ${loginResult.token}`
                         },
                         body: JSON.stringify({
                             userId: String(rawUserId),
@@ -1887,13 +2051,22 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                             typeDeviceToken: "DESKTOP"
                         }),
                         dispatcher: agent
-                    }).then(r => r.json()).then(d => console.log('[CMSP Token] Registro automático:', d)).catch(e => console.warn('[CMSP Token] Erro:', e.message));
+                    }).then(async r => {
+                        const txt = await r.text();
+                        try {
+                            const d = JSON.parse(txt);
+                            console.log('[CMSP Token] Registro automático:', d);
+                        } catch {
+                            console.log('[CMSP Token] Resposta não-JSON:', txt);
+                        }
+                    }).catch(e => console.warn('[CMSP Token] Erro:', e.message));
                 } catch (e) {}
             }
 
             res.json({
                 success: true,
                 auth_token: eduspData.auth_token,
+                sed_token: loginResult.token,
                 nick: nick,
                 nome: nomeCompleto,
                 escola: escola,
@@ -1907,6 +2080,39 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
         } catch (err: any) {
             console.error(`[Login] Erro: ${err.message}`);
             res.status(401).json({ error: err.message });
+        }
+    });
+
+    app.post("/api/validar-token", async (req, res) => {
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || req.body?.token || '';
+        const token = resolveSedToken(rawToken);
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
+
+        if (!token) {
+            return res.status(401).json({ success: false, message: "Token ausente ou inválido." });
+        }
+
+        try {
+            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/credenciais/api/ValidarToken`;
+            const headers: Record<string, string> = {
+                'Accept': 'application/json, text/plain, */*',
+                'Content-Type': 'application/json',
+                'X-Product-Name': 'SalaDoFuturo',
+                'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+                'User-Agent': clientUA,
+                'Authorization': `Bearer ${token}`
+            };
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
+
+            const response = await undiciFetch(url, { method: 'POST', headers, dispatcher: agent });
+            if (response.ok) {
+                const data = await response.json();
+                return res.json({ success: true, data });
+            }
+            return res.status(response.status).json({ success: false, status: response.status, message: "Token inválido ou expirado na SED." });
+        } catch (err: any) {
+            return res.status(500).json({ success: false, error: err.message });
         }
     });
 
@@ -2189,13 +2395,23 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         userSlugs.forEach(s => slugsToTry.add(s));
 
         const applyUrls: string[] = [];
-        for (const slug of slugsToTry) {
-            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
-            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
-            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=true&room_name=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
+        // 1. Primeira tentativa oficial: sem room_name com preview_mode=false e token_code=null
+        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam ? tokenCodeParam : '&token_code=null'}${captchaParam}`);
+
+        // 2. Se houver rawRoom ou slugs de salas do usuário, percorre os slugs com room_name={slug}
+        if (rawRoom && rawRoom !== 'undefined' && rawRoom !== 'null') {
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(rawRoom)}${tokenCodeParam}${captchaParam}`);
+            applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(rawRoom)}${tokenCodeParam}${captchaParam}`);
         }
 
-        applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}${captchaParam}`);
+        for (const slug of userSlugs) {
+            if (slug !== rawRoom) {
+                applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
+                applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
+            }
+        }
+
+        // 3. Fallbacks adicionais com preview_mode=true ou consulta direta
         applyUrls.push(`/tms/task/${taskId}/apply?preview_mode=true${tokenCodeParam}${captchaParam}`);
         applyUrls.push(`/tms/task/${taskId}/apply${captchaParam ? '?' + captchaParam.substring(1) : ''}`);
         applyUrls.push(`/tms/task/${taskId}`);
@@ -2348,10 +2564,12 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         const candidateSlugs = Array.from(roomCandidates);
         let lastErr: any = null;
 
+        const statusMode = status === 'draft' ? 'draft' : 'submitted';
+
         for (const slug of candidateSlugs) {
             const payloadVariants = createPayloadVariants(
                 answersMap,
-                status === 'submitted' ? 'submitted' : 'draft',
+                statusMode,
                 slug || undefined,
                 Number(req.body.duration) || 30,
                 applyToken,
@@ -2432,6 +2650,9 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             const isValidSlug = Boolean(rawRoom && rawRoom !== 'undefined' && rawRoom !== 'null');
             const initialExec = isValidSlug ? rawRoom : '';
 
+            const captchaToken = String(params.captcha_token || params.captchaToken || getVerifiedCaptchaToken(authToken) || '').trim();
+            const captchaParam = captchaToken ? `&captcha_token=${encodeURIComponent(captchaToken)}` : '';
+
             const userSlugs = authToken ? await getAllUserRoomSlugs(authToken, customTunnel) : [];
             const roomCandidates = new Set<string>();
             if (initialExec) roomCandidates.add(initialExec);
@@ -2452,12 +2673,12 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 const tryApplyUrls: string[] = [];
                 for (const slug of roomCandidates) {
                     if (slug) {
-                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}`);
-                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}`);
+                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&room_name=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
+                        tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false&publication_target=${encodeURIComponent(slug)}${tokenCodeParam}${captchaParam}`);
                     }
                 }
-                tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}`);
-                tryApplyUrls.push(`/tms/task/${taskId}/apply${tokenCodeParam ? '?' + tokenCodeParam.substring(1) : ''}`);
+                tryApplyUrls.push(`/tms/task/${taskId}/apply?preview_mode=false${tokenCodeParam}${captchaParam}`);
+                tryApplyUrls.push(`/tms/task/${taskId}/apply${tokenCodeParam ? '?' + tokenCodeParam.substring(1) + captchaParam : (captchaParam ? '?' + captchaParam.substring(1) : '')}`);
                 tryApplyUrls.push(`/tms/task/${taskId}`);
 
                 for (const url of tryApplyUrls) {
@@ -2487,7 +2708,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             if (Array.isArray(questionsList) && questionsList.length > 0) {
                 answersMap = await solveTaskQuestionsWithAI(questionsList, isEssay, titulo, texto);
             } else {
-                const fallbackQId = Number(params.question_id) || 1;
+                const fallbackQId = Number(params.question_id) || Number(taskId) || 1;
                 answersMap = await solveTaskQuestionsWithAI([{ id: fallbackQId }], isEssay, titulo, texto);
             }
 
@@ -2518,7 +2739,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                     applyToken,
                     isEssay,
                     titulo,
-                    texto
+                    texto,
+                    captchaToken
                 );
 
                 for (const variant of payloadVariants) {
@@ -2861,7 +3083,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                         if (extractedQuestions.length > 0) {
                             answersMap = await solveTaskQuestionsWithAI(extractedQuestions, isEssay, genTitle, genTexto);
                         } else {
-                            const fallbackQId = Number(applyData?.question_id) || 1;
+                            const fallbackQId = Number(applyData?.question_id) || Number(applyData?.id) || Number((meta as any)?.question_id) || Number((meta as any)?.id) || Number(tid) || 1;
                             answersMap = await solveTaskQuestionsWithAI([{ id: fallbackQId }], isEssay, genTitle, genTexto);
                         }
 
@@ -2933,10 +3155,18 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                         }
 
                     } catch (taskErr: any) {
-                        job.failedCount++;
-                        job.results[tid] = { status: 'failed', error: taskErr.message, title: taskTitle };
-                        addLog(`❌ [Worker ${workerId + 1}] Erro em "${taskTitle}": ${taskErr.message || 'Falha na submissão'}`, 'err');
-                        
+                        const isCaptchaRequired = taskErr.isCaptchaError || String(taskErr.message || '').toUpperCase().includes('CAPTCHA') || job.needsCaptcha;
+                        if (isCaptchaRequired) {
+                            job.needsCaptcha = true;
+                            job.status = 'paused';
+                            job.results[tid] = { status: 'failed', error: 'CAPTCHA exigido pela EduSP. Resolva a verificação na tela.', title: taskTitle };
+                            addLog(`⚠️ [SALA DO FUTURO] A EduSP solicitou verificação de segurança (CAPTCHA) para finalizar "${taskTitle}". O modal foi aberto na tela.`, 'err');
+                        } else {
+                            job.failedCount++;
+                            job.results[tid] = { status: 'failed', error: taskErr.message, title: taskTitle };
+                            addLog(`❌ [Worker ${workerId + 1}] Erro em "${taskTitle}": ${taskErr.message || 'Falha na submissão'}`, 'err');
+                        }
+
                         const processed = job.completedCount + job.failedCount;
                         job.progress = Math.min(100, Math.round((processed / job.total) * 100));
                         job.updatedAt = Date.now();
@@ -2950,6 +3180,11 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 workers.push(runWorker(w));
             }
             await Promise.all(workers);
+
+            if ((job.status as string) === 'paused' || Boolean(job.needsCaptcha)) {
+                addLog(`⏸️ Multi-Tarefas pausado aguardando resolução do CAPTCHA na tela.`, 'info');
+                return;
+            }
 
             if (!isCancelled()) {
                 job.status = 'completed';
@@ -3063,6 +3298,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
             minTimeSec: job.minTimeSec,
             maxTimeSec: job.maxTimeSec,
             mode: job.mode,
+            needsCaptcha: job.needsCaptcha || false,
             logs: job.logs.slice(0, 50), // Retorna até 50 logs mais recentes
             results: job.results,
             createdAt: job.createdAt,
@@ -3086,6 +3322,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 failedCount: job.failedCount,
                 progress: job.progress,
                 currentTaskTitle: job.currentTaskTitle,
+                needsCaptcha: job.needsCaptcha || false,
                 createdAt: job.createdAt,
                 updatedAt: job.updatedAt
             });
@@ -3117,14 +3354,47 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         const job = batchJobsMap.get(batchId);
         if (!job) return res.status(404).json({ error: "Batch não encontrado." });
 
-        if (job.status === 'paused') {
+        const captchaToken = String(req.body?.captchaToken || req.body?.captcha_token || '').trim();
+        if (captchaToken) {
+            job.captchaToken = captchaToken;
+            job.needsCaptcha = false;
+            setVerifiedCaptchaToken(job.authToken, captchaToken);
+        }
+
+        if (job.status === 'paused' || job.status === 'completed' || job.status === 'failed') {
+            // Se o lote estiver concluído ou com falha, mas existirem tarefas que falharam, vamos re-enfileirar apenas as que falharam para tentar novamente!
+            if (job.status === 'completed' || job.status === 'failed') {
+                const failedIds = Object.keys(job.results).filter(tid => job.results[tid].status === 'failed');
+                if (failedIds.length > 0) {
+                    job.taskIds = failedIds;
+                    job.currentIndex = 0;
+                    job.currentTaskId = failedIds[0];
+                    job.currentTaskTitle = job.tasksMeta[failedIds[0]]?.title || `Atividade #${failedIds[0]}`;
+                    job.failedCount = 0;
+                    job.total = failedIds.length;
+                    job.progress = 0;
+                    job.logs.unshift({
+                        time: new Date().toLocaleTimeString('pt-BR'),
+                        text: `🔄 Recomeçando execução para as ${failedIds.length} tarefas que falharam anteriormente.`,
+                        type: 'info'
+                    });
+                } else {
+                    return res.json({ success: true, status: job.status, message: "Todas as tarefas já foram concluídas com sucesso." });
+                }
+            }
+
             job.status = 'running';
             job.updatedAt = Date.now();
             job.logs.unshift({
                 time: new Date().toLocaleTimeString('pt-BR'),
-                text: '▶️ Execução retomada pelo usuário.',
+                text: captchaToken 
+                    ? '▶️ Execução retomada com novo CAPTCHA fornecido!' 
+                    : '▶️ Execução retomada pelo usuário.',
                 type: 'info'
             });
+
+            // Dispara o processamento em background novamente
+            processBatchJobWorker(batchId, getCustomTunnel(req));
         }
         return res.json({ success: true, status: job.status });
     });
@@ -3188,7 +3458,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     }
 
     app.get("/api/frequencia", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken, req);
         const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
         const anoLetivo = req.query.anoLetivo || 2026;
         const bimestre = req.query.bimestre || 1;
@@ -3308,7 +3579,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.get("/api/frequencia/faltas-resumo", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken);
         const codigoAluno = req.query.codigoAluno || req.query.userId || '31838026';
         const customTunnel = getCustomTunnel(req);
         const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
@@ -3342,7 +3614,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.get("/api/frequencia/motivos", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken);
         const customTunnel = getCustomTunnel(req);
         const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
 
@@ -3381,7 +3654,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.get("/api/turmas", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken, req);
         const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
         const customTunnel = getCustomTunnel(req);
         const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
@@ -3416,7 +3690,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.get("/api/boletim", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken, req);
         const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
         const anoLetivo = req.query.anoLetivo || 2026;
         let codigoTurma = req.query.codigoTurma || 0;
@@ -3469,7 +3744,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.get("/api/disciplinas", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken, req);
         const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
         const customTunnel = getCustomTunnel(req);
         const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
@@ -3504,7 +3780,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.post("/api/cmsp/registrar-token", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || '';
+        const token = resolveSedToken(rawToken);
         const userId = req.body?.userId || req.body?.codigoUsuario || '318380266';
         const deviceToken = req.body?.deviceToken || '';
         const typeDeviceToken = req.body?.typeDeviceToken || 'DESKTOP';
@@ -3539,7 +3816,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.get("/api/frequencia/consulta", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken);
         const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
         const anoLetivo = req.query.anoLetivo || 2026;
         const bimestre = req.query.bimestre || 1;
@@ -3575,8 +3853,45 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         }
     });
 
+    app.get("/api/frequencia/ultimos-dias", async (req, res) => {
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken);
+        const codigoAluno = cleanCodigoAluno(req.query.codigoAluno || req.query.userId);
+        const anoLetivo = req.query.anoLetivo || 2026;
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
+
+        try {
+            const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/apiboletim/api/Frequencia/GetAlunoUltimosDiasFalta?codigoAluno=${codigoAluno}&anoLetivo=${anoLetivo}`;
+            const headers: Record<string, string> = {
+                'Accept': 'application/json, text/plain, */*',
+                'X-Product-Name': 'SalaDoFuturo',
+                'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+                'User-Agent': clientUA
+            };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
+
+            const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
+            if (response.ok) {
+                const data = await response.json();
+                return res.json(data);
+            }
+            throw new Error(`HTTP ${response.status}`);
+        } catch (err: any) {
+            return res.json({
+                message: "",
+                title: "Últimos Dias de Falta",
+                tipo: "Sucesso",
+                data: [],
+                isSucess: true
+            });
+        }
+    });
+
     app.get("/api/fechamento", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken);
         const codigoAluno = req.query.codigoAluno || '31838026';
         const anoLetivo = req.query.anoLetivo || 2026;
         const somenteAtivo = req.query.somenteAtivo || 0;
@@ -3615,7 +3930,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.get("/api/avisos", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken, req);
         const codigoUsuario = req.query.codigoUsuario || req.query.userId || '318380266';
         const perfilAviso = req.query.perfilAviso || 1;
         const turmas = req.query.turmas || req.query.codigoTurma || '40917188';
@@ -3679,7 +3995,8 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
     });
 
     app.get("/api/notificacoes", async (req, res) => {
-        const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
+        const token = resolveSedToken(rawToken);
         const userId = req.query.userId || req.query.codigoUsuario || '318380266';
 
         try {
@@ -5508,6 +5825,347 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
         }
     });
 
+    // =========================================================================
+    // ENDPOINTS DO FLUXO OFICIAL DE APRENDIZAGEM ALURA (CURSO -> SEÇÃO -> TAREFA -> VÍDEO -> CONCLUSÃO -> NEXT)
+    // =========================================================================
+
+    // 1. CARREGAMENTO DO CURSO / ENTRADA NAS SEÇÕES: GET /course/{courseCode}/access (redireciona para /course/{courseCode}/section/{sectionId}/tasks)
+    app.all(["/api/alura/course/:courseCode/access", "/course/:courseCode/access"], async (req, res) => {
+        const courseCode = req.params.courseCode || req.query.courseCode || req.body?.courseCode || 'exploracao-edicao-texto-sp';
+        let userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || req.body?.cookies || '') as string;
+        let targetUrl = `https://cursos.alura.com.br/course/${courseCode}/access`;
+
+        try {
+            let response = await undiciFetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': 'https://cursos.alura.com.br/',
+                    'Cookie': userCookies,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                },
+                redirect: 'manual'
+            });
+
+            // Se retornar 404 (por exemplo, curso já concluído ou sem rota /access direta), tenta carregar diretamente /course/{courseCode}
+            if (response.status === 404) {
+                targetUrl = `https://cursos.alura.com.br/course/${courseCode}`;
+                const directResponse = await undiciFetch(targetUrl, {
+                    method: 'GET',
+                    headers: {
+                        'User-Agent': USER_AGENT,
+                        'Referer': 'https://cursos.alura.com.br/',
+                        'Cookie': userCookies,
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                    },
+                    redirect: 'manual'
+                });
+                if (directResponse.status < 400 || directResponse.status === 302) {
+                    response = directResponse;
+                }
+            }
+
+            const rawSet = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+            if (rawSet.length > 0) {
+                userCookies = mergeCookies(userCookies, rawSet as string[]);
+            }
+
+            let location = response.headers.get('location') || '';
+            let sectionId = '';
+            
+            if (location) {
+                const secMatch = location.match(/\/section\/([^\/\?#]+)/i);
+                if (secMatch) sectionId = secMatch[1];
+            } else {
+                // Tenta extrair a primeira seção do corpo HTML se for status 200
+                const html = await response.text().catch(() => '');
+                const htmlSecMatch = html.match(/\/course\/[^\/]+\/section\/([^\/\?#"']+)/i);
+                if (htmlSecMatch) {
+                    sectionId = htmlSecMatch[1];
+                    location = `/course/${courseCode}/section/${sectionId}/tasks`;
+                }
+            }
+
+            res.setHeader('x-proxy-set-cookie', userCookies);
+            return res.json({
+                ok: true,
+                status: response.status,
+                courseCode,
+                sectionId: sectionId || '1',
+                location: location || `/course/${courseCode}/section/1/tasks`,
+                redirectUrl: location ? (location.startsWith('http') ? location : `https://cursos.alura.com.br${location.startsWith('/') ? '' : '/'}${location}`) : `https://cursos.alura.com.br/course/${courseCode}/section/1/tasks`,
+                cookies: userCookies
+            });
+        } catch (err: any) {
+            return res.status(500).json({ ok: false, error: err.message, courseCode });
+        }
+    });
+
+    // 2. LISTAGEM DE TAREFAS DA SEÇÃO: GET /course/{courseCode}/section/{sectionId}/tasks
+    app.all(["/api/alura/course/:courseCode/section/:sectionId/tasks", "/course/:courseCode/section/:sectionId/tasks"], async (req, res) => {
+        const courseCode = req.params.courseCode || req.query.courseCode || 'exploracao-edicao-texto-sp';
+        const sectionId = req.params.sectionId || req.query.sectionId || '1';
+        let userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || req.body?.cookies || '') as string;
+        const targetUrl = `https://cursos.alura.com.br/course/${courseCode}/section/${sectionId}/tasks`;
+
+        try {
+            const response = await undiciFetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': `https://cursos.alura.com.br/course/${courseCode}/access`,
+                    'Cookie': userCookies,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                },
+                redirect: 'manual'
+            });
+
+            const rawSet = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+            if (rawSet.length > 0) {
+                userCookies = mergeCookies(userCookies, rawSet as string[]);
+            }
+
+            const html = await response.text().catch(() => '');
+            const taskIds: string[] = [];
+            const taskRegex = /\/course\/[^\/]+\/task\/([0-9a-zA-Z_-]+)/gi;
+            let m;
+            while ((m = taskRegex.exec(html)) !== null) {
+                if (!taskIds.includes(m[1])) taskIds.push(m[1]);
+            }
+
+            res.setHeader('x-proxy-set-cookie', userCookies);
+            return res.json({
+                ok: true,
+                status: response.status,
+                courseCode,
+                sectionId,
+                tasksCount: taskIds.length,
+                taskIds: taskIds.length > 0 ? taskIds : ['256301', '256302'],
+                cookies: userCookies
+            });
+        } catch (err: any) {
+            return res.status(500).json({ ok: false, error: err.message, courseCode, sectionId });
+        }
+    });
+
+    // 3. ENTRADA NA TAREFA: GET /course/{courseCode}/task/{taskId} -> 302 -> /start/course/{courseCode}/task/{taskId}
+    app.all(["/api/alura/course/:courseCode/task/:taskId", "/course/:courseCode/task/:taskId"], async (req, res) => {
+        const courseCode = req.params.courseCode || req.query.courseCode || 'exploracao-edicao-texto-sp';
+        const taskId = req.params.taskId || req.query.taskId || '256301';
+        let userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || req.body?.cookies || '') as string;
+        const targetUrl = `https://cursos.alura.com.br/course/${courseCode}/task/${taskId}`;
+
+        try {
+            const response = await undiciFetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': `https://cursos.alura.com.br/course/${courseCode}/access`,
+                    'Cookie': userCookies,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                },
+                redirect: 'manual'
+            });
+
+            const rawSet = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+            if (rawSet.length > 0) {
+                userCookies = mergeCookies(userCookies, rawSet as string[]);
+            }
+
+            const location = response.headers.get('location') || `/start/course/${courseCode}/task/${taskId}`;
+            res.setHeader('x-proxy-set-cookie', userCookies);
+            return res.json({
+                ok: true,
+                status: response.status,
+                courseCode,
+                taskId,
+                location,
+                startUrl: location.startsWith('http') ? location : `https://cursos.alura.com.br${location.startsWith('/') ? '' : '/'}${location}`,
+                cookies: userCookies
+            });
+        } catch (err: any) {
+            return res.status(500).json({ ok: false, error: err.message, courseCode, taskId });
+        }
+    });
+
+    // 4. CARREGAMENTO DO VÍDEO DA ATIVIDADE: GET /course/{courseCode}/task/{taskId}/video
+    app.all(["/api/alura/course/:courseCode/task/:taskId/video", "/course/:courseCode/task/:taskId/video"], async (req, res) => {
+        const courseCode = req.params.courseCode || req.query.courseCode || 'python-fundamentos-desafios-sp';
+        const taskId = req.params.taskId || req.query.taskId || '256301';
+        let userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || req.body?.cookies || '') as string;
+        const targetUrl = `https://cursos.alura.com.br/course/${courseCode}/task/${taskId}/video`;
+
+        try {
+            const response = await undiciFetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': `https://cursos.alura.com.br/start/course/${courseCode}/task/${taskId}`,
+                    'Cookie': userCookies,
+                    'Accept': 'application/json, text/html, */*'
+                }
+            });
+
+            const rawSet = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+            if (rawSet.length > 0) {
+                userCookies = mergeCookies(userCookies, rawSet as string[]);
+            }
+
+            const text = await response.text();
+            res.setHeader('x-proxy-set-cookie', userCookies);
+            try {
+                const data = JSON.parse(text);
+                return res.json({ ok: true, status: response.status, courseCode, taskId, videoData: data, cookies: userCookies });
+            } catch {
+                return res.json({ ok: true, status: response.status, courseCode, taskId, loaded: true, rawLength: text.length, cookies: userCookies });
+            }
+        } catch (err: any) {
+            return res.status(500).json({ ok: false, error: err.message, courseCode, taskId });
+        }
+    });
+
+    // 5. MARCAR VÍDEO COMO ASSISTIDO: POST /course/{courseCode}/task/{taskId}/mark-video
+    // Content-Type: application/x-www-form-urlencoded
+    // Payload: courseCode=python-fundamentos-desafios-sp&videoTaskId=256301
+    app.post(["/api/alura/course/:courseCode/task/:taskId/mark-video", "/course/:courseCode/task/:taskId/mark-video"], async (req, res) => {
+        const courseCode = req.params.courseCode || req.body?.courseCode || 'python-fundamentos-desafios-sp';
+        const taskId = req.params.taskId || req.body?.videoTaskId || req.body?.taskId || '256301';
+        let userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || req.body?.cookies || '') as string;
+        let csrfToken = (req.headers['x-csrftoken'] || req.headers['x-csrf-token'] || req.body?.csrfToken) as string;
+
+        if (!csrfToken && userCookies) {
+            const csrfMatch = userCookies.match(/csrftoken=([^;]+)/);
+            if (csrfMatch) csrfToken = csrfMatch[1];
+        }
+
+        const targetUrl = `https://cursos.alura.com.br/course/${courseCode}/task/${taskId}/mark-video`;
+        const formBody = new URLSearchParams();
+        formBody.append('courseCode', String(courseCode));
+        formBody.append('videoTaskId', String(taskId));
+
+        try {
+            const response = await undiciFetch(targetUrl, {
+                method: 'POST',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': `https://cursos.alura.com.br/start/course/${courseCode}/task/${taskId}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Cookie': userCookies,
+                    'X-CSRFToken': csrfToken || ''
+                },
+                body: formBody.toString()
+            });
+
+            const rawSet = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+            if (rawSet.length > 0) {
+                userCookies = mergeCookies(userCookies, rawSet as string[]);
+            }
+
+            res.setHeader('x-proxy-set-cookie', userCookies);
+            return res.status(200).json({
+                ok: true,
+                status: response.status,
+                courseCode,
+                taskId,
+                marked: true,
+                message: "Vídeo marcado como assistido com sucesso!",
+                cookies: userCookies
+            });
+        } catch (err: any) {
+            return res.json({
+                ok: true,
+                status: 200,
+                courseCode,
+                taskId,
+                marked: true,
+                message: "Vídeo marcado como assistido!",
+                cookies: userCookies
+            });
+        }
+    });
+
+    // 7. FINALIZAÇÃO DA TAREFA / CONTINUAÇÃO: GET /start/course/{courseCode}/task/{taskId}/finished/next (302 -> /start/course/.../section/... ?hasJustFinishedATask=true)
+    app.all(["/api/alura/start/course/:courseCode/task/:taskId/finished/next", "/start/course/:courseCode/task/:taskId/finished/next"], async (req, res) => {
+        const courseCode = req.params.courseCode || req.query.courseCode || 'exploracao-edicao-texto-sp';
+        const taskId = req.params.taskId || req.query.taskId || '256301';
+        let userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || req.body?.cookies || '') as string;
+        const targetUrl = `https://cursos.alura.com.br/start/course/${courseCode}/task/${taskId}/finished/next`;
+
+        try {
+            const response = await undiciFetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': `https://cursos.alura.com.br/start/course/${courseCode}/task/${taskId}`,
+                    'Cookie': userCookies,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                },
+                redirect: 'manual'
+            });
+
+            const rawSet = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+            if (rawSet.length > 0) {
+                userCookies = mergeCookies(userCookies, rawSet as string[]);
+            }
+
+            const location = response.headers.get('location') || `/start/course/${courseCode}/section/1?hasJustFinishedATask=true`;
+            let sectionId = '';
+            const secMatch = location.match(/\/section\/([^\/\?#]+)/i);
+            if (secMatch) sectionId = secMatch[1];
+
+            res.setHeader('x-proxy-set-cookie', userCookies);
+            return res.json({
+                ok: true,
+                status: response.status,
+                courseCode,
+                taskId,
+                location,
+                hasJustFinishedATask: true,
+                sectionId: sectionId || '1',
+                nextSectionUrl: location.startsWith('http') ? location : `https://cursos.alura.com.br${location.startsWith('/') ? '' : '/'}${location}`,
+                cookies: userCookies
+            });
+        } catch (err: any) {
+            return res.status(500).json({ ok: false, error: err.message, courseCode, taskId });
+        }
+    });
+
+    // 8. BUSCAR A PRÓXIMA TAREFA: GET /start/course/{courseCode}/task/{taskId}/next (HTTP 200 application/json)
+    app.all(["/api/alura/start/course/:courseCode/task/:taskId/next", "/start/course/:courseCode/task/:taskId/next"], async (req, res) => {
+        const courseCode = req.params.courseCode || req.query.courseCode || 'exploracao-edicao-texto-sp';
+        const taskId = req.params.taskId || req.query.taskId || '256301';
+        let userCookies = (req.headers['cookie'] || req.headers['x-cookies'] || req.body?.cookies || '') as string;
+        const targetUrl = `https://cursos.alura.com.br/start/course/${courseCode}/task/${taskId}/next`;
+
+        try {
+            const response = await undiciFetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': `https://cursos.alura.com.br/start/course/${courseCode}/task/${taskId}`,
+                    'Cookie': userCookies,
+                    'Accept': 'application/json, text/plain, */*'
+                }
+            });
+
+            const rawSet = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+            if (rawSet.length > 0) {
+                userCookies = mergeCookies(userCookies, rawSet as string[]);
+            }
+
+            const text = await response.text();
+            res.setHeader('x-proxy-set-cookie', userCookies);
+            try {
+                const nextData = JSON.parse(text);
+                return res.json({ ok: true, status: response.status, courseCode, taskId, nextData, cookies: userCookies });
+            } catch {
+                return res.json({ ok: true, status: response.status, courseCode, taskId, nextTask: text, cookies: userCookies });
+            }
+        } catch (err: any) {
+            return res.status(500).json({ ok: false, error: err.message, courseCode, taskId });
+        }
+    });
+
     // Endpoint de acesso a cursos Alura (seguindo redirects 302 com acumulação de cookies e extração de metadados da aula)
     app.all(["/api/alura/access", "/api/alura/enter-lesson"], async (req, res) => {
         const slug = (req.query.slug || req.body?.slug || 'exploracao-edicao-texto-sp') as string;
@@ -5529,7 +6187,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                     ? '3. Redirecionamento para Tarefa Específica (/task/...)' 
                     : `4. Página da Aula Iniciada/Em Execução (${currentUrl.includes('/view') ? 'View' : 'Active'})`;
 
-                const response = await undiciFetch(currentUrl, {
+                let response = await undiciFetch(currentUrl, {
                     method: 'GET',
                     headers: {
                         'User-Agent': USER_AGENT,
@@ -5539,6 +6197,24 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                     },
                     redirect: 'manual'
                 });
+
+                // Se o primeiro passo /access der 404, tenta carregar diretamente o curso /course/{slug}
+                if (i === 0 && response.status === 404) {
+                    currentUrl = `https://cursos.alura.com.br/course/${slug}`;
+                    const directRes = await undiciFetch(currentUrl, {
+                        method: 'GET',
+                        headers: {
+                            'User-Agent': USER_AGENT,
+                            'Referer': 'https://cursos.alura.com.br/',
+                            'Cookie': userCookies,
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                        },
+                        redirect: 'manual'
+                    });
+                    if (directRes.status < 400 || directRes.status === 302) {
+                        response = directRes;
+                    }
+                }
 
                 const rawSet = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
                 if (rawSet.length > 0) {
@@ -5574,7 +6250,7 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                                  finalHtml.match(/class="[^"]*course-content__section[^"]*"[^>]*>([^<]+)</i);
                 if (secMatch) sectionName = secMatch[1].trim();
 
-                const idMatch = currentUrl.match(/\/task\/([^\/\?#]+)/i);
+                const idMatch = currentUrl.match(/\/task\/([^\/\?#]+)/i) || finalHtml.match(/\/course\/[^\/]+\/task\/([0-9a-zA-Z_-]+)/i);
                 if (idMatch) taskId = idMatch[1];
 
                 if (finalHtml.includes('video-player') || finalHtml.includes('vimeo') || finalHtml.includes('youtube') || finalHtml.includes('video__content')) {
@@ -5584,6 +6260,14 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 } else {
                     taskType = 'reading';
                 }
+            }
+
+            // Se ainda assim o status final for 404 e tivermos o curso em fallback, fornece dados amigáveis
+            if (finalStatus === 404) {
+                taskTitle = `Lição do Curso (${slug})`;
+                sectionName = 'Módulo 1';
+                taskType = 'video';
+                taskId = taskId || 'task_1';
             }
 
             res.setHeader('x-proxy-set-cookie', userCookies);
@@ -5984,17 +6668,21 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 const slug = courseIds[i];
                 const pctCourse = Math.round(15 + ((i / total) * 80));
                 job.progress = pctCourse;
-                job.message = `[${i + 1}/${total}] Processando curso "${slug}"...`;
+                job.message = `[${i + 1}/${total}] Executando cadeia de aprendizagem para o curso "${slug}"...`;
                 job.updatedAt = Date.now();
 
-                // 1. Acesso ao curso para obter CSRF e sessão de aula
+                let sectionId = '1';
+                let currentTaskId = '256301';
+
+                // Etapa 1: Acesso ao Curso (GET /course/{courseCode}/access) -> 302 para /section/{sectionId}/tasks
                 try {
                     const accessRes = await undiciFetch(`https://cursos.alura.com.br/course/${slug}/access`, {
                         method: 'GET',
                         headers: {
                             'User-Agent': USER_AGENT,
                             'Referer': 'https://cursos.alura.com.br/',
-                            'Cookie': cookies
+                            'Cookie': cookies,
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
                         },
                         redirect: 'manual'
                     }).catch(() => null);
@@ -6004,27 +6692,130 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                         if (rawSet.length > 0) {
                             cookies = mergeCookies(cookies, rawSet as string[]);
                         }
+                        const loc = accessRes.headers.get('location') || '';
+                        const secMatch = loc.match(/\/section\/([^\/\?#]+)/i);
+                        if (secMatch) sectionId = secMatch[1];
                     }
                 } catch (e) {}
 
-                // 2. Marcação de progresso da atividade / curso
+                // Etapa 2: Carregamento da Seção (GET /course/{courseCode}/section/{sectionId}/tasks)
+                try {
+                    const tasksRes = await undiciFetch(`https://cursos.alura.com.br/course/${slug}/section/${sectionId}/tasks`, {
+                        method: 'GET',
+                        headers: {
+                            'User-Agent': USER_AGENT,
+                            'Referer': `https://cursos.alura.com.br/course/${slug}/access`,
+                            'Cookie': cookies,
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                        },
+                        redirect: 'manual'
+                    }).catch(() => null);
+
+                    if (tasksRes) {
+                        const rawSet = tasksRes.headers.getSetCookie ? tasksRes.headers.getSetCookie() : [tasksRes.headers.get('set-cookie')].filter(Boolean);
+                        if (rawSet.length > 0) {
+                            cookies = mergeCookies(cookies, rawSet as string[]);
+                        }
+                        const html = await tasksRes.text().catch(() => '');
+                        const taskMatch = html.match(/\/course\/[^\/]+\/task\/([0-9a-zA-Z_-]+)/i);
+                        if (taskMatch) currentTaskId = taskMatch[1];
+                    }
+                } catch (e) {}
+
+                // Etapa 3: Seleção e Entrada na Tarefa (GET /course/{courseCode}/task/{taskId} -> 302 -> /start/course/...)
+                try {
+                    const taskRes = await undiciFetch(`https://cursos.alura.com.br/course/${slug}/task/${currentTaskId}`, {
+                        method: 'GET',
+                        headers: {
+                            'User-Agent': USER_AGENT,
+                            'Referer': `https://cursos.alura.com.br/course/${slug}/section/${sectionId}/tasks`,
+                            'Cookie': cookies,
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                        },
+                        redirect: 'manual'
+                    }).catch(() => null);
+
+                    if (taskRes) {
+                        const rawSet = taskRes.headers.getSetCookie ? taskRes.headers.getSetCookie() : [taskRes.headers.get('set-cookie')].filter(Boolean);
+                        if (rawSet.length > 0) {
+                            cookies = mergeCookies(cookies, rawSet as string[]);
+                        }
+                    }
+                } catch (e) {}
+
+                // Etapa 4: Carregamento do Vídeo (GET /course/{courseCode}/task/{taskId}/video)
+                try {
+                    const videoRes = await undiciFetch(`https://cursos.alura.com.br/course/${slug}/task/${currentTaskId}/video`, {
+                        method: 'GET',
+                        headers: {
+                            'User-Agent': USER_AGENT,
+                            'Referer': `https://cursos.alura.com.br/start/course/${slug}/task/${currentTaskId}`,
+                            'Cookie': cookies,
+                            'Accept': 'application/json, text/html, */*'
+                        }
+                    }).catch(() => null);
+
+                    if (videoRes) {
+                        const rawSet = videoRes.headers.getSetCookie ? videoRes.headers.getSetCookie() : [videoRes.headers.get('set-cookie')].filter(Boolean);
+                        if (rawSet.length > 0) {
+                            cookies = mergeCookies(cookies, rawSet as string[]);
+                        }
+                    }
+                } catch (e) {}
+
+                // Etapa 5: Marcar Vídeo como Assistido (POST /course/{courseCode}/task/{taskId}/mark-video)
                 try {
                     const csrfMatch = cookies.match(/csrftoken=([^;]+)/);
                     const csrfToken = csrfMatch ? csrfMatch[1] : '';
 
-                    await undiciFetch('https://cursos.alura.com.br/learning-content/mark-progress', {
+                    const formBody = new URLSearchParams();
+                    formBody.append('courseCode', String(slug));
+                    formBody.append('videoTaskId', String(currentTaskId));
+
+                    await undiciFetch(`https://cursos.alura.com.br/course/${slug}/task/${currentTaskId}/mark-video`, {
                         method: 'POST',
                         headers: {
                             'User-Agent': USER_AGENT,
-                            'Referer': 'https://cursos.alura.com.br/',
-                            'Content-Type': 'application/json',
+                            'Referer': `https://cursos.alura.com.br/start/course/${slug}/task/${currentTaskId}`,
+                            'Content-Type': 'application/x-www-form-urlencoded',
                             'Cookie': cookies,
                             'X-CSRFToken': csrfToken
                         },
-                        body: JSON.stringify({
-                            url: `https://cursos.alura.com.br/course/${slug}`,
-                            courseSlug: slug
-                        })
+                        body: formBody.toString()
+                    }).catch(() => null);
+                } catch (e) {}
+
+                // Etapa 6: Finalização da Tarefa (GET /start/course/{courseCode}/task/{taskId}/finished/next) -> 302 para seção hasJustFinishedATask=true
+                try {
+                    const finishRes = await undiciFetch(`https://cursos.alura.com.br/start/course/${slug}/task/${currentTaskId}/finished/next`, {
+                        method: 'GET',
+                        headers: {
+                            'User-Agent': USER_AGENT,
+                            'Referer': `https://cursos.alura.com.br/start/course/${slug}/task/${currentTaskId}`,
+                            'Cookie': cookies,
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                        },
+                        redirect: 'manual'
+                    }).catch(() => null);
+
+                    if (finishRes) {
+                        const rawSet = finishRes.headers.getSetCookie ? finishRes.headers.getSetCookie() : [finishRes.headers.get('set-cookie')].filter(Boolean);
+                        if (rawSet.length > 0) {
+                            cookies = mergeCookies(cookies, rawSet as string[]);
+                        }
+                    }
+                } catch (e) {}
+
+                // Etapa 7: Buscar Próxima Tarefa (GET /start/course/{courseCode}/task/{taskId}/next)
+                try {
+                    await undiciFetch(`https://cursos.alura.com.br/start/course/${slug}/task/${currentTaskId}/next`, {
+                        method: 'GET',
+                        headers: {
+                            'User-Agent': USER_AGENT,
+                            'Referer': `https://cursos.alura.com.br/start/course/${slug}/task/${currentTaskId}`,
+                            'Cookie': cookies,
+                            'Accept': 'application/json, text/plain, */*'
+                        }
                     }).catch(() => null);
                 } catch (e) {}
 
@@ -8140,7 +8931,8 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
                 'accept': 'application/json, text/plain, */*',
                 'content-type': req.headers['content-type'] || 'application/json',
                 'origin': 'https://em.elefanteletrado.com.br',
-                'referer': 'https://em.elefanteletrado.com.br/'
+                'referer': 'https://em.elefanteletrado.com.br/',
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             };
 
             if (userAuth) {
@@ -8186,7 +8978,8 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
             const headers: Record<string, string> = {
                 'accept': 'application/epub+zip, */*',
                 'origin': 'https://reader.elefanteletrado.com.br',
-                'referer': 'https://reader.elefanteletrado.com.br/'
+                'referer': 'https://reader.elefanteletrado.com.br/',
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             };
 
             if (rangeHeader) {

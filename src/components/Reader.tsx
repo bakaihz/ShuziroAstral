@@ -147,7 +147,29 @@ export const ReaderComponent: React.FC<ReaderProps> = ({ book, onClose, onOpenQu
     }
   };
 
+  const [isAutoReading, setIsAutoReading] = useState(false);
+  const autoReadTimerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (isAutoReading) {
+      addLog(`🤖 Leitura Automática ATIVADA - Avançando páginas e enviando progresso automaticamente...`);
+      autoReadTimerRef.current = setInterval(() => {
+        handleNextPage();
+      }, 3000);
+    } else {
+      if (autoReadTimerRef.current) {
+        clearInterval(autoReadTimerRef.current);
+        autoReadTimerRef.current = null;
+        addLog(`🛑 Leitura Automática PAUSADA.`);
+      }
+    }
+    return () => {
+      if (autoReadTimerRef.current) clearInterval(autoReadTimerRef.current);
+    };
+  }, [isAutoReading, tracker]);
+
   const handleClose = async () => {
+    if (autoReadTimerRef.current) clearInterval(autoReadTimerRef.current);
     const currentTime = tracker ? tracker.getState().timeElapsed : 0;
     addLog(`🚪 Encerrando leitor e registrando fechamento do livro...`);
     addLog(`📡 POST /v1/book-reading/close-book/${book.id}/0?currentPageTime=${currentTime}`);
@@ -167,48 +189,60 @@ export const ReaderComponent: React.FC<ReaderProps> = ({ book, onClose, onOpenQu
   };
 
   return (
-    <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-6">
-      {/* Top Controls Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-[#27272a] pb-4 gap-3">
+    <div className="bg-[#09090b] border border-red-950/40 rounded-2xl p-6 space-y-6 text-white">
+      {/* Barra de Controles do Topo */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-zinc-900 pb-4 gap-3">
         <div>
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <span>{book.title}</span>
-            <span className="text-[10px] bg-amber-950 text-amber-300 font-bold px-2 py-0.5 rounded border border-amber-800">
+            <span className="text-[10px] bg-red-950/40 text-red-400 font-bold px-2 py-0.5 rounded border border-red-900/40">
               ID: {book.id}
             </span>
           </h3>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            Página <strong className="text-amber-400">{page}</strong> de <strong>{book.totalPages}</strong>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Página <strong className="text-white">{page}</strong> de <strong className="text-zinc-300">{book.totalPages}</strong>
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 px-3 py-1.5 bg-[#18181b] border border-zinc-800 rounded-lg text-xs text-zinc-300 font-mono">
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 px-3 py-1.5 bg-black border border-zinc-850 rounded-lg text-xs text-zinc-300 font-mono">
+            <Clock className="w-3.5 h-3.5 text-red-500" />
             <span>{Math.floor(timeElapsed / 60)}m {timeElapsed % 60}s</span>
           </div>
 
           <button
-            onClick={handleAddBookmark}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-lg flex items-center gap-1 transition-all cursor-pointer border border-zinc-700"
+            onClick={() => setIsAutoReading(!isAutoReading)}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer border ${
+              isAutoReading
+                ? 'bg-red-600 text-white border-red-500 animate-pulse shadow-md shadow-red-950/50'
+                : 'bg-red-950/30 hover:bg-red-950/50 text-red-400 border-red-900/40'
+            }`}
           >
-            <Bookmark className="w-3.5 h-3.5 text-amber-400" />
+            <Zap className={`w-3.5 h-3.5 ${isAutoReading ? 'fill-white text-white' : 'fill-red-400 text-red-400'}`} />
+            {isAutoReading ? 'Lendo Automático...' : 'Leitura Automática'}
+          </button>
+
+          <button
+            onClick={handleAddBookmark}
+            className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-300 text-xs font-bold rounded-lg flex items-center gap-1 transition-all cursor-pointer border border-zinc-800"
+          >
+            <Bookmark className="w-3.5 h-3.5 text-red-500" />
             Marcar
           </button>
 
           {quizAvailable && onOpenQuiz && (
             <button
               onClick={onOpenQuiz}
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg flex items-center gap-1 transition-all cursor-pointer shadow-md shadow-red-950/50"
             >
-              <Zap className="w-3.5 h-3.5 fill-black" />
+              <Zap className="w-3.5 h-3.5 fill-white" />
               Quiz do Livro
             </button>
           )}
 
           <button
             onClick={handleClose}
-            className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80 text-xs font-bold rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+            className="px-3 py-1.5 bg-black hover:bg-zinc-950 text-red-500 border border-red-950/60 text-xs font-bold rounded-lg flex items-center gap-1 transition-all cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
             Fechar Livro
@@ -216,55 +250,55 @@ export const ReaderComponent: React.FC<ReaderProps> = ({ book, onClose, onOpenQu
         </div>
       </div>
 
-      {/* Reader Stage Visualizer */}
-      <div className="bg-[#09090b] border border-zinc-800 rounded-xl p-8 min-h-[220px] flex flex-col justify-between space-y-6">
+      {/* Visualizador de Páginas (Stage) */}
+      <div className="bg-black border border-zinc-900 rounded-xl p-8 min-h-[220px] flex flex-col justify-between space-y-6">
         <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs text-zinc-500 border-b border-zinc-800/80 pb-2">
-            <span className="flex items-center gap-1.5 text-zinc-300 font-semibold">
-              <DownloadCloud className="w-4 h-4 text-emerald-400" />
+          <div className="flex items-center justify-between text-xs text-zinc-500 border-b border-zinc-900 pb-2">
+            <span className="flex items-center gap-1.5 text-zinc-400 font-bold uppercase tracking-wider">
+              <DownloadCloud className="w-4 h-4 text-red-500" />
               EPUB Range Loader (HTTP 206 Partial Content)
             </span>
-            <span className="font-mono text-[10px] text-amber-400">{cfi}</span>
+            <span className="font-mono text-[10px] text-zinc-500">{cfi}</span>
           </div>
 
           {/* Status dos Chunks Baixados em Cache */}
-          <div className="bg-[#121214] border border-zinc-800 p-3 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="bg-[#0c0c0e] border border-zinc-900 p-3 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-amber-400" />
-              <span className="text-zinc-300 font-medium">Chunks EPUB em Cache:</span>
-              <span className="bg-amber-950 text-amber-300 text-[10px] px-2 py-0.5 rounded font-bold border border-amber-800">
+              <Layers className="w-4 h-4 text-red-500" />
+              <span className="text-zinc-400 font-bold">Chunks EPUB em Cache:</span>
+              <span className="bg-red-950/40 text-red-400 text-[10px] px-2 py-0.5 rounded font-bold border border-red-900/40">
                 {loadedChunks.length} intervalo(s)
               </span>
             </div>
-            <div className="text-zinc-400 text-[11px] font-mono">
+            <div className="text-zinc-500 text-[11px] font-mono font-bold">
               Tamanho Total: {totalEpubSize > 0 ? `${(totalEpubSize / 1024 / 1024).toFixed(2)} MB` : 'Calculando via Content-Range...'}
             </div>
           </div>
 
-          <p className="text-sm text-zinc-200 leading-relaxed font-serif italic pt-2">
+          <p className="text-sm text-zinc-300 leading-relaxed font-serif italic pt-3 max-w-2xl mx-auto text-center border-b border-zinc-900/40 pb-4">
             "Na leitura de obras clássicas da literatura brasileira, a reflexão e o discernimento crítico se sobrepõem à pressa. Cada capítulo oferece uma perspectiva sobre a psique humana e a estrutura social da época."
           </p>
         </div>
 
-        {/* Page Nav Buttons */}
-        <div className="flex items-center justify-between pt-4 border-t border-zinc-800/80">
+        {/* Botões de Navegação das Páginas */}
+        <div className="flex items-center justify-between pt-4 border-t border-zinc-900">
           <button
             onClick={handlePrevPage}
             disabled={page <= 1}
-            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer border border-zinc-700"
+            className="px-4 py-2 bg-zinc-900 hover:bg-zinc-850 disabled:opacity-30 text-zinc-300 border border-zinc-800 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
           >
             <ChevronLeft className="w-4 h-4" />
             Página Anterior
           </button>
 
-          <span className="text-xs font-bold text-zinc-400">
+          <span className="text-xs font-bold text-zinc-500">
             {Math.round((page / book.totalPages) * 100)}% concluído
           </span>
 
           <button
             onClick={handleNextPage}
             disabled={page >= book.totalPages}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-md"
+            className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-30 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-md shadow-red-950/50"
           >
             Próxima Página
             <ChevronRight className="w-4 h-4" />
@@ -272,17 +306,17 @@ export const ReaderComponent: React.FC<ReaderProps> = ({ book, onClose, onOpenQu
         </div>
       </div>
 
-      {/* Reader Logs & State Monitoring */}
-      <div className="bg-[#09090b] border border-zinc-800/80 rounded-xl p-4 space-y-2">
-        <div className="flex items-center justify-between text-xs text-zinc-400 font-bold border-b border-zinc-800 pb-2">
-          <span>Logs de Requisições HTTP (progress_em / range / close-book)</span>
-          <span className="text-[10px] text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3" /> Estado Sincronizado
+      {/* Monitor de Requisições HTTP */}
+      <div className="bg-black border border-zinc-900 rounded-xl p-4 space-y-2">
+        <div className="flex items-center justify-between text-xs text-zinc-500 font-bold border-b border-zinc-900 pb-2">
+          <span>LOGS DAS REQUISIÇÕES HTTP (progress_em / range / close-book)</span>
+          <span className="text-[10px] text-red-500 flex items-center gap-1 font-bold">
+            <CheckCircle2 className="w-3 h-3" /> CONEXÃO DIRETA ATIVA
           </span>
         </div>
-        <div className="font-mono text-[11px] space-y-1 max-h-36 overflow-y-auto">
+        <div className="font-mono text-[10px] space-y-1 max-h-28 overflow-y-auto">
           {statusLog.map((log, i) => (
-            <div key={i} className="text-amber-300/90 leading-tight">
+            <div key={i} className="text-red-400/90 leading-tight">
               {log}
             </div>
           ))}
@@ -291,4 +325,3 @@ export const ReaderComponent: React.FC<ReaderProps> = ({ book, onClose, onOpenQu
     </div>
   );
 };
-

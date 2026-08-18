@@ -167,7 +167,7 @@ interface PlatformDetailViewProps {
   pingStatus?: 'idle' | 'pinging' | 'success' | 'failed';
 }
 
-const DEFAULT_BACKEND_URL = '';
+const DEFAULT_BACKEND_URL = 'https://bakai.shuziroastral.lol';
 
 const getBackendUrl = () => {
   const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
@@ -4392,21 +4392,21 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
       {slug === 'leiasp' && (
         <div className="space-y-6 animate-fadeIn">
           {/* Header & Status Card */}
-          <div className="bg-[#121214] border border-[#27272a] rounded-2xl p-6 space-y-6">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-[#27272a] pb-5">
+          <div className="bg-[#0c0c0e] border border-red-950/60 rounded-2xl p-6 space-y-6">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-zinc-900 pb-5">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
-                  <BookOpen className="w-6 h-6 text-amber-400" />
+                <div className="w-12 h-12 rounded-xl bg-red-950/40 border border-red-900/40 flex items-center justify-center shrink-0">
+                  <BookOpen className="w-6 h-6 text-red-500" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-base font-bold text-white">Hub de Leitura & Gamificação LeiaSP</h2>
-                    <span className="text-[10px] bg-amber-950 text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-800/80">
+                    <h2 className="text-base font-extrabold text-white">Hub de Leitura & Gamificação LeiaSP</h2>
+                    <span className="text-[10px] bg-red-950/30 text-red-400 font-bold px-2 py-0.5 rounded-full border border-red-900/40">
                       Elefante Letrado / SED
                     </span>
                   </div>
                   <p className="text-xs text-zinc-400 mt-0.5">
-                    Sincronização automática do Termômetro Semanal, leitura de páginas e resolução de quizzes pedagógicos com IA.
+                    Sincronização automatizada do Termômetro Semanal, leitura de páginas e resolução de quizzes pedagógicos com IA.
                   </p>
                 </div>
               </div>
@@ -4414,7 +4414,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => loadLeiaData()}
-                  className="px-3 py-2 bg-[#18181b] hover:bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   Sincronizar Acervo
@@ -4423,16 +4423,16 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
             </div>
 
             {/* Status da Autenticação Automática LeiaSP */}
-            <div className="bg-[#18181b] border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="bg-black border border-red-950/40 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">
-                  <CheckCheck className="w-5 h-5 text-emerald-400" />
+                <div className="w-9 h-9 rounded-lg bg-red-950/40 border border-red-900/40 flex items-center justify-center shrink-0">
+                  <CheckCheck className="w-5 h-5 text-red-500" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h4 className="text-xs font-bold text-white">Autenticação Automática LeiaSP / Elefante Letrado</h4>
-                    <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-950 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-800">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="inline-flex items-center gap-1 text-[10px] bg-red-950/30 text-red-400 font-bold px-2 py-0.5 rounded-full border border-red-900/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
                       Sessão Ativa
                     </span>
                   </div>
@@ -4445,26 +4445,26 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
               <button
                 onClick={() => handleLeiaLogin()}
                 disabled={leiaLoading}
-                className="px-3 py-1.5 bg-[#09090b] hover:bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                className="px-3 py-1.5 bg-[#121214] hover:bg-zinc-900 border border-zinc-800 text-zinc-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${leiaLoading ? 'animate-spin' : ''}`} />
                 {leiaLoading ? 'Sincronizando...' : 'Reautenticar Sessão'}
               </button>
             </div>
 
-            {/* Mode Switcher & Architecture Navigation */}
-            <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-3 flex flex-col md:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+            {/* Mode Switcher & Navigation */}
+            <div className="bg-black border border-zinc-900 rounded-xl p-3 flex flex-col md:flex-row items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto">
                 <button
                   onClick={() => setActiveLeiaView('library')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeLeiaView === 'library'
-                      ? 'bg-amber-500 text-black shadow'
-                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                      ? 'bg-red-600 text-white shadow-md shadow-red-950/50'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                   }`}
                 >
                   <BookOpen className="w-3.5 h-3.5" />
-                  Biblioteca (LibraryAPI)
+                  Biblioteca
                 </button>
 
                 <button
@@ -4476,12 +4476,12 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeLeiaView === 'book'
-                      ? 'bg-amber-500 text-black shadow'
-                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                      ? 'bg-red-600 text-white shadow-md shadow-red-950/50'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                   }`}
                 >
                   <FileText className="w-3.5 h-3.5" />
-                  Livro (BooksAPI)
+                  Livro
                 </button>
 
                 <button
@@ -4493,12 +4493,12 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeLeiaView === 'reader'
-                      ? 'bg-amber-500 text-black shadow'
-                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                      ? 'bg-red-600 text-white shadow-md shadow-red-950/50'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                   }`}
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
-                  Leitor (ReadingAPI)
+                  Leitor
                 </button>
 
                 <button
@@ -4510,29 +4510,29 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeLeiaView === 'quiz'
-                      ? 'bg-amber-500 text-black shadow'
-                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                      ? 'bg-red-600 text-white shadow-md shadow-red-950/50'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                   }`}
                 >
                   <Zap className="w-3.5 h-3.5" />
-                  Quiz (QuizAPI)
+                  Quiz
                 </button>
 
                 <button
                   onClick={() => setActiveLeiaView('profile')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeLeiaView === 'profile'
-                      ? 'bg-amber-500 text-black shadow'
-                      : 'bg-[#09090b] text-zinc-400 hover:text-white border border-zinc-800'
+                      ? 'bg-red-600 text-white shadow-md shadow-red-950/50'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                   }`}
                 >
                   <GraduationCap className="w-3.5 h-3.5" />
-                  Perfil (StudentAPI)
+                  Perfil do Aluno
                 </button>
               </div>
 
               {/* MOCK vs REAL Mode Toggle */}
-              <div className="flex items-center gap-2 bg-[#09090b] border border-zinc-800 p-1 rounded-lg shrink-0">
+              <div className="flex items-center gap-2 bg-[#121214] border border-zinc-800 p-1 rounded-lg shrink-0">
                 <span className="text-[10px] font-bold text-zinc-400 px-1">Modo:</span>
                 <button
                   onClick={() => {
@@ -4541,7 +4541,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                   }}
                   className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
                     leiaAppMode === 'MOCK'
-                      ? 'bg-amber-500 text-black font-extrabold'
+                      ? 'bg-red-600 text-white font-extrabold'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -4554,7 +4554,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                   }}
                   className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
                     leiaAppMode === 'REAL'
-                      ? 'bg-emerald-500 text-black font-extrabold'
+                      ? 'bg-red-600 text-white font-extrabold'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -4619,13 +4619,13 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
             {/* Termômetro Semanal & Estatísticas */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Termômetro Card */}
-              <div className="md:col-span-2 bg-[#18181b] border border-amber-900/40 rounded-xl p-5 relative overflow-hidden space-y-4">
+              <div className="md:col-span-2 bg-[#0c0c0e] border border-red-950/60 rounded-xl p-5 relative overflow-hidden space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Flame className="w-5 h-5 text-amber-400 animate-pulse" />
+                    <Flame className="w-5 h-5 text-red-500 animate-pulse" />
                     <span className="text-sm font-bold text-white">Termômetro Semanal de Leitura</span>
                   </div>
-                  <span className="text-xs font-mono font-bold text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/60">
+                  <span className="text-xs font-mono font-bold text-red-400 bg-red-950/30 px-2 py-0.5 rounded border border-red-900/40">
                     {leiaThermometer?.currentMinutes || 0} / {leiaThermometer?.weeklyGoal || 60} min ({leiaThermometer?.percentage || 0}%)
                   </span>
                 </div>
@@ -4634,7 +4634,7 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                 <div className="space-y-1.5">
                   <div className="w-full bg-zinc-900 h-3.5 rounded-full overflow-hidden border border-zinc-800 p-0.5">
                     <div
-                      className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-amber-500 via-orange-400 to-emerald-400"
+                      className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-red-800 to-red-500"
                       style={{ width: `${Math.min(100, leiaThermometer?.percentage || 0)}%` }}
                     />
                   </div>
@@ -4644,17 +4644,17 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-2 flex items-center justify-between text-xs border-t border-zinc-800/80">
+                <div className="pt-2 flex items-center justify-between text-xs border-t border-zinc-900">
                   <span className="text-zinc-400">Dias ativos na semana: <strong className="text-white">{leiaThermometer?.daysActive || 4}/7</strong></span>
-                  <span className="text-zinc-400">Ofensiva literária: <strong className="text-amber-400">{leiaThermometer?.streak || 6} dias 🔥</strong></span>
+                  <span className="text-zinc-400">Ofensiva literária: <strong className="text-red-500">{leiaThermometer?.streak || 6} dias 🔥</strong></span>
                 </div>
               </div>
 
               {/* Quick Action Cards */}
-              <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-5 flex flex-col justify-between space-y-3">
+              <div className="bg-[#0c0c0e] border border-zinc-900 rounded-xl p-5 flex flex-col justify-between space-y-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-300">
-                    <Clock className="w-4 h-4 text-sky-400" />
+                    <Clock className="w-4 h-4 text-red-500" />
                     <span>Avanço de Minutos</span>
                   </div>
                   <p className="text-[11px] text-zinc-400">
@@ -4667,17 +4667,17 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                     if (firstUnread) handleReadBookPages(firstUnread, 15, 15);
                   }}
                   disabled={isReadingBookId !== null}
-                  className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-700 disabled:opacity-50"
+                  className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-800 disabled:opacity-50"
                 >
-                  <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                  <Zap className="w-3.5 h-3.5 text-red-500 fill-red-500" />
                   {isReadingBookId !== null ? 'Lendo...' : '+15 Min de Leitura'}
                 </button>
               </div>
 
-              <div className="bg-[#18181b] border border-zinc-800 rounded-xl p-5 flex flex-col justify-between space-y-3">
+              <div className="bg-[#0c0c0e] border border-zinc-900 rounded-xl p-5 flex flex-col justify-between space-y-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-300">
-                    <Sparkles className="w-4 h-4 text-emerald-400" />
+                    <Sparkles className="w-4 h-4 text-red-500" />
                     <span>Quizzes Automáticos</span>
                   </div>
                   <p className="text-[11px] text-zinc-400">
@@ -4687,9 +4687,9 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                 <button
                   onClick={handleBatchResolveLeia}
                   disabled={isResolvingLeia}
-                  className="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-black text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="w-full py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  <Zap className="w-3.5 h-3.5 fill-black" />
+                  <Zap className="w-3.5 h-3.5 fill-white text-white" />
                   {isResolvingLeia ? 'Completando...' : 'Completar Tudo'}
                 </button>
               </div>
@@ -4697,72 +4697,17 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
 
             {/* Acervo Literário */}
             <div className="space-y-4 pt-2">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#27272a] pb-3 gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-900 pb-3 gap-2">
                 <div className="flex items-center gap-2">
-                  <Library className="w-4 h-4 text-amber-400" />
-                  <h3 className="text-sm font-bold text-white">Acervo & Obras Literárias Disponíveis</h3>
+                  <Library className="w-4 h-4 text-red-500" />
+                  <h3 className="text-sm font-extrabold text-white">Acervo & Obras Literárias Disponíveis</h3>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-400 font-medium">
+                  <span className="text-xs text-zinc-400 font-bold">
                     {leiaBooks.filter(b => b.isRead).length} de {leiaBooks.length} Obras Concluídas
                   </span>
-                  <button
-                    onClick={() => setShowAddBookForm(!showAddBookForm)}
-                    className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    {showAddBookForm ? 'Fechar' : '+ Adicionar Obra'}
-                  </button>
                 </div>
               </div>
-
-              {/* Form de Adicionar Obra */}
-              {showAddBookForm && (
-                <div className="bg-[#18181b] border border-amber-500/30 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
-                    <BookOpen className="w-4 h-4" />
-                    <span>Adicionar Obra do LeiaSP / Elefante Letrado</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <input
-                      type="text"
-                      placeholder="Título do livro (ex: Vidas Secas)"
-                      value={newBookTitle}
-                      onChange={(e) => setNewBookTitle(e.target.value)}
-                      className="bg-[#09090b] border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Autor (ex: Graciliano Ramos)"
-                      value={newBookAuthor}
-                      onChange={(e) => setNewBookAuthor(e.target.value)}
-                      className="bg-[#09090b] border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Total de páginas (ex: 140)"
-                      value={newBookPages}
-                      onChange={(e) => setNewBookPages(e.target.value)}
-                      className="bg-[#09090b] border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => setShowAddBookForm(false)}
-                      className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold cursor-pointer"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      onClick={handleAddCustomBook}
-                      className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Adicionar ao Acervo
-                    </button>
-                  </div>
-                </div>
-              )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {leiaBooks.map((book) => {
@@ -4775,8 +4720,8 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                       key={book.id}
                       className={`p-4 rounded-xl border transition-all space-y-3 flex flex-col justify-between ${
                         isFinished
-                          ? 'bg-amber-950/10 border-amber-800/40'
-                          : 'bg-[#18181b] border-zinc-800 hover:border-zinc-700'
+                          ? 'bg-red-950/10 border-red-900/30'
+                          : 'bg-[#0c0c0e] border-zinc-900 hover:border-zinc-800'
                       }`}
                     >
                       <div className="space-y-3">
@@ -4785,10 +4730,10 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                             src={book.coverUrl}
                             alt={book.title}
                             referrerPolicy="no-referrer"
-                            className="w-16 h-22 object-cover rounded-lg border border-zinc-700/80 shadow-md shrink-0"
+                            className="w-16 h-22 object-cover rounded-lg border border-zinc-800 shadow-md shrink-0"
                           />
                           <div className="space-y-1 min-w-0 flex-1">
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-zinc-800 border-zinc-700 text-zinc-300 inline-block truncate max-w-full">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-zinc-900 border-zinc-800 text-zinc-400 inline-block truncate max-w-full">
                               {book.genre || 'Literatura'}
                             </span>
                             <h4 className="text-xs font-bold text-white line-clamp-2 leading-snug">
@@ -4804,11 +4749,11 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                         <div className="space-y-1">
                           <div className="flex items-center justify-between text-[11px]">
                             <span className="text-zinc-400">Páginas: {book.currentPage || 0} / {book.totalPages}</span>
-                            <span className="font-mono font-bold text-amber-400">{percent}%</span>
+                            <span className="font-mono font-bold text-red-500">{percent}%</span>
                           </div>
                           <div className="w-full bg-zinc-900 h-2 rounded-full overflow-hidden border border-zinc-800">
                             <div
-                              className="h-full bg-amber-400 rounded-full transition-all"
+                              className="h-full bg-red-600 rounded-full transition-all"
                               style={{ width: `${percent}%` }}
                             />
                           </div>
@@ -4818,11 +4763,11 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                         <div className="flex items-center justify-between text-[10px] pt-1">
                           <span className="text-zinc-400">Avaliação do Livro:</span>
                           {hasQuizScore ? (
-                            <span className="font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
+                            <span className="font-bold text-red-400 bg-red-950/30 px-2 py-0.5 rounded border border-red-900/30">
                               Nota: {book.quizScore}% (Aprovado)
                             </span>
                           ) : (
-                            <span className="text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/60 font-medium">
+                            <span className="text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800 font-bold">
                               Quiz Pendente
                             </span>
                           )}
@@ -4830,22 +4775,22 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                       </div>
 
                       {/* Ações do Livro */}
-                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800">
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-900">
                         <button
                           onClick={() => handleReadBookPages(book, 25, 10)}
                           disabled={isReadingBookId === book.id || isFinished}
-                          className="py-2 px-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer border border-zinc-700 disabled:opacity-40"
+                          className="py-2 px-2 bg-zinc-900 hover:bg-zinc-850 text-zinc-300 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer border border-zinc-800 disabled:opacity-40"
                         >
-                          <BookMarked className="w-3.5 h-3.5 text-amber-400" />
+                          <BookMarked className="w-3.5 h-3.5 text-red-500" />
                           {isReadingBookId === book.id ? 'Gravando...' : isFinished ? 'Lido' : '+25 Páginas'}
                         </button>
 
                         <button
                           onClick={() => handleAutoSolveQuiz(book)}
                           disabled={isSolvingQuizBookId === book.id || hasQuizScore}
-                          className="py-2 px-2 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
+                          className="py-2 px-2 bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
                         >
-                          <Sparkles className="w-3.5 h-3.5 fill-black" />
+                          <Sparkles className="w-3.5 h-3.5 fill-white" />
                           {isSolvingQuizBookId === book.id ? 'Resolvendo...' : hasQuizScore ? 'Quiz 100%' : 'Quiz com IA'}
                         </button>
                       </div>
@@ -4857,14 +4802,14 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
 
             {/* Terminal de Logs LeiaSP */}
             <div className="space-y-3 pt-2">
-              <div className="flex items-center justify-between border-t border-[#27272a] pt-4">
+              <div className="flex items-center justify-between border-t border-zinc-900 pt-4">
                 <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-                  <Terminal className="w-4 h-4 text-amber-400" />
+                  <Terminal className="w-4 h-4 text-red-500" />
                   <span>Terminal de Operações LeiaSP & Elefante Letrado</span>
                 </div>
                 <button
                   onClick={() => setLeiaConsoleLogs([])}
-                  className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors font-bold"
                 >
                   Limpar console
                 </button>
@@ -4879,11 +4824,11 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
                       key={index}
                       className={`leading-relaxed text-[11px] ${
                         log.includes('✅') || log.includes('🎉') || log.includes('🟢')
-                          ? 'text-emerald-400'
+                          ? 'text-red-400 font-bold'
                           : log.includes('⚠️') || log.includes('❌') || log.includes('🔴')
                           ? 'text-rose-400'
                           : log.includes('🚀') || log.includes('⚡') || log.includes('📚')
-                          ? 'text-amber-300'
+                          ? 'text-red-400'
                           : 'text-zinc-300'
                       }`}
                     >
@@ -4898,11 +4843,11 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
           {/* Modal de Quiz Literário */}
           {activeQuizModal?.isOpen && (
             <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-[#121214] border border-zinc-700 rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-2xl animate-fadeIn">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="bg-[#0c0c0e] border border-red-950/60 rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-2xl animate-fadeIn">
+                <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
                   <div className="flex items-center gap-2">
-                    <BookOpen className="w-5 h-5 text-amber-400" />
-                    <h3 className="text-sm font-bold text-white">
+                    <BookOpen className="w-5 h-5 text-red-500" />
+                    <h3 className="text-sm font-extrabold text-white">
                       Quiz: {activeQuizModal.book?.title}
                     </h3>
                   </div>
@@ -4916,43 +4861,46 @@ export const PlatformDetailView: React.FC<PlatformDetailViewProps> = ({
 
                 {activeQuizModal.loading ? (
                   <div className="py-12 text-center text-zinc-400 text-xs flex flex-col items-center gap-2">
-                    <Sparkles className="w-6 h-6 animate-spin text-amber-400" />
+                    <Sparkles className="w-6 h-6 animate-spin text-red-500" />
                     Carregando questões do acervo...
                   </div>
                 ) : (
                   <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
                     {activeQuizModal.questions.map((q, qIndex) => (
-                      <div key={q.id || qIndex} className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl space-y-2">
+                      <div key={q.id || qIndex} className="p-3 bg-zinc-950 border border-zinc-900 rounded-xl space-y-2">
                         <div className="text-xs font-semibold text-zinc-200">
                           {qIndex + 1}. {q.prompt || q.question}
                         </div>
                         <div className="space-y-1">
-                          {q.options?.map((opt: string, optIndex: number) => (
-                            <div
-                              key={optIndex}
-                              className="px-3 py-1.5 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-[11px] text-zinc-300"
-                            >
-                              {opt}
-                            </div>
-                          ))}
+                          {q.options?.map((opt: any, optIndex: number) => {
+                            const optText = typeof opt === 'object' && opt !== null ? `${opt.id ? opt.id + ') ' : ''}${opt.text || opt.title || ''}` : String(opt);
+                            return (
+                              <div
+                                key={optIndex}
+                                className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300 font-medium"
+                              >
+                                {optText}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-800">
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-900">
                   <button
                     onClick={() => setActiveQuizModal(null)}
-                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold"
+                    className="px-4 py-2 bg-zinc-950 hover:bg-zinc-900 text-zinc-300 rounded-xl text-xs font-bold"
                   >
                     Fechar
                   </button>
                   <button
                     onClick={() => handleAutoSolveQuiz(activeQuizModal.book)}
-                    className="px-5 py-2 bg-amber-400 hover:bg-amber-300 text-black rounded-xl text-xs font-bold flex items-center gap-1.5"
+                    className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow"
                   >
-                    <Sparkles className="w-3.5 h-3.5 fill-black" />
+                    <Sparkles className="w-3.5 h-3.5 fill-white" />
                     Resolver com IA (100%)
                   </button>
                 </div>

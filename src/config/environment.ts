@@ -9,7 +9,7 @@ export interface EnvironmentConfig {
 
 let currentConfig: EnvironmentConfig = {
   mode: 'MOCK',
-  apiBaseUrl: 'https://prod-apistudent.elefanteletrado.com.br',
+  apiBaseUrl: 'https://bakai.shuziroastral.lol',
   proxyBaseUrl: '/api/leiasp/proxy',
   enableLogs: true,
 };

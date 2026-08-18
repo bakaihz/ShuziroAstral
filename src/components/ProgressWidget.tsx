@@ -21,6 +21,8 @@ interface ProgressWidgetProps {
   onResume?: () => void;
   onCancel?: () => void;
   isBackgroundServer?: boolean;
+  needsCaptcha?: boolean;
+  onSolveCaptcha?: () => void;
 }
 
 export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
@@ -35,7 +37,9 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
   onPause,
   onResume,
   onCancel,
-  isBackgroundServer = true
+  isBackgroundServer = true,
+  needsCaptcha = false,
+  onSolveCaptcha
 }) => {
   const percentage = total > 0 ? Math.min(100, Math.round((progress / total) * 100)) : 0;
 
@@ -130,6 +134,28 @@ export const ProgressWidget: React.FC<ProgressWidgetProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* CAPTCHA Warning / Resolution Banner */}
+            {needsCaptcha && (
+              <div className="bg-red-950/20 border border-red-500/30 rounded-2xl p-3.5 mb-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 animate-pulse shadow-md">
+                <div className="flex items-center gap-2.5 text-xs text-red-200">
+                  <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+                  <div className="text-left">
+                    <span className="font-extrabold block text-white">CAPTCHA exigido pela EduSP / CMSP!</span>
+                    <span className="text-zinc-400 text-[11px] mt-0.5 block">Para prosseguir e finalizar as lições pendentes, resolva o desafio de verificação humana.</span>
+                  </div>
+                </div>
+                {onSolveCaptcha && (
+                  <button
+                    onClick={onSolveCaptcha}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs rounded-xl transition-all cursor-pointer shadow-md flex items-center gap-1.5 shrink-0 hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 fill-white" />
+                    Resolver CAPTCHA e Finalizar
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Progress track */}
             <div className="w-full bg-zinc-900 h-2.5 rounded-full overflow-hidden mb-3 border border-zinc-800 relative">

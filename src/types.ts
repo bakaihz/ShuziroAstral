@@ -1,6 +1,7 @@
 export interface UserData {
   success: boolean;
   auth_token: string;
+  sed_token?: string;
   nick: string;
   nome: string;
   escola: string;

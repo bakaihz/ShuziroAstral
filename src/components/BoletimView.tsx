@@ -63,7 +63,14 @@ export const BoletimView: React.FC<BoletimViewProps> = ({ userData, authToken })
       const codigoAluno = rawCodigo ? (String(rawCodigo).length === 9 ? String(rawCodigo).slice(0, 8) : String(rawCodigo)) : '';
       const codigoTurma = userData.codigoTurma || '0';
       
-      const authHeader = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+      const tokenToSend = userData.sed_token || authToken;
+      const authHeader: Record<string, string> = {};
+      if (tokenToSend) {
+        authHeader['Authorization'] = `Bearer ${tokenToSend}`;
+      }
+      if (userData.sed_token) {
+        authHeader['x-sed-token'] = userData.sed_token;
+      }
 
       // Fetch frequencia, boletim completo, disciplinas, and turmas
       const [freqRes, bolRes, discRes, turmasRes] = await Promise.all([
@@ -203,7 +210,14 @@ export const BoletimView: React.FC<BoletimViewProps> = ({ userData, authToken })
     try {
       const codigoUsuario = userData.codigoAluno ? String(userData.codigoAluno) : '';
       const turmas = userData.codigoTurma ? String(userData.codigoTurma) : '0';
-      const authHeader = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+      const tokenToSend = userData.sed_token || authToken;
+      const authHeader: Record<string, string> = {};
+      if (tokenToSend) {
+        authHeader['Authorization'] = `Bearer ${tokenToSend}`;
+      }
+      if (userData.sed_token) {
+        authHeader['x-sed-token'] = userData.sed_token;
+      }
       const res = await fetch(`/api/avisos?codigoUsuario=${codigoUsuario}&turmas=${turmas}`, {
         headers: { ...authHeader }
       });
@@ -220,7 +234,14 @@ export const BoletimView: React.FC<BoletimViewProps> = ({ userData, authToken })
   const fetchNotificacoes = async () => {
     try {
       const userId = userData.codigoAluno ? String(userData.codigoAluno) : '';
-      const authHeader = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+      const tokenToSend = userData.sed_token || authToken;
+      const authHeader: Record<string, string> = {};
+      if (tokenToSend) {
+        authHeader['Authorization'] = `Bearer ${tokenToSend}`;
+      }
+      if (userData.sed_token) {
+        authHeader['x-sed-token'] = userData.sed_token;
+      }
       const res = await fetch(`/api/notificacoes?userId=${userId}`, {
         headers: { ...authHeader }
       });

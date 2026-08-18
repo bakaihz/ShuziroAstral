@@ -89,16 +89,170 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Global backend / tunnel ping states
-  const DEFAULT_BACKEND_URL = '';
+  const DEFAULT_BACKEND_URL = 'https://bakai.shuziroastral.lol';
   
   const [tunnelUrl, setTunnelUrl] = useState(() => {
     const saved = typeof window !== 'undefined' ? (localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel')) : null;
-    if (saved && saved.trim() && saved !== 'https://shuziroastral.lol') return saved.trim();
+    if (saved && saved.trim() && !saved.includes('shuziroastral.lol')) return saved.trim();
     return '';
   });
   const [pingStatus, setPingStatus] = useState<'idle' | 'pinging' | 'success' | 'failed'>('idle');
   const [pingResponse, setPingResponse] = useState<any>(null);
   const [latency, setLatency] = useState<number | null>(null);
+
+  // CAPTCHA Handlers
+  const handleRefreshCaptcha = async () => {
+    setCaptchaVerifying(true);
+    setCaptchaError('');
+    setCaptchaAnswer('');
+
+    try {
+      let challengeRes = await fetch('/api/captcha/challenge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': authToken
+        },
+        body: JSON.stringify({ realm: 'edusp', type: 'image' })
+      });
+
+      if (!challengeRes.ok) {
+        challengeRes = await fetch('/api/captcha/challenge', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': authToken
+          },
+          body: JSON.stringify({ realm: 'edusp' })
+        });
+      }
+
+      if (!challengeRes.ok) {
+        challengeRes = await fetch('/api/captcha/challenge?realm=edusp', {
+          headers: { 'x-api-key': authToken }
+        });
+      }
+
+      if (!challengeRes.ok) {
+        throw new Error('Não foi possível obter novo desafio.');
+      }
+
+      const challengeData = await challengeRes.json();
+      const challengeId = challengeData.challengeId || challengeData.challenge_id || challengeData.id || challengeData.data?.challenge_id || challengeData.data?.id;
+      const imageBase64 = challengeData.challenge?.image || challengeData.image || challengeData.data?.image || challengeData.data?.challenge?.image;
+
+      if (!challengeId || !imageBase64) {
+        throw new Error('Resposta de desafio inválida.');
+      }
+
+      setCaptchaChallengeId(challengeId);
+      setCaptchaImg(imageBase64);
+    } catch (e: any) {
+      setCaptchaError(e.message || 'Erro ao carregar novo CAPTCHA.');
+    } finally {
+      setCaptchaVerifying(false);
+    }
+  };
+
+  const handleVerifyCaptcha = async () => {
+    if (!captchaAnswer.trim()) {
+      setCaptchaError('Por favor, digite o texto da imagem.');
+      return;
+    }
+
+    setCaptchaVerifying(true);
+    setCaptchaError('');
+
+    try {
+      const cleanAnswer = captchaAnswer.trim().toUpperCase();
+      const verifyRes = await fetch('/api/captcha/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': authToken
+        },
+        body: JSON.stringify({
+          type: 'image',
+          realm: 'edusp',
+          payload: {
+            challengeId: captchaChallengeId,
+            answer: cleanAnswer
+          }
+        })
+      });
+
+      if (!verifyRes.ok) {
+        let errJson: any = {};
+        try {
+          errJson = await verifyRes.json();
+        } catch {}
+        const serverError = errJson.error || errJson.message;
+        
+        // Auto refresh captcha image since this challenge is invalidated
+        handleRefreshCaptcha();
+        throw new Error(serverError || 'Código do CAPTCHA incorreto. Uma nova imagem foi gerada.');
+      }
+
+      const verifyData = await verifyRes.json();
+      const token = verifyData.token || verifyData.captcha_token || verifyData.captchaToken || verifyData.data?.token || verifyData.data?.captcha_token || '';
+
+      if (token || verifyData.valid) {
+        const finalTok = token || 'verified';
+        setCaptchaToken(finalTok);
+        localStorage.setItem('edusp_captcha_token', finalTok);
+        setCaptchaModalOpen(false);
+        if (captchaResolverRef.current) {
+          captchaResolverRef.current(finalTok);
+        } else {
+          const bid = activeBatchId || (activeBatchData && activeBatchData.batchId);
+          if (bid) {
+            fetch('/api/tasks/batch-resume', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': authToken },
+              body: JSON.stringify({ batchId: bid, captchaToken: finalTok })
+            }).then(() => {
+              setIsBatchPaused(false);
+              showToast('CAPTCHA validado! Multi-Tarefas retomado com sucesso.', 'success');
+            }).catch(() => {});
+          }
+        }
+      } else {
+        setCaptchaError('Código incorreto. Uma nova imagem foi gerada.');
+        handleRefreshCaptcha();
+      }
+    } catch (e: any) {
+      setCaptchaError(e.message || 'Erro ao verificar o CAPTCHA.');
+    } finally {
+      setCaptchaVerifying(false);
+    }
+  };
+
+  const handleSolveBatchCaptcha = async () => {
+    setCaptchaModalOpen(true);
+    await handleRefreshCaptcha();
+    captchaResolverRef.current = async (token) => {
+      const bid = activeBatchId || activeBatchData?.batchId;
+      if (!bid) return;
+      try {
+        const res = await fetch('/api/tasks/batch-resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': authToken },
+          body: JSON.stringify({ batchId: bid, captchaToken: token })
+        });
+        if (res.ok) {
+          showToast('CAPTCHA resolvido! Continuando tarefas...', 'success');
+          setIsBatchPaused(false);
+          setIsCompleted(false);
+          setActiveBatchId(bid);
+          localStorage.setItem('shuziro_active_batch_id', bid);
+        } else {
+          showToast('Erro ao enviar CAPTCHA para continuar o lote.', 'error');
+        }
+      } catch (e) {
+        showToast('Erro de conexão ao enviar CAPTCHA.', 'error');
+      }
+    };
+  };
 
   // Auto-reconnect to running batch on server
   useEffect(() => {
@@ -114,6 +268,9 @@ export default function App() {
             setIsBatchPaused(running.status === 'paused');
             setProgressOpen(true);
             setProgressTitle(`Multi-Tarefas em Segundo Plano (${running.completedCount}/${running.total})`);
+            if (running.needsCaptcha) {
+              handleSolveBatchCaptcha();
+            }
           }
         }
       })
@@ -154,6 +311,12 @@ export default function App() {
         }
         setProgressTitle(`Multi-Tarefas (${data.completedCount || 0}/${data.total || 0})`);
 
+        if (data.needsCaptcha && !captchaModalOpen) {
+          setIsBatchPaused(true);
+          setProgressOpen(true);
+          handleSolveBatchCaptcha();
+        }
+
         if (data.status === 'completed' || data.status === 'cancelled' || data.status === 'failed') {
           isFinished = true;
           setIsCompleted(true);
@@ -189,12 +352,12 @@ export default function App() {
       isFinished = true;
       clearInterval(interval);
     };
-  }, [activeBatchId, authToken, userData]);
+  }, [activeBatchId, authToken, userData, captchaModalOpen]);
 
   // Load saved backend URL on mount
   useEffect(() => {
     const saved = localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel');
-    if (saved && saved.trim() && saved !== 'https://shuziroastral.lol') {
+    if (saved && saved.trim() && !saved.includes('shuziroastral.lol')) {
       setTunnelUrl(saved.trim());
     } else {
       setTunnelUrl('');
@@ -471,120 +634,6 @@ export default function App() {
     }
   };
 
-  const handleVerifyCaptcha = async () => {
-    if (!captchaAnswer.trim()) {
-      setCaptchaError('Por favor, digite o texto da imagem.');
-      return;
-    }
-
-    setCaptchaVerifying(true);
-    setCaptchaError('');
-
-    try {
-      const cleanAnswer = captchaAnswer.trim().toUpperCase();
-      const verifyRes = await fetch('/api/captcha/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': authToken
-        },
-        body: JSON.stringify({
-          type: 'image',
-          realm: 'edusp',
-          payload: {
-            challengeId: captchaChallengeId,
-            answer: cleanAnswer
-          }
-        })
-      });
-
-      if (!verifyRes.ok) {
-        let errJson: any = {};
-        try {
-          errJson = await verifyRes.json();
-        } catch {}
-        const serverError = errJson.error || errJson.message;
-        
-        // Auto refresh captcha image since this challenge is invalidated
-        handleRefreshCaptcha();
-        throw new Error(serverError || 'Código do CAPTCHA incorreto. Uma nova imagem foi gerada.');
-      }
-
-      const verifyData = await verifyRes.json();
-      const token = verifyData.token || verifyData.captcha_token || verifyData.captchaToken || verifyData.data?.token || verifyData.data?.captcha_token || '';
-
-      if (token || verifyData.valid) {
-        const finalTok = token || 'verified';
-        setCaptchaToken(finalTok);
-        localStorage.setItem('edusp_captcha_token', finalTok);
-        setCaptchaModalOpen(false);
-        if (captchaResolverRef.current) {
-          captchaResolverRef.current(finalTok);
-        }
-      } else {
-        setCaptchaError('Código incorreto. Uma nova imagem foi gerada.');
-        handleRefreshCaptcha();
-      }
-    } catch (e: any) {
-      setCaptchaError(e.message || 'Erro ao verificar o CAPTCHA.');
-    } finally {
-      setCaptchaVerifying(false);
-    }
-  };
-
-  const handleRefreshCaptcha = async () => {
-    setCaptchaVerifying(true);
-    setCaptchaError('');
-    setCaptchaAnswer('');
-
-    try {
-      let challengeRes = await fetch('/api/captcha/challenge', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': authToken
-        },
-        body: JSON.stringify({ realm: 'edusp', type: 'image' })
-      });
-
-      if (!challengeRes.ok) {
-        challengeRes = await fetch('/api/captcha/challenge', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': authToken
-          },
-          body: JSON.stringify({ realm: 'edusp' })
-        });
-      }
-
-      if (!challengeRes.ok) {
-        challengeRes = await fetch('/api/captcha/challenge?realm=edusp', {
-          headers: { 'x-api-key': authToken }
-        });
-      }
-
-      if (!challengeRes.ok) {
-        throw new Error('Não foi possível obter novo desafio.');
-      }
-
-      const challengeData = await challengeRes.json();
-      const challengeId = challengeData.challengeId || challengeData.challenge_id || challengeData.id || challengeData.data?.challenge_id || challengeData.data?.id;
-      const imageBase64 = challengeData.challenge?.image || challengeData.image || challengeData.data?.image || challengeData.data?.challenge?.image;
-
-      if (!challengeId || !imageBase64) {
-        throw new Error('Resposta de desafio inválida.');
-      }
-
-      setCaptchaChallengeId(challengeId);
-      setCaptchaImg(imageBase64);
-    } catch (e: any) {
-      setCaptchaError(e.message || 'Erro ao carregar novo CAPTCHA.');
-    } finally {
-      setCaptchaVerifying(false);
-    }
-  };
-
   const handlePauseBatch = async () => {
     if (!activeBatchId) return;
     try {
@@ -626,7 +675,7 @@ export default function App() {
   const handleStartAutomation = async (
     taskIds: string[],
     optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted'; concurrency?: number },
-    defaultMode: 'draft' | 'submitted' = 'draft'
+    defaultMode: 'draft' | 'submitted' = 'submitted'
   ) => {
     if (taskIds.length === 0) return;
 
@@ -906,6 +955,8 @@ export default function App() {
         onResume={handleResumeBatch}
         onCancel={handleCancelBatch}
         isBackgroundServer={Boolean(activeBatchId || (activeBatchData && activeBatchData.status === 'running'))}
+        needsCaptcha={Boolean(activeBatchData?.needsCaptcha)}
+        onSolveCaptcha={handleSolveBatchCaptcha}
       />
 
       {/* CAPTCHA Modal */}
