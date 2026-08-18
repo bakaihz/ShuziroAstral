@@ -58,20 +58,17 @@ let activeBrowserSession = {
 };
 
 const PROXY_TUNNELS = [
-    "https://edusp-api.ip.tv",
-    "https://api.davilucas99kk.workers.dev",
-    "https://bakaiwaf.shuziroastral.lol",
-    "https://bakai.shuziroastral.lol",
-    "https://proxy.shuziroastral.lol"
+    "https://proxy.shuziroastral.lol",
+    "https://edusp-api.ip.tv"
 ];
 
-// Cache em memória de respostas rápidas de GET (15 segundos para sucesso, 2 segundos para respostas vazias)
+// Cache em memória de respostas rápidas de GET (45 segundos para sucesso, 5 segundos para respostas vazias)
 const apiGetCache = new Map<string, { data: any; timestamp: number }>();
 
 function getCachedApiResponse(key: string): any | null {
     const entry = apiGetCache.get(key);
     if (!entry) return null;
-    const maxAge = (Array.isArray(entry.data) && entry.data.length === 0) ? 2000 : 15000;
+    const maxAge = (Array.isArray(entry.data) && entry.data.length === 0) ? 5000 : 45000;
     if (Date.now() - entry.timestamp > maxAge) {
         apiGetCache.delete(key);
         return null;
@@ -1268,6 +1265,13 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
             effectiveToken = await resolveEduSpToken(token, customTunnelInfo);
         }
 
+        const httpMethod = String(method || 'GET').toUpperCase();
+        if (httpMethod === 'GET') {
+            const cacheKey = `call:${effectiveToken ? effectiveToken.slice(-16) : 'anon'}:${url}`;
+            const cached = getCachedApiResponse(cacheKey);
+            if (cached) return cached;
+        }
+
         const customTunnel = typeof customTunnelInfo === 'string' ? customTunnelInfo : customTunnelInfo?.tunnel;
         const clientUserAgent = typeof customTunnelInfo === 'object' ? customTunnelInfo?.userAgent : undefined;
         const clientCookies = typeof customTunnelInfo === 'object' ? customTunnelInfo?.cookies : undefined;
@@ -1344,6 +1348,11 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                 'sec-fetch-mode': 'cors',
                 'sec-fetch-site': 'cross-site'
             };
+
+            if (domain.includes('proxy') || domain.includes('shuziroastral.lol')) {
+                headers['x-target-url'] = `https://edusp-api.ip.tv${cleanPath}`;
+                headers['x-proxy-url'] = `https://edusp-api.ip.tv${cleanPath}`;
+            }
 
             if (effectiveToken && !cleanPath.includes('/registration/edusp/token')) {
                 const cleanJwt = effectiveToken.replace(/^Bearer\s+/i, '').trim();
@@ -1617,6 +1626,10 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                                 parsedJson.confirmed = true;
                             }
                         }
+                        if (httpMethod === 'GET' && parsedJson) {
+                            const cacheKey = `call:${effectiveToken ? effectiveToken.slice(-16) : 'anon'}:${url}`;
+                            setCachedApiResponse(cacheKey, parsedJson);
+                        }
                         return parsedJson;
                     } catch {
                         const trimmedText = text.trim();
@@ -1650,6 +1663,30 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
             ? lastError.message
             : "Não foi possível conectar à API EduSP. Verifique o status do seu Túnel/Worker ou conexões ativas.";
         throw new Error(userFriendlyMsg);
+    }
+
+    const inFlightApiRequests = new Map<string, Promise<any>>();
+
+    async function callOfficialApiDeduplicated(
+        url: string,
+        method: string,
+        token: string,
+        body?: any,
+        customTunnelInfo?: string | { tunnel?: string; userAgent?: string; cookies?: string },
+        skipTokenExchange: boolean = false
+    ) {
+        const httpMethod = String(method || 'GET').toUpperCase();
+        if (httpMethod === 'GET') {
+            const flightKey = `${token ? token.slice(-16) : 'anon'}:${url}`;
+            if (inFlightApiRequests.has(flightKey)) {
+                return inFlightApiRequests.get(flightKey)!;
+            }
+            const promise = callOfficialApi(url, method, token, body, customTunnelInfo, skipTokenExchange)
+                .finally(() => inFlightApiRequests.delete(flightKey));
+            inFlightApiRequests.set(flightKey, promise);
+            return promise;
+        }
+        return callOfficialApi(url, method, token, body, customTunnelInfo, skipTokenExchange);
     }
 
     // Map to associate EduSP auth_token to SED token
@@ -8455,7 +8492,7 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
                     const multiTarget = userRoomSlugs.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
                     const sep = queryString ? '&' : '?';
                     const patchedPath = `/${targetPath}${queryString}${sep}${multiTarget}`;
-                    const data = await callOfficialApi(patchedPath, req.method, token, req.body, customTunnel);
+                    const data = await callOfficialApiDeduplicated(patchedPath, req.method, token, req.body, customTunnel);
                     return res.json(data);
                 }
             } catch (e: any) {}
@@ -8464,7 +8501,7 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
         const fullPath = `/${targetPath}${queryString}`;
 
         try {
-            const data = await callOfficialApi(fullPath, req.method, token, req.body, customTunnel);
+            const data = await callOfficialApiDeduplicated(fullPath, req.method, token, req.body, customTunnel);
             res.json(data);
         } catch (err: any) {
             // Se o erro for 403 / Bloqueio de proteção de rede em rota /tms/task/:id/apply, tenta URLs de fallback automáticas

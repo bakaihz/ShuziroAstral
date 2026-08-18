@@ -89,7 +89,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Global backend / tunnel ping states
-  const DEFAULT_BACKEND_URL = 'https://bakai.shuziroastral.lol';
+  const DEFAULT_BACKEND_URL = 'https://proxy.shuziroastral.lol';
   
   const [tunnelUrl, setTunnelUrl] = useState(() => {
     const saved = typeof window !== 'undefined' ? (localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel')) : null;
@@ -344,8 +344,8 @@ export default function App() {
     // Initial check
     pollBatch();
 
-    // Controlled interval (3.5s) to avoid network flooding
-    const interval = setInterval(pollBatch, 3500);
+    // Controlled interval (8s) to avoid network flooding on slow connections
+    const interval = setInterval(pollBatch, 8000);
 
     return () => {
       isSubscribed = false;
@@ -408,17 +408,17 @@ export default function App() {
     }
   };
 
-  // Auto-ping a cada 30 segundos (disparado ao logar e a cada 30s)
+  // Auto-ping a cada 2 minutos (120s) para economizar dados em conexões lentas
   useEffect(() => {
     const doPing = () => {
       runPing(tunnelUrl, true);
     };
 
-    doPing(); // Ping inicial / imediato pós alteração
+    doPing(); // Ping inicial
 
     const interval = setInterval(() => {
       doPing();
-    }, 30000); // 30 segundos
+    }, 120000); // 2 minutos
 
     return () => clearInterval(interval);
   }, [tunnelUrl, isLoggedIn]);
@@ -445,7 +445,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Sincronização automática em background do fingerprint do navegador com o backend (got-scraping)
+    // Sincronização em background do fingerprint do navegador com o backend (1x por sessão)
+    if (sessionStorage.getItem('synced_browser_session')) return;
     const syncBrowser = async () => {
       try {
         const payload = {
@@ -467,6 +468,7 @@ export default function App() {
           },
           body: JSON.stringify(payload)
         });
+        sessionStorage.setItem('synced_browser_session', 'true');
       } catch (e) {}
     };
     syncBrowser();
