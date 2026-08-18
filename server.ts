@@ -1166,53 +1166,65 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
             };
         }
 
-        const targetSlug = (slug && slug.trim() && slug !== 'undefined' && slug !== 'null') ? slug.trim() : 'room';
+        const isValidSlug = (s?: string) => {
+            if (!s) return false;
+            const str = String(s).trim();
+            if (!str || str === 'undefined' || str === 'null' || str === 'room') return false;
+            // Se for puramente numérico (como "9912771"), ou muito curto (ex: "13", "39"), não é uma slug de sala válida (ex: r1234567-l ou similar)
+            if (/^\d+$/.test(str)) return false;
+            return true;
+        };
 
-        // Converte answersMap também para formato de array para a API EduSP caso espere array
+        const targetSlug = isValidSlug(slug) ? String(slug).trim() : 'room';
+
+        // Converte answersMap também para formato de array caso a rota espere array
         const canonicalAnswersArray = Object.values(canonicalAnswersMap);
 
         const variants: any[] = [];
-        // Variante 1: Oficial canônica com formato Object e executed_on obrigatório
+        // Variante 1: Oficial canônica com formato Object/Record e accessed_on="room" e executed_on=targetSlug
+        const var1: any = {
+            status: statusMode === 'submitted' ? 'submitted' : 'draft',
+            accessed_on: 'room',
+            duration: computedDuration,
+            answers: canonicalAnswersMap,
+            ...(applyToken ? { token: applyToken } : {}),
+            ...(captchaToken ? { captcha_token: captchaToken } : {})
+        };
+        if (targetSlug !== 'room') {
+            var1.executed_on = targetSlug;
+        }
+        variants.push(var1);
+
+        // Variante 2: Formato Array para `answers`
+        const var2: any = {
+            status: statusMode === 'submitted' ? 'submitted' : 'draft',
+            accessed_on: 'room',
+            duration: computedDuration,
+            answers: canonicalAnswersArray,
+            ...(applyToken ? { token: applyToken } : {}),
+            ...(captchaToken ? { captcha_token: captchaToken } : {})
+        };
+        if (targetSlug !== 'room') {
+            var2.executed_on = targetSlug;
+        }
+        variants.push(var2);
+
+        // Variante 3: Com executed_on = 'room' explícito e accessed_on = 'room'
         variants.push({
             status: statusMode === 'submitted' ? 'submitted' : 'draft',
             accessed_on: 'room',
-            executed_on: targetSlug,
+            executed_on: 'room',
             duration: computedDuration,
             answers: canonicalAnswersMap,
             ...(applyToken ? { token: applyToken } : {}),
             ...(captchaToken ? { captcha_token: captchaToken } : {})
         });
 
-        // Variante 2: Formato Array para `answers` com executed_on
-        variants.push({
-            status: statusMode === 'submitted' ? 'submitted' : 'draft',
-            accessed_on: 'room',
-            executed_on: targetSlug,
-            duration: computedDuration,
-            answers: canonicalAnswersArray,
-            ...(applyToken ? { token: applyToken } : {}),
-            ...(captchaToken ? { captcha_token: captchaToken } : {})
-        });
-
-        // Variante 3: Com executed_on = 'room' explícito e accessed_on = 'room'
-        if (targetSlug !== 'room') {
-            variants.push({
-                status: statusMode === 'submitted' ? 'submitted' : 'draft',
-                accessed_on: 'room',
-                executed_on: 'room',
-                duration: computedDuration,
-                answers: canonicalAnswersMap,
-                ...(applyToken ? { token: applyToken } : {}),
-                ...(captchaToken ? { captcha_token: captchaToken } : {})
-            });
-        }
-
         // Variante 4: Modo draft como fallback caso submitted falhe
         if (statusMode === 'submitted') {
             variants.push({
                 status: 'draft',
                 accessed_on: 'room',
-                executed_on: targetSlug,
                 duration: computedDuration,
                 answers: canonicalAnswersMap,
                 ...(applyToken ? { token: applyToken } : {}),
@@ -1221,7 +1233,6 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
             variants.push({
                 status: 'draft',
                 accessed_on: 'room',
-                executed_on: 'room',
                 duration: computedDuration,
                 answers: canonicalAnswersArray,
                 ...(applyToken ? { token: applyToken } : {}),
