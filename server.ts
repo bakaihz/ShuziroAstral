@@ -4007,8 +4007,10 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
 
     app.get("/api/notificacoes", async (req, res) => {
         const rawToken = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.headers['x-api-key'] as string) || '';
-        const token = resolveSedToken(rawToken);
+        const token = resolveSedToken(rawToken, req);
         const userId = req.query.userId || req.query.codigoUsuario || '318380266';
+        const customTunnel = getCustomTunnel(req);
+        const clientUA = customTunnel?.userAgent || (req.headers['x-client-user-agent'] as string) || (req.headers['user-agent'] as string) || USER_AGENT;
 
         try {
             const url = `https://sedintegracoes.educacao.sp.gov.br/saladofuturobffapi/cmspwebservice/api/sala-do-futuro-alunos/consulta-notificacao-cmsp?userId=${userId}`;
@@ -4016,9 +4018,10 @@ async function getFallbackRoomSlug(token: string, customTunnel?: string | { tunn
                 'Accept': 'application/json, text/plain, */*',
                 'X-Product-Name': 'SalaDoFuturo',
                 'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
-                'User-Agent': USER_AGENT
+                'User-Agent': clientUA
             };
             if (token) headers['Authorization'] = `Bearer ${token}`;
+            if (customTunnel?.cookies) headers['Cookie'] = customTunnel.cookies;
 
             const response = await undiciFetch(url, { method: 'GET', headers, dispatcher: agent });
             if (response.ok) {
