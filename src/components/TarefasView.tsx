@@ -23,6 +23,7 @@ interface TarefasViewProps {
   captchaToken?: string;
   onCaptchaVerified?: (token: string) => void;
   onRefresh?: () => void;
+  onOpenTask?: (taskId: string | number, roomName?: string) => void;
   onStartAutomation?: (
     selectedTaskIds: string[],
     optionsOrTimeSec: number | { minTimeSec: number; maxTimeSec: number; mode: 'draft' | 'submitted'; concurrency?: number },
@@ -46,6 +47,7 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
   captchaToken,
   onCaptchaVerified,
   onRefresh, 
+  onOpenTask,
   onStartAutomation,
   activeBatch,
   onOpenBatchProgress
@@ -439,6 +441,15 @@ export const TarefasView: React.FC<TarefasViewProps> = ({
                     <span className="text-[11px] px-2.5 py-1 rounded-full border font-mono font-medium bg-zinc-900 border-zinc-700 text-zinc-300">
                       Pendente
                     </span>
+                  )}
+
+                  {onOpenTask && (
+                    <button
+                      onClick={() => onOpenTask(id, t.publication_target || (t as any).room_name)}
+                      className="px-3 py-1.5 bg-[#18181b] hover:bg-[#222226] border border-[#27272a] text-zinc-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                    >
+                      Abrir
+                    </button>
                   )}
 
                   {onStartAutomation && (

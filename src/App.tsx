@@ -12,6 +12,7 @@ import { TarefasView } from './components/TarefasView';
 import { RedacoesView } from './components/RedacoesView';
 import { BoletimView } from './components/BoletimView';
 import { ConfigView } from './components/ConfigView';
+import { TaskDetails } from './pages/TaskDetails';
 import { EmojiModal } from './components/EmojiModal';
 import { SavedAccountsModal } from './components/SavedAccountsModal';
 import { DiscordModal } from './components/DiscordModal';
@@ -35,6 +36,8 @@ export default function App() {
   const [accounts, setAccounts] = useState<SavedAccount[]>([]);
   const [selectedAccountForLogin, setSelectedAccountForLogin] = useState<SavedAccount | null>(null);
   const [currentPage, setCurrentPage] = useState('home');
+  const [viewingTaskId, setViewingTaskId] = useState<string | number | null>(null);
+  const [viewingRoomName, setViewingRoomName] = useState<string | undefined>(undefined);
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -856,19 +859,40 @@ export default function App() {
               )}
               {currentPage === 'apostilas' && <ApostilasView />}
               {currentPage === 'tarefas' && (
-                <TarefasView 
-                  tasks={tasks} 
-                  authToken={authToken}
-                  captchaToken={captchaToken}
-                  onCaptchaVerified={(tok) => {
-                    setCaptchaToken(tok);
-                    localStorage.setItem('edusp_captcha_token', tok);
-                  }}
-                  onRefresh={() => fetchTasks(authToken, userData)} 
-                  onStartAutomation={handleStartAutomation}
-                  activeBatch={activeBatchData}
-                  onOpenBatchProgress={() => setProgressOpen(true)}
-                />
+                viewingTaskId ? (
+                  <TaskDetails
+                    taskId={viewingTaskId}
+                    token={authToken}
+                    roomName={viewingRoomName}
+                    onBack={() => {
+                      setViewingTaskId(null);
+                      setViewingRoomName(undefined);
+                    }}
+                    onSuccessSubmit={() => {
+                      setViewingTaskId(null);
+                      setViewingRoomName(undefined);
+                      fetchTasks(authToken, userData);
+                    }}
+                  />
+                ) : (
+                  <TarefasView 
+                    tasks={tasks} 
+                    authToken={authToken}
+                    captchaToken={captchaToken}
+                    onCaptchaVerified={(tok) => {
+                      setCaptchaToken(tok);
+                      localStorage.setItem('edusp_captcha_token', tok);
+                    }}
+                    onOpenTask={(tId, rName) => {
+                      setViewingTaskId(tId);
+                      setViewingRoomName(rName);
+                    }}
+                    onRefresh={() => fetchTasks(authToken, userData)} 
+                    onStartAutomation={handleStartAutomation}
+                    activeBatch={activeBatchData}
+                    onOpenBatchProgress={() => setProgressOpen(true)}
+                  />
+                )
               )}
               {currentPage === 'redacoes' && (
                 <RedacoesView
