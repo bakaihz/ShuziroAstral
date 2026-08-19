@@ -58,17 +58,18 @@ let activeBrowserSession = {
 };
 
 const PROXY_TUNNELS = [
+    "http://154.29.76.165:3000",
     "https://proxy.shuziroastral.lol",
     "https://edusp-api.ip.tv"
 ];
 
-// Cache em memória de respostas rápidas de GET (45 segundos para sucesso, 5 segundos para respostas vazias)
+// Cache em memória de respostas rápidas de GET (60 segundos para sucesso, 10 segundos para respostas vazias)
 const apiGetCache = new Map<string, { data: any; timestamp: number }>();
 
 function getCachedApiResponse(key: string): any | null {
     const entry = apiGetCache.get(key);
     if (!entry) return null;
-    const maxAge = (Array.isArray(entry.data) && entry.data.length === 0) ? 5000 : 45000;
+    const maxAge = (Array.isArray(entry.data) && entry.data.length === 0) ? 10000 : 60000;
     if (Date.now() - entry.timestamp > maxAge) {
         apiGetCache.delete(key);
         return null;
@@ -90,8 +91,8 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
         targetUrl.includes('ngrok') ||
         targetUrl.includes('workers.dev');
 
-    const defaultTimeout = isLocalOrCloudflareTunnel ? 12000 : 6000;
-    const { method = 'GET', headers = {}, body, timeoutMs = defaultTimeout, maxRetries = 2, forceHttp1 = false } = options;
+    const defaultTimeout = isLocalOrCloudflareTunnel ? 6000 : 3500;
+    const { method = 'GET', headers = {}, body, timeoutMs = defaultTimeout, maxRetries = 0, forceHttp1 = false } = options;
 
     const cleanHeaders: Record<string, string> = {};
     for (const [key, val] of Object.entries(headers)) {

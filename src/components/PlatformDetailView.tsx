@@ -167,7 +167,7 @@ interface PlatformDetailViewProps {
   pingStatus?: 'idle' | 'pinging' | 'success' | 'failed';
 }
 
-const DEFAULT_BACKEND_URL = 'https://proxy.shuziroastral.lol';
+const DEFAULT_BACKEND_URL = 'http://154.29.76.165:3000';
 
 const getBackendUrl = () => {
   return DEFAULT_BACKEND_URL;
