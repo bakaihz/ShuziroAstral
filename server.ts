@@ -2192,13 +2192,14 @@ function extractUserNickFromToken(token: string): string {
         token: string,
         isEssayParam: string | null,
         publicationTargetsFromQuery: string[] = [],
-        customTunnel?: any
+        customTunnel?: any,
+        rawQueryString?: string
     ): Promise<any[]> {
         const allTasks: any[] = [];
         const seenIds = new Set<string>();
 
         const addItems = (data: any) => {
-            const items = Array.isArray(data) ? data : (data?.results || data?.items || []);
+            const items = Array.isArray(data) ? data : (data?.results || data?.items || data?.tasks || data?.data || []);
             if (Array.isArray(items)) {
                 for (const item of items) {
                     const id = String(item.id || item.task_id || '');
@@ -2207,21 +2208,29 @@ function extractUserNickFromToken(token: string): string {
                         const titleLower = String(item.title || item.name || '').toLowerCase();
                         const catLower = String(item.category || item.type || item.task_type || '').toLowerCase();
                         
-                        if (
+                        const detectedIsEssay = (
                             item.is_essay === true ||
-                            isEssayParam === 'true' ||
                             catLower.includes('essay') ||
                             catLower.includes('redação') ||
                             catLower.includes('redacao') ||
                             titleLower.includes('redação') ||
                             titleLower.includes('redacao')
-                        ) {
+                        );
+
+                        if (detectedIsEssay) {
                             item.is_essay = true;
-                        } else if (item.is_essay === false) {
-                            item.is_essay = false;
                         } else {
                             item.is_essay = false;
                         }
+
+                        // Filter based on isEssayParam if explicitly requested
+                        if (isEssayParam === 'true' && !item.is_essay) {
+                            continue;
+                        }
+                        if (isEssayParam === 'false' && item.is_essay) {
+                            continue;
+                        }
+
                         allTasks.push(item);
                     }
                 }
@@ -2259,31 +2268,41 @@ function extractUserNickFromToken(token: string): string {
         } catch (e: any) {}
 
         const targetsArr = Array.from(targetsToTry);
-        const multiTargetQueryStr = targetsArr.length > 0
-            ? targetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&')
-            : '';
 
-        // Exatamente 2 requisições paralelas cobrindo TODOS os publication_targets
-        const req1Url = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=false&is_exam=false&with_answer=true${essayFilter}${multiTargetQueryStr ? '&' + multiTargetQueryStr : ''}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`;
-        const req2Url = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}${multiTargetQueryStr ? '&' + multiTargetQueryStr : ''}&answer_statuses=draft&with_apply_moment=true`;
+        // URLs to query in parallel
+        const urlsToFetch: string[] = [];
 
-        try {
-            const [data1, data2] = await Promise.all([
-                callOfficialApi(req1Url, 'GET', token, undefined, customTunnel).catch(() => null),
-                callOfficialApi(req2Url, 'GET', token, undefined, customTunnel).catch(() => null)
-            ]);
-            if (data1) addItems(data1);
-            if (data2) addItems(data2);
-        } catch (e: any) {}
-
-        // Fallback rápido se não houver tarefas encontradas
-        if (allTasks.length === 0) {
-            try {
-                const fbUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}`;
-                const fbData = await callOfficialApi(fbUrl, 'GET', token, undefined, customTunnel);
-                addItems(fbData);
-            } catch (e: any) {}
+        // 1. Direct pass-through if raw query string exists
+        if (rawQueryString && rawQueryString.trim()) {
+            const cleanQs = rawQueryString.startsWith('?') ? rawQueryString.substring(1) : rawQueryString;
+            urlsToFetch.push(`/tms/task/todo?${cleanQs}`);
         }
+
+        // 2. Global to-do queries without restrictive answer_statuses (retrieves unstarted + pending + draft)
+        urlsToFetch.push(`/tms/task/todo?limit=100&offset=0&with_answer=true&filter_expired=true&is_exam=false&with_apply_moment=true${essayFilter}`);
+        urlsToFetch.push(`/tms/task/todo?limit=100&offset=0&with_answer=true&filter_expired=false&is_exam=false&with_apply_moment=true${essayFilter}`);
+        urlsToFetch.push(`/tms/task/todo?limit=100&offset=0&with_answer=true${essayFilter}`);
+        urlsToFetch.push(`/tms/task/todo?limit=100&offset=0${essayFilter}`);
+
+        // 3. Draft-specific query (observed in HAR)
+        urlsToFetch.push(`/tms/task/todo?limit=100&offset=0&with_answer=true&filter_expired=false&is_exam=false&answer_statuses=draft&with_apply_moment=true${essayFilter}`);
+
+        // 4. Per publication_target queries for student's classrooms/disciplines
+        for (const target of targetsArr.slice(0, 8)) {
+            const encTarget = encodeURIComponent(target);
+            urlsToFetch.push(`/tms/task/todo?limit=100&offset=0&with_answer=true&publication_target=${encTarget}${essayFilter}`);
+            urlsToFetch.push(`/tms/task/todo?limit=100&offset=0&with_answer=true&filter_expired=true&publication_target=${encTarget}&with_apply_moment=true${essayFilter}`);
+        }
+
+        // Execute queries in parallel with error tolerance
+        await Promise.all(
+            urlsToFetch.map(async (url) => {
+                try {
+                    const data = await callOfficialApi(url, 'GET', token, undefined, customTunnel);
+                    if (data) addItems(data);
+                } catch (e: any) {}
+            })
+        );
 
         return allTasks;
     }
@@ -2302,8 +2321,9 @@ function extractUserNickFromToken(token: string): string {
         const fullUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
         const isEssayParam = fullUrl.searchParams.get('is_essay');
         const publicationTargetsFromQuery = fullUrl.searchParams.getAll('publication_target').filter(t => t && t.trim());
+        const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
 
-        const tasks = await fetchTodoTasks(token, isEssayParam, publicationTargetsFromQuery, customTunnel);
+        const tasks = await fetchTodoTasks(token, isEssayParam, publicationTargetsFromQuery, customTunnel, queryString);
         setCachedApiResponse(cacheKey, tasks);
         res.json(tasks);
     });

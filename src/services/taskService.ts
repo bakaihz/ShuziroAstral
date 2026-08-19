@@ -36,16 +36,19 @@ export class TaskService {
     const {
       token,
       publicationTargets = [],
-      isEssay = false,
-      filterExpired = true
+      isEssay,
+      filterExpired = true,
+      answerStatuses
     } = options;
 
     const params = new URLSearchParams();
     if (isEssay !== undefined) params.append('is_essay', String(isEssay));
     if (filterExpired !== undefined) params.append('filter_expired', String(filterExpired));
     params.append('with_answer', 'true');
-    params.append('answer_statuses', 'draft');
-    params.append('answer_statuses', 'pending');
+    
+    if (Array.isArray(answerStatuses) && answerStatuses.length > 0) {
+      answerStatuses.forEach(st => params.append('answer_statuses', st));
+    }
 
     publicationTargets.forEach(t => {
       if (t && t.trim()) params.append('publication_target', t.trim());
@@ -71,11 +74,11 @@ export class TaskService {
         pending: count,
         draft: 0,
         expired: 0,
-        isEssay
+        isEssay: Boolean(isEssay)
       };
     } catch (e: any) {
       console.warn('[TaskService] getTaskCount fallback:', e.message);
-      return { total: 0, pending: 0, draft: 0, expired: 0, isEssay };
+      return { total: 0, pending: 0, draft: 0, expired: 0, isEssay: Boolean(isEssay) };
     }
   }
 
@@ -88,8 +91,8 @@ export class TaskService {
 
     const params = new URLSearchParams();
     params.append('category_parent_id', '19');
-    params.append('is_essay', String(isEssay));
-    params.append('is_exam', String(isExam));
+    if (isEssay !== undefined) params.append('is_essay', String(isEssay));
+    if (isExam !== undefined) params.append('is_exam', String(isExam));
 
     publicationTargets.forEach(t => {
       if (t && t.trim()) params.append('publication_target', t.trim());
@@ -114,16 +117,17 @@ export class TaskService {
 
   /**
    * 3. GET /tms/task/todo
-   * Single page query with limit and offset.
+   * Single page query with dynamic filters, limit and offset.
    */
   public async getTasksBatch(options: TaskQueryOptions = {}): Promise<any[]> {
     const {
       token,
       publicationTargets = [],
-      isEssay = false,
+      isEssay,
       isExam = false,
       filterExpired = true,
       expiredOnly = false,
+      answerStatuses,
       limit = 100,
       offset = 0,
       nocache = false
@@ -135,10 +139,13 @@ export class TaskService {
     params.append('filter_expired', String(filterExpired));
     params.append('expired_only', String(expiredOnly));
     params.append('is_exam', String(isExam));
-    params.append('is_essay', String(isEssay));
+    if (isEssay !== undefined) params.append('is_essay', String(isEssay));
     params.append('with_answer', 'true');
     params.append('with_apply_moment', 'true');
-    params.append('answer_statuses', 'draft');
+    
+    if (Array.isArray(answerStatuses) && answerStatuses.length > 0) {
+      answerStatuses.forEach(st => params.append('answer_statuses', st));
+    }
 
     if (nocache) params.append('nocache', 'true');
 
@@ -158,7 +165,7 @@ export class TaskService {
     }
 
     const data = await res.json();
-    return Array.isArray(data) ? data : (data?.tasks || data?.items || data?.data || []);
+    return Array.isArray(data) ? data : (data?.tasks || data?.items || data?.data || data?.results || []);
   }
 
   /**
