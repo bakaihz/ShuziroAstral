@@ -1,9 +1,10 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
-// Limpeza de segurança e remoção de redirecionamentos de túneis privados (Termux/SSH/IP)
+// Limpeza de segurança de armazenamento local antigo
 if (typeof window !== 'undefined') {
   try {
     localStorage.removeItem('shuziro_termux_tunnel');
@@ -21,40 +22,13 @@ if (typeof window !== 'undefined') {
   } catch (e) {}
 }
 
-const originalFetch = window.fetch;
-const interceptorFetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  return originalFetch(input, init);
-};
-
-try {
-  Object.defineProperty(window, 'fetch', {
-    value: interceptorFetch,
-    writable: true,
-    configurable: true,
-    enumerable: true
-  });
-} catch (e) {
-  console.warn("Failed to redefine window.fetch with Object.defineProperty:", e);
-  try {
-    // Tenta sobrescrever no protótipo de Window se a instância do window estiver bloqueada
-    const proto = Object.getPrototypeOf(window);
-    if (proto && 'fetch' in proto) {
-      Object.defineProperty(proto, 'fetch', {
-        value: interceptorFetch,
-        writable: true,
-        configurable: true,
-        enumerable: true
-      });
-    } else {
-      (window as any).fetch = interceptorFetch;
-    }
-  } catch (err) {
-    console.error("Critical: Could not intercept fetch on window or prototype.", err);
-  }
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
 }
-
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
