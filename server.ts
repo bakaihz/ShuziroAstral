@@ -2188,23 +2188,12 @@ function extractUserNickFromToken(token: string): string {
         res.json({ rooms: [], items: [], blocked: false, message: lastErrMessage || "Nenhuma sala encontrada." });
     });
 
-    app.get("/api/tms/task/todo", async (req, res) => {
-        const token = (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string) || (req.headers['x-access-token'] as string);
-        if (!token) return res.status(401).json({ error: "Token ausente" });
-
-        const cacheKey = `todo:${token.slice(-16)}:${req.url}`;
-        if (req.query.nocache !== 'true') {
-            const cached = getCachedApiResponse(cacheKey);
-            if (cached) return res.json(cached);
-        }
-
-        const customTunnel = getCustomTunnel(req);
-
-        // Extrai parâmetros de consulta
-        const fullUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-        const isEssayParam = fullUrl.searchParams.get('is_essay');
-        const publicationTargetsFromQuery = fullUrl.searchParams.getAll('publication_target').filter(t => t && t.trim());
-
+    async function fetchTodoTasks(
+        token: string,
+        isEssayParam: string | null,
+        publicationTargetsFromQuery: string[] = [],
+        customTunnel?: any
+    ): Promise<any[]> {
         const allTasks: any[] = [];
         const seenIds = new Set<string>();
 
@@ -2240,8 +2229,6 @@ function extractUserNickFromToken(token: string): string {
         };
 
         const essayFilter = isEssayParam !== null ? `&is_essay=${isEssayParam}` : '';
-
-        // Coleta todos os alvos de publicação do aluno para evitar o erro HTTP 400 (publication_target is required)
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
 
         try {
@@ -2298,8 +2285,27 @@ function extractUserNickFromToken(token: string): string {
             } catch (e: any) {}
         }
 
-        setCachedApiResponse(cacheKey, allTasks);
-        res.json(allTasks);
+        return allTasks;
+    }
+
+    app.get(["/api/tms/task/todo", "/tms/task/todo"], async (req, res) => {
+        const token = (req.headers['x-api-key'] as string) || (req.headers['authorization'] as string) || (req.headers['x-access-token'] as string);
+        if (!token) return res.status(401).json({ error: "Token ausente" });
+
+        const cacheKey = `todo:${token.slice(-16)}:${req.url}`;
+        if (req.query.nocache !== 'true') {
+            const cached = getCachedApiResponse(cacheKey);
+            if (cached) return res.json(cached);
+        }
+
+        const customTunnel = getCustomTunnel(req);
+        const fullUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const isEssayParam = fullUrl.searchParams.get('is_essay');
+        const publicationTargetsFromQuery = fullUrl.searchParams.getAll('publication_target').filter(t => t && t.trim());
+
+        const tasks = await fetchTodoTasks(token, isEssayParam, publicationTargetsFromQuery, customTunnel);
+        setCachedApiResponse(cacheKey, tasks);
+        res.json(tasks);
     });
 
 async function getAllUserRoomSlugs(token: string, customTunnel?: string | { tunnel?: string; userAgent?: string; cookies?: string }): Promise<string[]> {
@@ -8415,33 +8421,16 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
         const token = (req.headers['x-api-key'] || req.headers['authorization']) as string || '';
         const customTunnel = getCustomTunnel(req);
 
-        // Se rota for tms/task/todo, anexa automaticamente os alvos do aluno para evitar retorno de array vazio []
-        if (targetPath.startsWith('tms/task/todo')) {
-            let fullPath = `/${targetPath}${queryString}`;
-            if (!queryString.includes('publication_target=')) {
-                try {
-                    const userRoomSlugs = await getAllUserRoomSlugs(token, customTunnel);
-                    if (userRoomSlugs.length > 0) {
-                        const multiTarget = userRoomSlugs.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
-                        const sep = queryString ? '&' : '?';
-                        fullPath = `/${targetPath}${queryString}${sep}${multiTarget}`;
-                    }
-                } catch (e: any) {}
-            }
-
+        // Se rota for tms/task/todo, usa o agregador completo com todos os filtros e salas do aluno
+        if (targetPath.startsWith('tms/task/todo') && req.method === 'GET') {
             try {
-                const data = await callOfficialApiDeduplicated(fullPath, req.method, token, req.body, customTunnel);
-                if (Array.isArray(data) && data.length > 0) {
-                    return res.json(data);
-                }
-                // Se a busca com publication_target retornou [], tenta buscar com o caminho original da requisição
-                if (fullPath !== `/${targetPath}${queryString}`) {
-                    const rawData = await callOfficialApiDeduplicated(`/${targetPath}${queryString}`, req.method, token, req.body, customTunnel);
-                    return res.json(rawData);
-                }
-                return res.json(data);
+                const fullUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+                const isEssayParam = fullUrl.searchParams.get('is_essay');
+                const publicationTargetsFromQuery = fullUrl.searchParams.getAll('publication_target').filter(t => t && t.trim());
+                const tasks = await fetchTodoTasks(token, isEssayParam, publicationTargetsFromQuery, customTunnel);
+                return res.json(tasks);
             } catch (e: any) {
-                // Se falhar com os alvos do aluno, segue para a chamada padrão abaixo
+                console.warn('[ProxyEduSP] Erro ao buscar tarefas todo via agregador:', e.message);
             }
         }
 
