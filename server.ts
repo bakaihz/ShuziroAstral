@@ -1400,7 +1400,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                 domain.includes('ngrok') ||
                 domain.includes('edusp-api.ip.tv');
 
-            const timeoutMs = isTunnelOrWorker ? 2500 : 1000;
+            const timeoutMs = isTunnelOrWorker ? 6000 : 3500;
             const httpMethod = String(method || 'GET').toUpperCase();
             const isGetOrHead = httpMethod === 'GET' || httpMethod === 'HEAD';
             const options: any = { method: httpMethod, headers, signal: AbortSignal.timeout(timeoutMs) };
@@ -1421,8 +1421,8 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                         method,
                         headers,
                         body,
-                        timeoutMs: isTunnelOrWorker ? 3500 : 5000,
-                        maxRetries: 2
+                        timeoutMs: timeoutMs,
+                        maxRetries: 1
                     });
 
                     responseStatus = gotRes.status;
@@ -1878,101 +1878,38 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
             }
         }
 
+        // Tenta chamada direta ultra-rápida via Got-Scraping sem simular JSDOM pesado
         try {
-            const cookieJar = new CookieJar();
-            const agentLocal = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 });
-
-            if (clientCookies) {
-                const parts = clientCookies.split(';');
-                for (const p of parts) {
-                    if (p.trim()) {
-                        try {
-                            await cookieJar.setCookie(p.trim(), "https://saladofuturo.educacao.sp.gov.br/");
-                        } catch (e) {
-                            // ignore invalid cookies
-                        }
-                    }
-                }
-            }
-
-            const fetchWithCookies = async (url: string, options: any = {}) => {
-                const cookieString = await cookieJar.getCookieString(url);
-                const res = await undiciFetch(url, {
-                    ...options,
-                    headers: { ...(options.headers || {}), cookie: cookieString },
-                    dispatcher: agentLocal
-                });
-                const setCookies = (res.headers as any).getSetCookie ? (res.headers as any).getSetCookie() : [];
-                for (const cook of setCookies) await cookieJar.setCookie(cook, url);
-                return res;
+            const headers: Record<string, string> = {
+                "accept": "application/json",
+                "content-type": "application/json",
+                "x-api-platform": "webclient",
+                "x-api-realm": "edusp",
+                "referer": "https://saladofuturo.educacao.sp.gov.br/",
+                "origin": "https://saladofuturo.educacao.sp.gov.br"
             };
-
-            const response = await undiciFetch("https://saladofuturo.educacao.sp.gov.br/login", {
-                method: 'GET',
-                headers: {
-                    "user-agent": clientUA,
-                    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
-                    "accept-language": "pt-BR,pt;q=0.9",
-                    "upgrade-insecure-requests": "1"
-                },
-                dispatcher: agentLocal
-            });
-            const body = await response.text();
-            const dom = new JSDOM(body, { url: "https://saladofuturo.educacao.sp.gov.br/", runScripts: "outside-only", pretendToBeVisual: true });
-            const { window } = dom;
-            (window as any).fetch = fetchWithCookies;
-
-            const vsfApi = await (window as any).fetch(`${EDUSP_API}/registration/edusp/token`, {
+            if (clientCookies) headers["cookie"] = clientCookies;
+            const gotRes = await fetchWithGotScraping(`${EDUSP_API}/registration/edusp/token`, {
                 method: "POST",
-                headers: {
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                    "x-api-platform": "webclient",
-                    "x-api-realm": "edusp",
-                    "user-agent": clientUA,
-                    "referer": "https://saladofuturo.educacao.sp.gov.br/",
-                    "origin": "https://saladofuturo.educacao.sp.gov.br"
-                },
-                body: JSON.stringify({ token: sedToken })
+                headers,
+                body: { token: sedToken },
+                timeoutMs: 2500,
+                maxRetries: 1
             });
-            const data: any = await vsfApi.json();
-            const eduspToken = data?.auth_token || data?.token || data?.access_token;
-            if (eduspToken) return { auth_token: eduspToken, nick: data.nick || "Aluno SP" };
-            throw new Error(data?.message || 'Falha ao obter auth_token da EduSP');
-        } catch (err: any) {
-            console.warn(`[Token JSDOM] erro: ${err.message}, tentando chamada direta...`);
-            try {
-                const headers: Record<string, string> = {
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                    "x-api-platform": "webclient",
-                    "x-api-realm": "edusp",
-                    "referer": "https://saladofuturo.educacao.sp.gov.br/",
-                    "origin": "https://saladofuturo.educacao.sp.gov.br"
-                };
-                if (clientCookies) headers["cookie"] = clientCookies;
-                const gotRes = await fetchWithGotScraping(`${EDUSP_API}/registration/edusp/token`, {
-                    method: "POST",
-                    headers,
-                    body: { token: sedToken },
-                    timeoutMs: 5000,
-                    maxRetries: 2
-                });
-                if (gotRes.ok) {
-                    const data: any = JSON.parse(gotRes.text);
-                    const eduspToken = data?.auth_token || data?.token || data?.access_token;
-                    if (eduspToken) return { auth_token: eduspToken, nick: data.nick || "Aluno SP" };
-                }
-            } catch (directErr: any) {
-                console.warn(`[Token Chamada Direta] erro: ${directErr.message}`);
+            if (gotRes.ok) {
+                const data: any = JSON.parse(gotRes.text);
+                const eduspToken = data?.auth_token || data?.token || data?.access_token;
+                if (eduspToken) return { auth_token: eduspToken, nick: data.nick || "Aluno SP" };
             }
-
-            console.warn(`[Login] EduSP API inacessível ou protegida por Cloudflare. Utilizando token SED como fallback.`);
-            return {
-                auth_token: sedToken,
-                nick: "Aluno SP"
-            };
+        } catch (directErr: any) {
+            console.warn(`[Token Chamada Direta] erro: ${directErr.message}`);
         }
+
+        console.log(`[Login] Retornando token SED instantâneo para login sem travamento.`);
+        return {
+            auth_token: sedToken,
+            nick: "Aluno SP"
+        };
     }
 
     // ======================= ROTAS DA API =======================
