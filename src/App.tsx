@@ -89,7 +89,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Global backend / tunnel ping states
-  const DEFAULT_BACKEND_URL = 'http://154.29.76.165:3000';
+  const DEFAULT_BACKEND_URL = 'https://proxy.shuziroastral.lol';
   
   const [tunnelUrl, setTunnelUrl] = useState(() => {
     const saved = typeof window !== 'undefined' ? (localStorage.getItem('shuziro_backend_url') || localStorage.getItem('shuziro_termux_tunnel')) : null;

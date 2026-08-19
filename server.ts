@@ -58,9 +58,8 @@ let activeBrowserSession = {
 };
 
 const PROXY_TUNNELS = [
-    "https://edusp-api.ip.tv",
     "https://proxy.shuziroastral.lol",
-    "http://154.29.76.165:3000"
+    "https://edusp-api.ip.tv"
 ];
 
 // Cache em memória de respostas rápidas de GET (60 segundos para sucesso, 10 segundos para respostas vazias)
