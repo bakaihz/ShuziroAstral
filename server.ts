@@ -2341,31 +2341,30 @@ function extractUserNickFromToken(token: string): string {
         } catch (e: any) {}
 
         const targetsArr = Array.from(targetsToTry);
-        const queriesToRun: string[] = [];
+        const multiTargetQueryStr = targetsArr.length > 0
+            ? targetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&')
+            : '';
 
-        if (targetsArr.length > 0) {
-            // Consulta agregando múltiplos targets em lote
-            const multiTargetQueryStr = targetsArr.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
-            queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&with_apply_moment=true`);
-            queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=false&is_exam=false&with_answer=true${essayFilter}&${multiTargetQueryStr}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`);
-            queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&${multiTargetQueryStr}`);
+        // Exatamente 2 requisições paralelas cobrindo TODOS os publication_targets
+        const req1Url = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=false&is_exam=false&with_answer=true${essayFilter}${multiTargetQueryStr ? '&' + multiTargetQueryStr : ''}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`;
+        const req2Url = `/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}${multiTargetQueryStr ? '&' + multiTargetQueryStr : ''}&answer_statuses=draft&with_apply_moment=true`;
 
-            // Consulta individualizada por target para garantir cobertura total
-            for (const target of targetsArr) {
-                const encT = encodeURIComponent(target);
-                queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=true&is_exam=false&with_answer=true${essayFilter}&publication_target=${encT}&answer_statuses=draft&with_apply_moment=true`);
-                queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0&filter_expired=false&is_exam=false&with_answer=true${essayFilter}&publication_target=${encT}&answer_statuses=draft&answer_statuses=pending&with_apply_moment=true`);
-                queriesToRun.push(`/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}&publication_target=${encT}`);
-            }
-        }
+        try {
+            const [data1, data2] = await Promise.all([
+                callOfficialApi(req1Url, 'GET', token, undefined, customTunnel).catch(() => null),
+                callOfficialApi(req2Url, 'GET', token, undefined, customTunnel).catch(() => null)
+            ]);
+            if (data1) addItems(data1);
+            if (data2) addItems(data2);
+        } catch (e: any) {}
 
-        if (queriesToRun.length > 0) {
-            await Promise.all(queriesToRun.map(async (qUrl) => {
-                try {
-                    const data = await callOfficialApi(qUrl, 'GET', token, undefined, customTunnel);
-                    addItems(data);
-                } catch (e: any) {}
-            }));
+        // Fallback rápido se não houver tarefas encontradas
+        if (allTasks.length === 0) {
+            try {
+                const fbUrl = `/tms/task/todo?expired_only=false&limit=100&offset=0${essayFilter}`;
+                const fbData = await callOfficialApi(fbUrl, 'GET', token, undefined, customTunnel);
+                addItems(fbData);
+            } catch (e: any) {}
         }
 
         setCachedApiResponse(cacheKey, allTasks);
