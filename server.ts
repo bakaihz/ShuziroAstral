@@ -58,9 +58,9 @@ let activeBrowserSession = {
 };
 
 const PROXY_TUNNELS = [
-    "http://154.29.76.165:3000",
+    "https://edusp-api.ip.tv",
     "https://proxy.shuziroastral.lol",
-    "https://edusp-api.ip.tv"
+    "http://154.29.76.165:3000"
 ];
 
 // Cache em memória de respostas rápidas de GET (60 segundos para sucesso, 10 segundos para respostas vazias)
@@ -2307,14 +2307,12 @@ function extractUserNickFromToken(token: string): string {
 
         // Coleta todos os alvos de publicação do aluno para evitar o erro HTTP 400 (publication_target is required)
         const targetsToTry = new Set<string>(publicationTargetsFromQuery);
-        const userNick = extractNickFromToken(token);
 
         try {
             const userRoomSlugs = await getAllUserRoomSlugs(token, customTunnel);
             userRoomSlugs.forEach(s => {
-                targetsToTry.add(s);
-                if (userNick && s.startsWith('r') && s.endsWith('-l')) {
-                    targetsToTry.add(`${s}:${userNick}`);
+                if (s && !s.includes(' ')) {
+                    targetsToTry.add(s);
                 }
             });
             
@@ -2323,17 +2321,14 @@ function extractUserNickFromToken(token: string): string {
             for (const r of rooms) {
                 const inner = (typeof r.room === 'object' && r.room) ? r.room : {};
                 const candidates = [
-                    r.publication_target, r.slug, r.id, r.room_id, r.name, r.room_name,
-                    inner.publication_target, inner.slug, inner.id, inner.room_id, inner.name, inner.room_name
+                    r.name, r.slug, r.publication_target, r.id, r.room_id,
+                    inner.name, inner.slug, inner.publication_target, inner.id, inner.room_id
                 ];
                 for (const c of candidates) {
                     if (c !== undefined && c !== null) {
                         const str = String(c).trim();
-                        if (str && str !== 'undefined' && str !== 'null') {
+                        if (str && str !== 'undefined' && str !== 'null' && !str.includes(' ')) {
                             targetsToTry.add(str);
-                            if (userNick && str.startsWith('r') && str.endsWith('-l')) {
-                                targetsToTry.add(`${str}:${userNick}`);
-                            }
                         }
                     }
                 }
@@ -2386,8 +2381,8 @@ async function getAllUserRoomSlugs(token: string, customTunnel?: string | { tunn
         for (const room of rooms) {
             const inner = (typeof room.room === 'object' && room.room) ? room.room : {};
             const candidates = [
-                room.publication_target, room.slug, room.id, room.room_id,
-                inner.publication_target, inner.slug, inner.id, inner.room_id
+                room.name, room.publication_target, room.slug, room.id, room.room_id,
+                inner.name, inner.publication_target, inner.slug, inner.id, inner.room_id
             ];
             for (const c of candidates) {
                 if (c !== undefined && c !== null) {
@@ -2399,7 +2394,7 @@ async function getAllUserRoomSlugs(token: string, customTunnel?: string | { tunn
             }
             if (Array.isArray(room.cards)) {
                 for (const card of room.cards) {
-                    const cardCandidates = [card.publication_target, card.slug, card.id];
+                    const cardCandidates = [card.name, card.publication_target, card.slug, card.id];
                     for (const cc of cardCandidates) {
                         if (cc !== undefined && cc !== null) {
                             const str = String(cc).trim();
