@@ -91,7 +91,7 @@ async function fetchWithGotScraping(targetUrl: string, options: { method?: strin
         targetUrl.includes('ngrok') ||
         targetUrl.includes('workers.dev');
 
-    const defaultTimeout = isLocalOrCloudflareTunnel ? 6000 : 3500;
+    const defaultTimeout = isLocalOrCloudflareTunnel ? 4000 : 2500;
     const { method = 'GET', headers = {}, body, timeoutMs = defaultTimeout, maxRetries = 0, forceHttp1 = false } = options;
 
     const cleanHeaders: Record<string, string> = {};
@@ -1350,7 +1350,7 @@ Responda ESTRITAMENTE em JSON no seguinte formato:
                 'sec-fetch-site': 'cross-site'
             };
 
-            if (domain.includes('proxy') || domain.includes('shuziroastral.lol')) {
+            if (!domain.includes('edusp-api.ip.tv')) {
                 headers['x-target-url'] = `https://edusp-api.ip.tv${cleanPath}`;
                 headers['x-proxy-url'] = `https://edusp-api.ip.tv${cleanPath}`;
             }
@@ -2387,24 +2387,24 @@ async function getAllUserRoomSlugs(token: string, customTunnel?: string | { tunn
         for (const room of rooms) {
             const inner = (typeof room.room === 'object' && room.room) ? room.room : {};
             const candidates = [
-                room.publication_target, room.slug, room.name, room.room_name, room.id, room.room_id,
-                inner.publication_target, inner.slug, inner.name, inner.room_name, inner.id, inner.room_id
+                room.publication_target, room.slug, room.id, room.room_id,
+                inner.publication_target, inner.slug, inner.id, inner.room_id
             ];
             for (const c of candidates) {
                 if (c !== undefined && c !== null) {
                     const str = String(c).trim();
-                    if (str && str !== 'undefined' && str !== 'null' && str.length > 1) {
+                    if (str && str !== 'undefined' && str !== 'null' && str.length > 1 && !str.includes(' ')) {
                         slugs.add(str);
                     }
                 }
             }
             if (Array.isArray(room.cards)) {
                 for (const card of room.cards) {
-                    const cardCandidates = [card.publication_target, card.slug, card.id, card.room_name, card.name];
+                    const cardCandidates = [card.publication_target, card.slug, card.id];
                     for (const cc of cardCandidates) {
                         if (cc !== undefined && cc !== null) {
                             const str = String(cc).trim();
-                            if (str && str !== 'undefined' && str !== 'null' && str.length > 1) {
+                            if (str && str !== 'undefined' && str !== 'null' && str.length > 1 && !str.includes(' ')) {
                                 slugs.add(str);
                             }
                         }
@@ -8485,18 +8485,34 @@ Calcule os valores exatos de resposta e retorne estritamente um JSON no seguinte
         const token = (req.headers['x-api-key'] || req.headers['authorization']) as string || '';
         const customTunnel = getCustomTunnel(req);
 
-        // Se rota for tms/task/todo e não tiver publication_target, anexa automaticamente os alvos do aluno
-        if (targetPath.startsWith('tms/task/todo') && !queryString.includes('publication_target=')) {
+        // Se rota for tms/task/todo, anexa automaticamente os alvos do aluno para evitar retorno de array vazio []
+        if (targetPath.startsWith('tms/task/todo')) {
+            let fullPath = `/${targetPath}${queryString}`;
+            if (!queryString.includes('publication_target=')) {
+                try {
+                    const userRoomSlugs = await getAllUserRoomSlugs(token, customTunnel);
+                    if (userRoomSlugs.length > 0) {
+                        const multiTarget = userRoomSlugs.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
+                        const sep = queryString ? '&' : '?';
+                        fullPath = `/${targetPath}${queryString}${sep}${multiTarget}`;
+                    }
+                } catch (e: any) {}
+            }
+
             try {
-                const userRoomSlugs = await getAllUserRoomSlugs(token, customTunnel);
-                if (userRoomSlugs.length > 0) {
-                    const multiTarget = userRoomSlugs.map(t => `publication_target=${encodeURIComponent(t)}`).join('&');
-                    const sep = queryString ? '&' : '?';
-                    const patchedPath = `/${targetPath}${queryString}${sep}${multiTarget}`;
-                    const data = await callOfficialApiDeduplicated(patchedPath, req.method, token, req.body, customTunnel);
+                const data = await callOfficialApiDeduplicated(fullPath, req.method, token, req.body, customTunnel);
+                if (Array.isArray(data) && data.length > 0) {
                     return res.json(data);
                 }
-            } catch (e: any) {}
+                // Se a busca com publication_target retornou [], tenta buscar com o caminho original da requisição
+                if (fullPath !== `/${targetPath}${queryString}`) {
+                    const rawData = await callOfficialApiDeduplicated(`/${targetPath}${queryString}`, req.method, token, req.body, customTunnel);
+                    return res.json(rawData);
+                }
+                return res.json(data);
+            } catch (e: any) {
+                // Se falhar com os alvos do aluno, segue para a chamada padrão abaixo
+            }
         }
 
         const fullPath = `/${targetPath}${queryString}`;

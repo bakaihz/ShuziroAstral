@@ -344,8 +344,8 @@ export default function App() {
     // Initial check
     pollBatch();
 
-    // Controlled interval (8s) to avoid network flooding on slow connections
-    const interval = setInterval(pollBatch, 8000);
+    // Fast interval (2.5s) for instant real-time progress updates
+    const interval = setInterval(pollBatch, 2500);
 
     return () => {
       isSubscribed = false;
